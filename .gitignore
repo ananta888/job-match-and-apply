@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.angular/
+.local-data/
+.application-work/
+*.log
+.env
+.env.*
+!.env.example

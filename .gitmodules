@@ -1,0 +1,6 @@
+[submodule "integrations/job-search-mcp"]
+	path = integrations/job-search-mcp
+	url = https://github.com/ananta888/job-search-mcp.git
+[submodule "integrations/bewerbungs-schreib-assistent"]
+	path = integrations/bewerbungs-schreib-assistent
+	url = https://github.com/ananta888/bewerbungs-schreib-assistent.git

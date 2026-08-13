@@ -1,0 +1,14 @@
+{
+  "name": "job-match-and-apply",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently -n api,web -c cyan,magenta \"npm --prefix server run dev\" \"npm --prefix web start\"",
+    "build": "npm --prefix server run build && npm --prefix web run build",
+    "test": "npm --prefix server test && npm --prefix web test -- --watch=false",
+    "setup:integrations": "powershell -ExecutionPolicy Bypass -File scripts/setup-integrations.ps1"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}

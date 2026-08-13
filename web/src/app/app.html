@@ -1,0 +1,171 @@
+<div class="shell">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">JM</div>
+      <div><strong>JobMatch</strong><span>& Apply</span></div>
+    </div>
+    <nav aria-label="Hauptnavigation">
+      @for (item of nav; track item.id) {
+        <button type="button" [class.active]="section === item.id" (click)="select(item.id)">
+          <span class="nav-icon" [attr.data-icon]="item.icon"></span>{{ item.label }}
+        </button>
+      }
+    </nav>
+    <div class="privacy-card">
+      <span class="shield">◇</span>
+      <div><strong>Lokal & privat</strong><p>Profile, Sitzungen und Entwürfe bleiben auf diesem Gerät.</p></div>
+    </div>
+    <div class="sidebar-footer">
+      <span class="avatar">{{ activeIdentity()?.fullName?.slice(0, 2) || 'AB' }}</span>
+      <div><strong>{{ activeIdentity()?.fullName || 'Profil laden' }}</strong><span>{{ activeIdentity()?.mode === 'incognito' ? 'Inkognito aktiv' : 'Reales Profil' }}</span></div>
+      <span class="dot online"></span>
+    </div>
+  </aside>
+
+  <main>
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Arbeitsbereich</p>
+        <h1>{{ section === 'overview' ? 'Guten Tag' : section === 'search' ? 'Jobsuche' : section === 'identity' ? 'Profil & Identität' : section === 'sources' ? 'Quellen & MCP' : 'Bewerbungswerkstatt' }}</h1>
+      </div>
+      <div class="top-actions">
+        <span class="mode-pill"><i></i>{{ config?.mcp?.mode === 'stdio' ? 'MCP verbunden' : 'Sicherer Demo-Modus' }}</span>
+        <button class="icon-button" type="button" aria-label="Quellen aktualisieren" (click)="refreshSources()">↻</button>
+        <button class="primary compact" type="button" (click)="saveConfig()" [disabled]="busy || !config">Speichern</button>
+      </div>
+    </header>
+
+    @if (notice) { <div class="toast success">{{ notice }}</div> }
+    @if (error) { <div class="toast error">{{ error }}</div> }
+
+    @if (loading || !config) {
+      <section class="loading"><span></span><p>Lokalen Arbeitsbereich laden …</p></section>
+    } @else {
+      @if (section === 'overview') {
+        <section class="hero">
+          <div>
+            <span class="kicker">DEIN JOB-AGENT</span>
+            <h2>Finden. Prüfen.<br><em>Gezielt bewerben.</em></h2>
+            <p>Mehrere Jobquellen, nachvollziehbares Matching und faktenbasierte Bewerbungsentwürfe in einem privaten Arbeitsbereich.</p>
+            <div class="hero-actions">
+              <button class="primary" type="button" (click)="runSearch()" [disabled]="busy">{{ busy ? 'Suche läuft …' : 'Jobs jetzt suchen' }} <span>→</span></button>
+              <button class="secondary" type="button" (click)="select('identity')">Suchprofil anpassen</button>
+            </div>
+          </div>
+          <div class="match-orbit" aria-hidden="true">
+            <div class="orbit orbit-a"></div><div class="orbit orbit-b"></div>
+            <div class="score-core"><strong>92</strong><span>Match</span></div>
+            <span class="float-chip chip-a">TypeScript <b>✓</b></span>
+            <span class="float-chip chip-b">Remote <b>✓</b></span>
+            <span class="float-chip chip-c">Berlin <b>✓</b></span>
+          </div>
+        </section>
+
+        <section class="stats-grid">
+          <article><span class="stat-icon purple">⌕</span><div><small>Gefundene Jobs</small><strong>{{ matches.length || '—' }}</strong><p>letzter Suchlauf</p></div></article>
+          <article><span class="stat-icon green">✓</span><div><small>Gute Matches</small><strong>{{ acceptedCount() || '—' }}</strong><p>Muss-Kriterien erfüllt</p></div></article>
+          <article><span class="stat-icon amber">◇</span><div><small>Aktive Quellen</small><strong>{{ sources.length }}</strong><p>MCP & Profile</p></div></article>
+          <article><span class="stat-icon blue">◎</span><div><small>Identität</small><strong class="stat-text">{{ activeIdentity()?.mode === 'incognito' ? 'Inkognito' : 'Real' }}</strong><p>{{ activeIdentity()?.fullName }}</p></div></article>
+        </section>
+
+        <section class="two-column">
+          <article class="panel profile-summary">
+            <div class="panel-head"><div><span class="kicker">SUCHPROFIL</span><h3>{{ config.searchProfile.name }}</h3></div><button class="text-button" (click)="select('identity')">Bearbeiten →</button></div>
+            <div class="summary-row"><span>⌖</span><div><small>Regionen</small><p>{{ config.searchProfile.regions.join(' · ') }}</p></div></div>
+            <div class="summary-row"><span>⌂</span><div><small>Arbeitsmodell</small><p>{{ config.searchProfile.workModels.join(' · ') }}</p></div></div>
+            <div class="summary-row"><span>★</span><div><small>Muss enthalten</small><p class="tag-line">@for (tag of config.searchProfile.mustHave; track tag) { <b>{{ tag }}</b> }</p></div></div>
+            <div class="summary-row danger"><span>×</span><div><small>Ausschließen</small><p>{{ config.searchProfile.exclude.join(' · ') || 'Keine Ausschlüsse' }}</p></div></div>
+          </article>
+          <article class="panel source-summary">
+            <div class="panel-head"><div><span class="kicker">SYSTEMSTATUS</span><h3>Quellen & Assistent</h3></div><button class="text-button" (click)="select('sources')">Verwalten →</button></div>
+            @for (source of sources.slice(0, 4); track source.id) {
+              <div class="source-row"><span class="source-logo">{{ source.name.slice(0, 2) }}</span><div><strong>{{ source.name }}</strong><small>{{ source.kind === 'demo' ? 'Demo-Adapter' : source.kind }}</small></div><span class="status" [class.ok]="source.connected">{{ source.connected ? 'Bereit' : 'Konfigurieren' }}</span></div>
+            }
+            <div class="source-row"><span class="source-logo assistant-logo">AI</span><div><strong>Bewerbungsassistent</strong><small>{{ assistant.note }}</small></div><span class="status" [class.ok]="assistant.available">{{ assistant.available ? 'Bereit' : 'Setup' }}</span></div>
+          </article>
+        </section>
+      }
+
+      @if (section === 'search') {
+        <section class="page-grid search-layout">
+          <article class="panel filters">
+            <div class="panel-head"><div><span class="kicker">FILTER</span><h3>Wonach suchst du?</h3></div></div>
+            <label>Suchbegriff<input [(ngModel)]="config.searchProfile.query" placeholder="z. B. Angular Developer"></label>
+            <label>Regionen <span>kommagetrennt</span><input [ngModel]="list('regions')" (ngModelChange)="updateList('regions', $event)"></label>
+            <div class="field-pair"><label>Umkreis<input type="number" [(ngModel)]="config.searchProfile.radiusKm"><small>km</small></label><label>Mindestgehalt<input type="number" [(ngModel)]="config.searchProfile.minSalary"><small>€</small></label></div>
+            <label>Muss enthalten<input [ngModel]="list('mustHave')" (ngModelChange)="updateList('mustHave', $event)"></label>
+            <label>Wünschenswert<input [ngModel]="list('niceToHave')" (ngModelChange)="updateList('niceToHave', $event)"></label>
+            <label>Ausschließen<input class="danger-input" [ngModel]="list('exclude')" (ngModelChange)="updateList('exclude', $event)"></label>
+            <div class="check-grid">
+              @for (source of sources; track source.id) { <label class="check"><input type="checkbox" [checked]="sourceSelected(source.id)" (change)="toggleSource(source.id, $any($event.target).checked)"><span>{{ source.name }}</span></label> }
+            </div>
+            <button class="primary wide" type="button" (click)="runSearch()" [disabled]="busy">{{ busy ? 'Quellen werden abgefragt …' : 'Suche starten' }}</button>
+          </article>
+          <section class="results">
+            <div class="results-head"><div><span class="kicker">ERGEBNISSE</span><h2>{{ matches.length ? matches.length + ' Stellen bewertet' : 'Bereit für die erste Suche' }}</h2></div><span class="legend"><i></i> Alle Regeln nachvollziehbar</span></div>
+            @if (!matches.length) {
+              <div class="empty"><span>⌕</span><h3>Noch keine Ergebnisse</h3><p>Starte links eine Suche. Im Demo-Modus funktioniert der komplette Ablauf ohne externe Zugriffe.</p></div>
+            }
+            @for (match of matches; track match.job.id) {
+              <article class="job-card" [class.selected]="selectedMatch?.job?.id === match.job.id" (click)="chooseMatch(match)">
+                <div class="score-ring" [class.good]="match.accepted"><strong>{{ match.score }}</strong><small>%</small></div>
+                <div class="job-main"><div class="job-title"><span class="source-logo">{{ match.job.sourceId.slice(0, 2) }}</span><div><h3>{{ match.job.title }}</h3><p>{{ match.job.company }} · {{ match.job.location }}</p></div></div>
+                  <p class="description">{{ match.job.description }}</p>
+                  <div class="chips">@for (skill of match.matchedMustHave; track skill) { <span class="chip match">✓ {{ skill }}</span> } @for (skill of match.matchedNiceToHave; track skill) { <span class="chip">{{ skill }}</span> } @for (gap of match.missingMustHave; track gap) { <span class="chip gap">Fehlt: {{ gap }}</span> }</div>
+                </div>
+                <div class="job-actions"><span class="status" [class.ok]="match.accepted">{{ match.accepted ? 'Passend' : 'Prüfen' }}</span><button class="secondary compact" type="button" (click)="$event.stopPropagation(); prepareApplication(match)">Bewerbung →</button></div>
+              </article>
+            }
+          </section>
+        </section>
+      }
+
+      @if (section === 'identity') {
+        <section class="page-intro"><div><span class="kicker">DATENSCHUTZ ZUERST</span><h2>Ein Profil, zwei Identitäten</h2><p>Pflege Suchpräferenzen und ersetze persönliche Daten beim Testen automatisch durch eindeutige Platzhalter.</p></div><button class="primary" (click)="createIncognito()" [disabled]="busy">+ Scheinidentität anlegen</button></section>
+        <section class="page-grid identity-layout">
+          <article class="panel identities"><h3>Identitäten</h3>
+            @for (identity of config.identities; track identity.id) {
+              <button class="identity-card" [class.active]="config.activeIdentityId === identity.id" (click)="config.activeIdentityId = identity.id">
+                <span class="avatar large">{{ identity.fullName.slice(0, 2) }}</span><div><strong>{{ identity.label }}</strong><small>{{ identity.fullName }} · {{ identity.mode }}</small></div><i></i>
+              </button>
+            }
+            <div class="info-box"><strong>Was Inkognito bedeutet</strong><p>Die Identität dient für Vorschau und Vorbefüllung. <code>example.invalid</code> verhindert versehentlichen Versand. Qualifikationen werden nie erfunden.</p></div>
+          </article>
+          @if (activeIdentity(); as identity) {
+            <article class="panel identity-form"><div class="panel-head"><div><span class="kicker">AKTIVE IDENTITÄT</span><h3>{{ identity.label }}</h3></div><span class="mode-pill"><i></i>{{ identity.mode }}</span></div>
+              <div class="form-grid"><label>Anzeigename<input [(ngModel)]="identity.label"></label><label>Vollständiger Name<input [(ngModel)]="identity.fullName"></label><label>E-Mail<input [(ngModel)]="identity.email"></label><label>Telefon<input [(ngModel)]="identity.phone"></label><label>Ort<input [(ngModel)]="identity.location"></label><label>LinkedIn / Profil-URL<input [(ngModel)]="identity.linkedin"></label></div>
+              <h4>Platzhalter-Vorschau</h4><div class="placeholder-grid">@for (entry of identity.placeholders | keyvalue; track entry.key) { <div><code>{{ entry.key }}</code><span>→</span><strong>{{ entry.value }}</strong></div> }</div>
+              <div class="form-footer"><p>Diese Daten werden nur in <code>.local-data/config.json</code> gespeichert.</p><button class="primary" (click)="saveConfig('Identität gespeichert.')">Änderungen speichern</button></div>
+            </article>
+          }
+        </section>
+      }
+
+      @if (section === 'sources') {
+        <section class="page-intro"><div><span class="kicker">ADAPTER-ARCHITEKTUR</span><h2>Quellen & MCP verwalten</h2><p>Jede Quelle läuft hinter derselben Schnittstelle. Externe Zugriffe bleiben explizit, prüfbar und standardmäßig deaktiviert.</p></div><button class="secondary" (click)="refreshSources()">↻ Status aktualisieren</button></section>
+        <section class="source-grid">
+          @for (source of sources; track source.id) {
+            <article class="panel source-card"><div class="source-card-head"><span class="source-logo big">{{ source.name.slice(0, 2) }}</span><span class="status" [class.ok]="source.connected">{{ source.connected ? 'Verbunden' : 'Nicht verbunden' }}</span></div><h3>{{ source.name }}</h3><p>{{ source.note }}</p><div class="source-meta"><span>{{ source.kind }}</span><span>{{ source.sessionAvailable ? 'Sitzung aktiv' : 'Keine Sitzung' }}</span></div>@if (source.supportsLogin) { <button class="secondary wide" (click)="login(source)" [disabled]="busy">Sichtbaren Login öffnen</button> }</article>
+          }
+          <article class="panel source-card add-card"><span>+</span><h3>Neue Quelle</h3><p>Einen weiteren Adapter für Feed, API oder erlaubten Profilimport implementieren.</p></article>
+        </section>
+        <article class="panel mcp-config"><div class="panel-head"><div><span class="kicker">JOB-SEARCH-MCP</span><h3>Lokaler MCP-Prozess</h3></div><select [(ngModel)]="config.mcp.mode"><option value="demo">Demo-Modus</option><option value="stdio">stdio-MCP</option></select></div>
+          <div class="form-grid"><label>Startkommando<input [(ngModel)]="config.mcp.command"></label><label>Argumente<input [ngModel]="config.mcp.args.join(' ')" (ngModelChange)="updateMcpArgs($event)"></label><label>Externe Portale<input [ngModel]="config.mcp.env['ALLOW_EXTERNAL_PORTALS']" (ngModelChange)="config.mcp.env['ALLOW_EXTERNAL_PORTALS'] = $event"><small>0 = gesperrt, 1 = ausdrücklich erlaubt</small></label><label>Lokales State-Verzeichnis<input [(ngModel)]="config.mcp.env['JOB_MCP_STATE_DIR']"></label></div>
+          <div class="warning-box"><strong>Wichtig</strong><p>StepStone-Login öffnet das vorhandene sichtbare Camoufox-Fenster. Captchas und 2FA werden nicht umgangen; Credentials bleiben im verschlüsselten Upstream-Speicher.</p></div>
+          <button class="primary" (click)="saveConfig('MCP-Konfiguration gespeichert.')">MCP-Konfiguration speichern</button>
+        </article>
+      }
+
+      @if (section === 'applications') {
+        <section class="page-intro"><div><span class="kicker">FAKTENBASIERT</span><h2>Bewerbungswerkstatt</h2><p>Der Assistent nutzt nur belegte Aussagen. Die Inkognito-Daten bleiben als klar erkennbare Platzhalter erhalten.</p></div><span class="status" [class.ok]="assistant.available">{{ assistant.available ? 'Skill bereit' : 'Lokaler Fallback' }}</span></section>
+        @if (!selectedMatch) { <div class="empty"><span>▤</span><h3>Noch keine Stelle ausgewählt</h3><p>Wähle zuerst ein Suchergebnis aus.</p><button class="primary" (click)="select('search')">Zur Jobsuche</button></div> }
+        @if (selectedMatch; as match) {
+          <section class="page-grid application-layout"><article class="panel application-context"><span class="kicker">ZIELSTELLE</span><h3>{{ match.job.title }}</h3><p>{{ match.job.company }} · {{ match.job.location }}</p><div class="mini-score"><strong>{{ match.score }}%</strong><span>Profil-Match</span></div><h4>Stärkste Übereinstimmungen</h4><div class="chips">@for (term of [...match.matchedMustHave, ...match.matchedNiceToHave]; track term) { <span class="chip match">✓ {{ term }}</span> }</div>@if (match.missingMustHave.length) { <h4>Offene Lücken</h4><div class="chips">@for (term of match.missingMustHave; track term) { <span class="chip gap">{{ term }}</span> }</div> }</article>
+            <article class="panel editor"><div class="editor-toolbar"><div class="segmented"><button [class.active]="documentType === 'cover_letter'" (click)="documentType = 'cover_letter'; prepareApplication()">Anschreiben</button><button [class.active]="documentType === 'email'" (click)="documentType = 'email'; prepareApplication()">E-Mail</button></div><button class="primary compact" (click)="prepareApplication()">Neu erzeugen</button></div>
+              @if (draft) { <textarea [(ngModel)]="draft.content" aria-label="Bewerbungsentwurf"></textarea><div class="warnings">@for (warning of draft.warnings; track warning) { <p>◇ {{ warning }}</p> }</div> } @else { <div class="empty compact-empty"><span>✦</span><h3>Entwurf erstellen</h3><p>Der lokale Assistent formuliert eine sichere Basis ohne erfundene Erfahrung.</p><button class="primary" (click)="prepareApplication()">Entwurf erzeugen</button></div> }
+            </article></section>
+        }
+      }
+    }
+  </main>
+</div>

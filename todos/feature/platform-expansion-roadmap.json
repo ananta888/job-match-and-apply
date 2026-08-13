@@ -1,0 +1,758 @@
+{
+  "$schema": "../todo.track.schema.json",
+  "version": 1,
+  "owner": "job-match-and-apply",
+  "track": "platform-expansion-roadmap",
+  "created": "2026-08-13",
+  "updated": "2026-08-13",
+  "purpose": "Das Integrationsprojekt zu einer lokal betreibbaren, datenschutzorientierten Plattform für Jobsuche, evidenzbasiertes Matching, Bewerbungsunterlagen und kontrollierte Bewerbungsabläufe ausbauen.",
+  "goal": "Angular-Oberfläche, Integrations-API, job-search-mcp und bewerbungs-schreib-assistent über versionierte Verträge weiterentwickeln, ohne Verantwortlichkeiten, personenbezogene Daten oder fachliche Wahrheiten zwischen den Repositories zu vermischen.",
+  "status_scale": ["todo", "in_progress", "partial", "blocked", "done"],
+  "priority_scale": ["low", "medium", "high"],
+  "risk_scale": ["low", "medium", "high"],
+  "planning_policy": {
+    "root_scope": "Dieser Track beschreibt Integrationsziele, benötigte Upstream-Verträge und Abnahmekriterien des Hauptprojekts.",
+    "submodule_scope": "Vor der Umsetzung einer Upstream-Änderung wird im jeweiligen Submodule ein eigenes schema-valides Todo mit detaillierten Implementierungsschritten angelegt.",
+    "change_flow": [
+      "Integrationsvertrag und Akzeptanzkriterien im Hauptprojekt festlegen.",
+      "Eigenen Branch und eigenes Todo im zuständigen Submodule anlegen.",
+      "Submodule-Änderung testen, committen und separat veröffentlichen.",
+      "Submodule-Pointer im Hauptprojekt aktualisieren und Contract-Tests ausführen.",
+      "Root-Todo nur mit überprüfbarer Cross-Repository-Evidenz abschließen."
+    ],
+    "schema_policy": "todos/todo.schema.json und todos/todo.track.schema.json werden nicht verändert.",
+    "data_policy": "Profile, Credentials, Sessions, Bewerbungsartefakte und personenbezogene Daten bleiben unversioniert und standardmäßig lokal."
+  },
+  "non_goals": [
+    "Kein Umgehen von Captchas, 2FA, Bot-Schutz, Portalrichtlinien oder Zugriffsbeschränkungen.",
+    "Kein automatisches Bewerben oder Versenden ohne explizite Vorschau und Freigabe des Nutzers.",
+    "Kein Ableiten von Kandidatenfähigkeiten aus Suchbegriffen, Stellenanzeigen oder Plattform-Scores.",
+    "Kein Scraping privater LinkedIn- oder StepStone-Profile ohne zulässigen Export- oder Nutzerimportweg.",
+    "Keine Speicherung echter personenbezogener Daten, Cookies oder Tokens im Git-Repository.",
+    "Kein erfundener ATS-Prozentwert und keine Veröffentlichung unbelegter Kandidaten-Claims."
+  ],
+  "repositories": [
+    {
+      "id": "root",
+      "path": ".",
+      "responsibility": "Angular UI, lokale API, Orchestrierung, kanonische Integrationsmodelle, lokale Persistenz und Cross-Repository-Contract-Tests"
+    },
+    {
+      "id": "job-search-mcp",
+      "path": "integrations/job-search-mcp",
+      "responsibility": "Portalzugriff, öffentliche Jobsuche, Browsersitzungen, Login, Quellencapabilities, Normalisierung und Portalrichtlinien"
+    },
+    {
+      "id": "bewerbungs-schreib-assistent",
+      "path": "integrations/bewerbungs-schreib-assistent",
+      "responsibility": "Kandidatenclaims, Evidence Policy, Jobanalyse, Match-Matrix, Dokumententwurf, Reviewrollen, Audits und Exportqualität"
+    }
+  ],
+  "milestones": [
+    { "id": "M1", "title": "Versionierte Verträge und Repository-Koordination", "task_ids": ["PLAT-001", "PLAT-002", "PLAT-003"], "status": "todo" },
+    { "id": "M2", "title": "Domänenkern, Persistenz und Fehlermodell", "task_ids": ["PLAT-004", "PLAT-005", "PLAT-006"], "status": "todo" },
+    { "id": "M3", "title": "Nachvollziehbare Mehrquellensuche", "task_ids": ["PLAT-007", "PLAT-008", "PLAT-009"], "status": "todo" },
+    { "id": "M4", "title": "Portalsitzungen und zulässige Profilimporte", "task_ids": ["PLAT-010", "PLAT-011", "PLAT-012"], "status": "todo" },
+    { "id": "M5", "title": "Identität, Inkognito und Datenschutz", "task_ids": ["PLAT-013", "PLAT-014", "PLAT-015"], "status": "todo" },
+    { "id": "M6", "title": "Kandidatenprofil und Evidence-Lebenszyklus", "task_ids": ["PLAT-016", "PLAT-017", "PLAT-018"], "status": "todo" },
+    { "id": "M7", "title": "Anforderungsanalyse und evidenzbasiertes Matching", "task_ids": ["PLAT-019", "PLAT-020", "PLAT-021"], "status": "todo" },
+    { "id": "M8", "title": "Agentische Dokument- und Reviewpipeline", "task_ids": ["PLAT-022", "PLAT-023", "PLAT-024"], "status": "todo" },
+    { "id": "M9", "title": "Freigabe, Übergabe und Bewerbungsstatus", "task_ids": ["PLAT-025", "PLAT-026", "PLAT-027"], "status": "todo" },
+    { "id": "M10", "title": "UX, Qualität, Sicherheit und Betrieb", "task_ids": ["PLAT-028", "PLAT-029", "PLAT-030"], "status": "todo" }
+  ],
+  "tasks": [
+    {
+      "id": "PLAT-001",
+      "title": "Cross-Repository-Verträge und Versionierungsstrategie festlegen",
+      "type": "contracts",
+      "target_repository": "root",
+      "status": "todo",
+      "priority": "high",
+      "risk": "medium",
+      "progress_percent": 0,
+      "dependencies": [],
+      "deliverables": ["docs/contracts.md", "ADR für Contract-Versionierung", "Kompatibilitätsmatrix der drei Repositories"],
+      "acceptance_criteria": [
+        "Alle synchronen und dateibasierten Grenzen zwischen UI, API und Submodules sind mit Owner, Eingabe, Ausgabe, Fehlern und Seiteneffekten dokumentiert.",
+        "Contracts besitzen eine explizite Version und eine additive Migrationsregel; Breaking Changes benötigen einen neuen Major-Vertrag.",
+        "Für jede Submodule-Erweiterung sind Branch-, Todo-, Commit-, Release- und Pointer-Update-Reihenfolge dokumentiert.",
+        "Contract-Fixtures enthalten ausschließlich synthetische Daten und können in allen drei Repositories wiederverwendet werden."
+      ],
+      "verification_plan": ["Architekturreview", "Schema-/Fixture-Validierung", "Abgleich gegen vorhandene Ports und MCP-Tools"]
+    },
+    {
+      "id": "PLAT-002",
+      "title": "Versionierten Job-Search-MCP-Vertrag bereitstellen",
+      "type": "contracts",
+      "target_repository": "job-search-mcp",
+      "status": "todo",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 0,
+      "dependencies": ["PLAT-001"],
+      "activation_gate": "Vor Codeänderungen eigenes Todo unter integrations/job-search-mcp/todos/feature anlegen.",
+      "deliverables": ["Capability-Tool", "versioniertes Suchergebnis", "strukturierte Fehler", "Contract-Fixtures", "Upstream-Release oder Commit"],
+      "acceptance_criteria": [
+        "Der MCP meldet Version, verfügbare Tools, Quellenfähigkeiten, Loginbedarf, Pagination und unterstützte Filter maschinenlesbar.",
+        "Suchergebnisse enthalten stabile Quell-ID, externe ID, Original-URL, Abrufzeit, Provenienz und Normalisierungswarnungen.",
+        "Validation-, Policy-, Auth-, Rate-Limit-, Retryable- und Dependency-Fehler sind unterscheidbar und enthalten keine Secrets.",
+        "Alte Aufrufer funktionieren während der dokumentierten Übergangsphase weiter.",
+        "Unit-, Contract- und MCP-Integrationstests decken Erfolg, Teilausfall und inkompatible Versionen ab."
+      ],
+      "verification_plan": ["Upstream-Testmatrix", "stdio-Contract-Test im Root", "Rückwärtskompatibilitätstest"]
+    },
+    {
+      "id": "PLAT-003",
+      "title": "Versionierten Bewerbungs-Pipeline-Vertrag bereitstellen",
+      "type": "contracts",
+      "target_repository": "bewerbungs-schreib-assistent",
+      "status": "todo",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 0,
+      "dependencies": ["PLAT-001"],
+      "activation_gate": "Vor Codeänderungen eigenes Todo im Bewerbungs-Submodule anlegen; Evidence Policy bleibt dort autoritativ.",
+      "deliverables": ["maschinenlesbare CLI- oder lokale API-Verträge", "Pipeline-Statusmodell", "strukturierte Prüfberichte", "synthetische Contract-Fixtures"],
+      "acceptance_criteria": [
+        "Profilvalidierung, Jobanalyse, Match-Matrix, Draft, Review, Audit und Finalisierung können über stabile, dokumentierte Befehle orchestriert werden.",
+        "Jeder Schritt liefert maschinenlesbaren Status, Artefaktreferenzen, Finding-Schweregrade und sichere Fehlercodes.",
+        "Die Finalisierung verweigert ungeklärte High/Critical Findings sowie unzulässige oder fehlende Claims.",
+        "Interne Evidence-Annotationen werden ausschließlich im letzten erfolgreichen Schritt entfernt.",
+        "Contract-Tests beweisen identisches Verhalten bei direkter Submodule-Nutzung und Nutzung über den Root-Adapter."
+      ],
+      "verification_plan": ["Upstream-Python-Tests", "Golden-Fixture-Tests", "Root-Adapter-Contract-Test"]
+    },
+    {
+      "id": "PLAT-004",
+      "title": "Kanonisches Jobmodell mit Provenienz und Änderungsverlauf erweitern",
+      "type": "domain",
+      "target_repository": "root",
+      "status": "todo",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 0,
+      "dependencies": ["PLAT-001", "PLAT-002"],
+      "deliverables": ["JobPosting v2", "SourceReference", "NormalizationWarning", "Migrationsmapper"],
+      "acceptance_criteria": [
+        "Das Modell trennt Rohquelle, normalisierte Felder und lokal abgeleitete Werte.",
+        "Remote/Hybrid/Onsite, Beschäftigungsart, Gehalt, Währung, Sprache und Veröffentlichungsdatum können unbekannt bleiben, ohne falsche Defaults zu erzeugen.",
+        "Duplikate aus mehreren Quellen behalten alle Originalreferenzen und eine nachvollziehbare Merge-Entscheidung.",
+        "Alte gespeicherte Demo- und Suchdaten werden deterministisch migriert oder mit verständlichem Fehler abgelehnt.",
+        "Domain-Tests decken Identität, Gleichheit, Provenienz, Merge und unbekannte Werte ab."
+      ],
+      "verification_plan": ["Domain-Unit-Tests", "Property-basierte Normalisierungstests", "Migrationsfixtures"]
+    },
+    {
+      "id": "PLAT-005",
+      "title": "Lokale versionierte Persistenz für Konfiguration und Arbeitszustände einführen",
+      "type": "domain",
+      "target_repository": "root",
+      "status": "todo",
+      "priority": "high",
+      "risk": "medium",
+      "progress_percent": 0,
+      "dependencies": ["PLAT-004"],
+      "deliverables": ["Persistenzport", "atomarer Dateispeicher oder eingebettete Datenbank", "Migrationen", "Backup-/Restore-Befehl"],
+      "acceptance_criteria": [
+        "Suchprofile, Quellenkonfiguration, Suchläufe, Job-Merklisten und Bewerbungsstatus überleben einen Neustart.",
+        "Schreibvorgänge sind atomar; beschädigte Daten werden erkannt und nicht still überschrieben.",
+        "Persistenzformat und Migrationen sind versioniert und rückrollbar dokumentiert.",
+        "Private Inhalte liegen ausschließlich in einem ignorierten lokalen Verzeichnis mit restriktiven Berechtigungen.",
+        "Repository-Fakes und Integrationstests decken Parallelzugriff, Recovery und Migration ab."
+      ],
+      "verification_plan": ["Repository-Contract-Tests", "Crash-/Recovery-Test", "Git-Ignore- und Berechtigungsprüfung"]
+    },
+    {
+      "id": "PLAT-006",
+      "title": "Einheitliches Fehler-, Audit- und Korrelationsmodell etablieren",
+      "type": "domain",
+      "target_repository": "root",
+      "status": "todo",
+      "priority": "high",
+      "risk": "medium",
+      "progress_percent": 0,
+      "dependencies": ["PLAT-001"],
+      "deliverables": ["Problem-Details-API", "Korrelations-ID", "redigiertes lokales Auditlog", "UI-Fehlerzustände"],
+      "acceptance_criteria": [
+        "API und Adapter unterscheiden Validierung, Policy, Authentifizierung, Abhängigkeit, Konflikt und interne Fehler.",
+        "Jede Operation besitzt eine Korrelations-ID, die in UI und sicheren Logs wiederzufinden ist.",
+        "Logs enthalten keine Anschreiben, Profile, Cookies, Tokens oder vollständigen personenbezogenen Felder.",
+        "UI bietet je Fehlerklasse eine sinnvolle Wiederholung, Korrektur oder Handlungsanweisung.",
+        "Tests prüfen Statuscodes, Redaction und Fehlerweitergabe über beide Submodule-Grenzen."
+      ],
+      "verification_plan": ["API-Regressionstests", "Log-Redaction-Test", "Fehler-Mapping-Contract-Test"]
+    },
+    {
+      "id": "PLAT-007",
+      "title": "Quellencapabilities dynamisch laden und in Angular konfigurieren",
+      "type": "search",
+      "target_repository": "root",
+      "status": "todo",
+      "priority": "high",
+      "risk": "medium",
+      "progress_percent": 0,
+      "dependencies": ["PLAT-002", "PLAT-006"],
+      "deliverables": ["Capability-Adapter", "Quellenkonfiguration", "Filter-Mapping", "Kompatibilitätsanzeige"],
+      "acceptance_criteria": [
+        "Die UI zeigt pro Quelle unterstützte Filter, Loginstatus, letzte Prüfung und bekannte Einschränkungen.",
+        "Nicht unterstützte Filter werden nicht still verworfen, sondern vor der Suche erklärt.",
+        "Neue MCP-Quellen erscheinen ohne Änderung zentraler UI-Fallunterscheidungen.",
+        "Inkompatible Contract-Versionen deaktivieren nur die betroffene Quelle und nicht die gesamte Anwendung.",
+        "Demo- und MCP-Modus erfüllen denselben verbraucherorientierten Portvertrag."
+      ],
+      "verification_plan": ["Adapter-Contract-Tests", "Angular-Komponententests", "Inkompatibilitätsfall"]
+    },
+    {
+      "id": "PLAT-008",
+      "title": "Suchläufe, Deduplizierung und Score-Erklärung ausbauen",
+      "type": "search",
+      "target_repository": "root",
+      "status": "todo",
+      "priority": "high",
+      "risk": "medium",
+      "progress_percent": 0,
+      "dependencies": ["PLAT-004", "PLAT-005", "PLAT-007"],
+      "deliverables": ["SearchRun-Aggregat", "Deduplizierungsstrategie", "ScoreBreakdown", "Filter-/Sortieransicht"],
+      "acceptance_criteria": [
+        "Jeder Suchlauf speichert Eingabe, Quellen, Zeitpunkt, Teilausfälle und Ergebnisreferenzen reproduzierbar.",
+        "Deduplizierung nutzt nachvollziehbare Schlüssel und verliert keine Original-URL.",
+        "Der searchPreferenceScore zeigt Teilwerte für Muss-, Wunsch-, Region-, Arbeitsmodell- und Ausschlussregeln.",
+        "Suchscore und Kandidatenmatch sind in Typen, API, UI und Tests strikt getrennt.",
+        "Nutzer können filtern, sortieren, markieren, ausblenden und Entscheidungen rückgängig machen."
+      ],
+      "verification_plan": ["Domain-Tests", "Golden-Suchlauf", "Angular-Interaktionstest"]
+    },
+    {
+      "id": "PLAT-009",
+      "title": "Optionale geplante Suche mit Cache und Änderungsbenachrichtigung konzipieren",
+      "type": "search",
+      "target_repository": "root",
+      "status": "todo",
+      "priority": "medium",
+      "risk": "medium",
+      "progress_percent": 0,
+      "dependencies": ["PLAT-005", "PLAT-008"],
+      "deliverables": ["lokaler Scheduler-Port", "TTL-/Rate-Limit-Policy", "Diff neuer/geänderter Jobs", "abschaltbare lokale Benachrichtigung"],
+      "acceptance_criteria": [
+        "Geplante Suchen sind standardmäßig deaktiviert und werden pro Suchprofil explizit aktiviert.",
+        "Scheduler respektiert Quellenvorgaben, Rate Limits, Ruhezeiten und globale Portal-Allowlist.",
+        "Nur neue oder relevant geänderte Treffer erzeugen eine lokale Benachrichtigung.",
+        "Wiederholungen sind idempotent und ein Quellenfehler führt nicht zu unkontrolliertem Retry.",
+        "Zeit und Scheduler sind injizierbar und ohne echte Portale deterministisch testbar."
+      ],
+      "verification_plan": ["Fake-Clock-Tests", "Rate-Limit-Test", "Idempotenztest"]
+    },
+    {
+      "id": "PLAT-010",
+      "title": "StepStone-Sitzungsverwaltung vollständig in Angular abbilden",
+      "type": "portal_integration",
+      "target_repository": "job-search-mcp + root",
+      "status": "todo",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 0,
+      "dependencies": ["PLAT-002", "PLAT-006", "PLAT-007"],
+      "activation_gate": "Upstream-Todo für fehlende Session-Tools anlegen; Root implementiert ausschließlich deren Vertrag.",
+      "deliverables": ["Login starten", "Status aktualisieren", "Logout/Sitzung löschen", "Ablaufanzeige", "sichtbarer Browserhinweis"],
+      "acceptance_criteria": [
+        "Die Angular-App kann den vorhandenen sichtbaren StepStone-Login starten und seinen Zustand ohne Credential-Übertragung anzeigen.",
+        "2FA, Captcha und manuelle Interaktion werden als wartender Nutzerzustand behandelt und niemals umgangen.",
+        "Nutzer können Sitzungen explizit beenden und lokale Sessiondaten über den MCP löschen.",
+        "Abgelaufene oder ungültige Sitzungen werden erkannt und führen zu einer erneuten bewussten Anmeldung.",
+        "Browserzustand, Cookies und Credentials erscheinen weder in API-Antworten noch Logs oder Testsnapshots."
+      ],
+      "verification_plan": ["MCP-Session-Contract-Test", "Browser-Fake-Test", "manueller WSLg-Smoke-Test"]
+    },
+    {
+      "id": "PLAT-011",
+      "title": "Erweiterbare Quellenadapter und mindestens eine zusätzliche zulässige Quelle liefern",
+      "type": "portal_integration",
+      "target_repository": "job-search-mcp",
+      "status": "todo",
+      "priority": "medium",
+      "risk": "high",
+      "progress_percent": 0,
+      "dependencies": ["PLAT-002", "PLAT-007"],
+      "activation_gate": "Quelle erst nach dokumentierter Zugriffs-, Lizenz- und Nutzungsprüfung auswählen und im Upstream-Todo freigeben.",
+      "deliverables": ["kleiner SourceProvider-Port", "neuer Adapter", "Normalisierungsmapper", "Portalpolicy", "Contract-Test"],
+      "acceptance_criteria": [
+        "Ein neuer Provider benötigt keine Änderung der Suchanwendungslogik oder bestehender Provider.",
+        "Der Adapter verwendet nur zulässige öffentliche API-, Feed-, Export- oder Nutzerinteraktionswege.",
+        "Timeout, Pagination, Rate Limit, Teilausfall und Quellendeaktivierung sind explizit implementiert.",
+        "Rohantworten werden nicht dauerhaft gespeichert, sofern dies nicht erforderlich und dokumentiert ist.",
+        "Eine synthetische Integration beweist das Provider-Plugin-Muster unabhängig von externem Netzwerkzugriff."
+      ],
+      "verification_plan": ["Provider-Contract-Suite", "Policy-Review", "Offline-Fixture-Test"]
+    },
+    {
+      "id": "PLAT-012",
+      "title": "LinkedIn- und StepStone-Profile über nutzerkontrollierte Importwege anbinden",
+      "type": "portal_integration",
+      "target_repository": "job-search-mcp + bewerbungs-schreib-assistent + root",
+      "status": "todo",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 0,
+      "dependencies": ["PLAT-001", "PLAT-003", "PLAT-005"],
+      "activation_gate": "Je betroffenem Submodule eigenes Todo; Importformat und Datenherkunft vor Implementierung freigeben.",
+      "deliverables": ["Datei-/Exportimport", "Provenienzmodell", "Mapping-Vorschau", "Bestätigungsworkflow", "Importbericht"],
+      "acceptance_criteria": [
+        "Import unterstützt ausschließlich vom Nutzer bereitgestellte Exporte oder ausdrücklich zulässige APIs, kein verdecktes Profil-Scraping.",
+        "Importierte Felder behalten Quelle, Importzeitpunkt und Originalbezug.",
+        "Kein importierter Kandidatenclaim wird ohne Nutzerbestätigung zu verified oder user_confirmed hochgestuft.",
+        "Duplikate und Konflikte werden vor Übernahme feldweise angezeigt und können einzeln verworfen werden.",
+        "Importdateien können nach Abschluss sicher gelöscht werden und werden niemals versioniert."
+      ],
+      "verification_plan": ["synthetische Export-Fixtures", "Konflikt-/Deduplikationstest", "Datenschutzreview"]
+    },
+    {
+      "id": "PLAT-013",
+      "title": "Lokalen Identitäts-Tresor und konsequente Datenmaskierung einführen",
+      "type": "privacy",
+      "target_repository": "root",
+      "status": "todo",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 0,
+      "dependencies": ["PLAT-005", "PLAT-006"],
+      "deliverables": ["IdentityStore-Port", "Verschlüsselungs-/Keyring-Entscheidung", "Maskierungsregeln", "Lock/Unlock-UX"],
+      "acceptance_criteria": [
+        "Reale Identitäten und Kontaktdaten liegen verschlüsselt oder in einem dokumentierten OS-Keyring-basierten Speicher.",
+        "Schlüssel, Klartextprofile und Recovery-Geheimnisse werden nicht im Repository oder in Standardlogs abgelegt.",
+        "API-Antworten liefern nur die für den jeweiligen Bildschirm erforderlichen Felder.",
+        "UI maskiert sensible Werte standardmäßig und erfordert bewusste Anzeige oder Bearbeitung.",
+        "Threat Model, Schlüsselverlust, Backup, Restore und Löschung sind dokumentiert und getestet."
+      ],
+      "verification_plan": ["Threat-Model-Review", "Redaction-Tests", "Lock/Unlock-Integrationstest"]
+    },
+    {
+      "id": "PLAT-014",
+      "title": "Konfigurierbare Inkognito-Identitäten und Placeholder-Katalog ausbauen",
+      "type": "privacy",
+      "target_repository": "root",
+      "status": "todo",
+      "priority": "medium",
+      "risk": "medium",
+      "progress_percent": 0,
+      "dependencies": ["PLAT-013"],
+      "deliverables": ["InkognitoTemplate", "Placeholder-Katalog", "Generator", "Vorschau-Umschaltung", "Leak-Scanner"],
+      "acceptance_criteria": [
+        "Name, Adresse, Telefon, E-Mail, URLs und weitere persönliche Felder können zentral als klar erkennbare Platzhalter konfiguriert werden.",
+        "Generierte E-Mails nutzen reservierte .invalid-Domains und Telefonnummern sind nicht real zustellbar.",
+        "Ein Wechsel zwischen realer und Inkognito-Ansicht ersetzt alle identitätsbezogenen Felder konsistent.",
+        "Inkognito bleibt technisch auf Preview, Screenshot, Demo und UI-Test begrenzt.",
+        "Ein automatisierter Leak-Scanner erkennt bekannte Realwerte in Inkognito-Ausgaben."
+      ],
+      "verification_plan": ["Property-Tests des Generators", "Leak-Regressionstest", "Angular-E2E-Umschaltung"]
+    },
+    {
+      "id": "PLAT-015",
+      "title": "Datenauskunft, Export, Aufbewahrung und sichere Löschung implementieren",
+      "type": "privacy",
+      "target_repository": "root + beide Submodules",
+      "status": "todo",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 0,
+      "dependencies": ["PLAT-005", "PLAT-013"],
+      "activation_gate": "Löschverträge für Sessions und Arbeitsartefakte in eigenen Upstream-Todos spezifizieren.",
+      "deliverables": ["Dateninventar", "lokaler Export", "Retention-Policy", "selektive Löschung", "Session-/Artefakt-Cleanup"],
+      "acceptance_criteria": [
+        "Die Anwendung zeigt verständlich, welche lokalen Daten an welchem Ort und zu welchem Zweck gespeichert sind.",
+        "Nutzer können Konfiguration, Profile, Suchhistorie und Bewerbungsstatus in einem portablen Format exportieren.",
+        "Sitzungen, Imports, Arbeitsartefakte, Suchhistorie und Identitäten können getrennt gelöscht werden.",
+        "Löschoperationen zeigen exakten Scope, verlangen Bestätigung und melden nicht löschbare Reste.",
+        "Automatische Aufbewahrungsfristen sind optional, transparent und mit Fake Clock getestet."
+      ],
+      "verification_plan": ["Dateninventar-Abgleich", "Export/Import-Roundtrip", "Cleanup- und Scope-Tests"]
+    },
+    {
+      "id": "PLAT-016",
+      "title": "Evidence-basierten Kandidatenprofil-Editor integrieren",
+      "type": "candidate_profile",
+      "target_repository": "bewerbungs-schreib-assistent + root",
+      "status": "todo",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 0,
+      "dependencies": ["PLAT-003", "PLAT-013"],
+      "activation_gate": "Upstream-Todo für sichere Profil-Patches und Validierungsvertrag anlegen.",
+      "deliverables": ["ProfileReadPort", "ProfilePatchPort", "Angular-Editor", "Claim-Provenienzansicht", "Validierungsbericht"],
+      "acceptance_criteria": [
+        "Der Editor zeigt Claims, Status, Evidenzquellen, zeitliche Bezüge und Verwendungsverbote ohne Rohdateien frei zu bearbeiten.",
+        "Änderungen werden als Patch mit Vorschau validiert und erst nach ausdrücklicher Bestätigung gespeichert.",
+        "Konfliktierende Daten, gebrochene Referenzen und doppelte IDs blockieren die Übernahme.",
+        "Inferred, unverified und do_not_use sind visuell und technisch von final verwendbaren Claims getrennt.",
+        "Schreibvorgänge sind atomar und erzeugen eine lokale, redigierte Änderungsnachvollziehbarkeit."
+      ],
+      "verification_plan": ["Profil-Contract-Tests", "Patch-/Konflikttests", "Angular-Formulartests"]
+    },
+    {
+      "id": "PLAT-017",
+      "title": "Lebenslauf- und Dokumentimport als Claim-Vorschläge ermöglichen",
+      "type": "candidate_profile",
+      "target_repository": "bewerbungs-schreib-assistent + root",
+      "status": "todo",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 0,
+      "dependencies": ["PLAT-012", "PLAT-016"],
+      "activation_gate": "Parser und Claim-Vorschlagsformat im Upstream-Todo spezifizieren; Beispiele bleiben synthetisch.",
+      "deliverables": ["DOCX/PDF/Text-Import", "strukturierte Claim-Vorschläge", "Quellenanker", "Bestätigungsdialog", "Löschfunktion"],
+      "acceptance_criteria": [
+        "Importierte Dokumente erzeugen ausschließlich Vorschläge mit Quellenanker und niemals automatisch bestätigte Fakten.",
+        "Unsichere Extraktion, Tabellenfehler und Datumswidersprüche werden sichtbar markiert.",
+        "Nutzer können jeden Claim bearbeiten, ablehnen, zusammenführen oder bestätigen.",
+        "Temporäre Dokumente und extrahierter Text werden nach konfigurierbarer Frist sicher entfernt.",
+        "Parserfehler und schädliche Dateien werden isoliert behandelt; aktive Inhalte werden nicht ausgeführt."
+      ],
+      "verification_plan": ["synthetische Dokument-Fixtures", "Malicious-File-Negativtests", "Claim-Provenienztest"]
+    },
+    {
+      "id": "PLAT-018",
+      "title": "Claim-Bestätigung, Ablauf und Profilqualitätsprüfung ausbauen",
+      "type": "candidate_profile",
+      "target_repository": "bewerbungs-schreib-assistent",
+      "status": "todo",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 0,
+      "dependencies": ["PLAT-003", "PLAT-016"],
+      "activation_gate": "Evidence-Policy-Änderungen ausschließlich im Bewerbungs-Submodule planen, testen und dokumentieren.",
+      "deliverables": ["Bestätigungsworkflow", "Review-/Ablaufmetadaten", "Qualitätsbericht", "Patch-Historie"],
+      "acceptance_criteria": [
+        "Bestätigungen speichern Zeitpunkt, Ursprung und explizite Nutzerentscheidung ohne unnötige Inhaltsduplikation.",
+        "Zeitkritische Claims können als überprüfungsbedürftig markiert werden, ohne historische Fakten zu löschen.",
+        "Profilqualität meldet fehlende Evidenz, widersprüchliche Zeiträume, unklare Metriken und verwaiste Referenzen.",
+        "Statusänderungen zu verified oder user_confirmed benötigen eine eindeutige erlaubte Aktion.",
+        "Audit und Finalisierung akzeptieren weiterhin ausschließlich von der Evidence Policy erlaubte Claims."
+      ],
+      "verification_plan": ["Policy-Unit-Tests", "Statusübergangstests", "Profile-Validator-Regression"]
+    },
+    {
+      "id": "PLAT-019",
+      "title": "Stellenanforderungen strukturiert und nachvollziehbar extrahieren",
+      "type": "matching",
+      "target_repository": "bewerbungs-schreib-assistent + root",
+      "status": "todo",
+      "priority": "high",
+      "risk": "medium",
+      "progress_percent": 0,
+      "dependencies": ["PLAT-003", "PLAT-004"],
+      "deliverables": ["JobAnalysisPort", "editierbare Analyseansicht", "Anforderungsprovenienz", "Versionsvergleich"],
+      "acceptance_criteria": [
+        "Must-have, important, optional, Aufgaben, Sprache, Standort und Vertragsbedingungen werden mit Textanker aus der Stellenanzeige erfasst.",
+        "Unsichere Klassifikationen bleiben als solche sichtbar und können vom Nutzer korrigiert werden.",
+        "Die Analyse erfindet keine Anforderungen und unterscheidet explizite Aussage von Interpretation.",
+        "Änderungen der Stellenanzeige erzeugen eine neue Analyseversion und zeigen relevante Deltas.",
+        "Synthetische deutsche und englische Anzeigen decken kurze, lange und schlecht strukturierte Texte ab."
+      ],
+      "verification_plan": ["Golden-Analysis-Fixtures", "Provenienzprüfung", "Versions-Diff-Test"]
+    },
+    {
+      "id": "PLAT-020",
+      "title": "Claim-gestützte Match-Matrix und Coverage-Bericht integrieren",
+      "type": "matching",
+      "target_repository": "bewerbungs-schreib-assistent + root",
+      "status": "todo",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 0,
+      "dependencies": ["PLAT-018", "PLAT-019"],
+      "deliverables": ["MatchMatrixPort", "Coverage-Kategorien", "Claim-Verlinkung", "Gap-/Transferdarstellung"],
+      "acceptance_criteria": [
+        "Jede wichtige Anforderung ist exakt direct_match, transferable_match, partial_match oder gap zugeordnet.",
+        "Jede Nicht-Gap-Zuordnung verweist auf erlaubte Claim-IDs; fehlende Evidenz blockiert die Zuordnung.",
+        "Übertragbare Erfahrung wird nicht als direkte Erfahrung dargestellt.",
+        "Die UI erklärt Anforderung, Klassifikation, Evidence und Unsicherheit ohne erfundenen ATS-Prozentscore.",
+        "Coverage wird nach Kategorien und belegten Anforderungen berichtet und bleibt getrennt vom searchPreferenceScore."
+      ],
+      "verification_plan": ["Match-Matrix-Validator", "Policy-Negativtests", "UI-Erklärungstest"]
+    },
+    {
+      "id": "PLAT-021",
+      "title": "Vergleichs- und Entscheidungsansicht für mehrere Stellen bereitstellen",
+      "type": "matching",
+      "target_repository": "root",
+      "status": "todo",
+      "priority": "medium",
+      "risk": "medium",
+      "progress_percent": 0,
+      "dependencies": ["PLAT-008", "PLAT-020"],
+      "deliverables": ["Jobvergleich", "Nutzergewichtungen", "Gap-Vergleich", "Entscheidungsnotizen"],
+      "acceptance_criteria": [
+        "Nutzer können mindestens drei Stellen nach Suchpräferenz, belegtem Match, offenen Gaps und Rahmenbedingungen vergleichen.",
+        "Gewichtungen sind explizit, lokal gespeichert und jederzeit auf Standard zurücksetzbar.",
+        "Die Ansicht unterscheidet objektive Quelldaten, Kandidatenevidence und subjektive Nutzerpriorität.",
+        "Eine Empfehlung zeigt ihre Faktoren und wird nie als Garantie oder automatische Bewerbungsentscheidung dargestellt.",
+        "Vergleichsnotizen können exportiert und vollständig gelöscht werden."
+      ],
+      "verification_plan": ["Berechnungs-Unit-Tests", "Angular-Komponententest", "Datenklassifikationsreview"]
+    },
+    {
+      "id": "PLAT-022",
+      "title": "Persistenten Bewerbungsworkflow als Zustandsmaschine implementieren",
+      "type": "application_pipeline",
+      "target_repository": "root",
+      "status": "todo",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 0,
+      "dependencies": ["PLAT-003", "PLAT-005", "PLAT-020"],
+      "deliverables": ["ApplicationCase-Aggregat", "Zustandsmaschine", "Artefaktindex", "Resume/Retry", "Abbruch/Cleanup"],
+      "acceptance_criteria": [
+        "Der Workflow unterscheidet Auswahl, Analyse, Fragen, Draft, Review, Freigabe, Export, Übergabe und Abschluss.",
+        "Nur erlaubte Zustandsübergänge sind möglich; Inkognito kann Preview, aber weder Finalisierung noch Übergabe erreichen.",
+        "Jeder Schritt speichert Contract-Version, Eingabereferenzen, Ergebnisreferenzen und sichere Fehlerdaten.",
+        "Ein abgebrochener Prozess kann ohne doppelte Seiteneffekte fortgesetzt oder vollständig verworfen werden.",
+        "Artefakte liegen ausschließlich unter dem lokalen Arbeitsverzeichnis und folgen der Retention-Policy."
+      ],
+      "verification_plan": ["State-Machine-Unit-Tests", "Resume-/Idempotenztest", "Inkognito-Policy-Test"]
+    },
+    {
+      "id": "PLAT-023",
+      "title": "Spezialisierte Author-, Evidence-, ATS-, Style- und Finalizer-Rollen orchestrieren",
+      "type": "application_pipeline",
+      "target_repository": "bewerbungs-schreib-assistent + root",
+      "status": "todo",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 0,
+      "dependencies": ["PLAT-003", "PLAT-022"],
+      "activation_gate": "Rollenverträge und Manifestvalidierung im Bewerbungs-Submodule erweitern; Root orchestriert nur veröffentlichte Verträge.",
+      "deliverables": ["RoleExecutionPort", "Review-Manifest", "Finding-Workflow", "Modi fast/standard/rigorous", "Fallbackkennzeichnung"],
+      "acceptance_criteria": [
+        "Jede Rolle erhält nur Rohartefakte und rollenspezifische Kriterien, nicht die verborgene Begründung vorheriger Rollen.",
+        "Unabhängige Agentenkontexte und sequential_single_agent werden im Manifest wahrheitsgemäß unterschieden.",
+        "Critical und High Findings blockieren Finalisierung, bis sie gelöst oder vom Nutzer mit Begründung akzeptiert sind.",
+        "Wiederholungsschleifen besitzen ein konfiguriertes Maximum und liefern bei Nichterreichen einen ehrlichen Teilstatus.",
+        "Tests prüfen Rollenreihenfolge, Manifestintegrität, Findings, Abbruch und Wiederaufnahme."
+      ],
+      "verification_plan": ["Manifest-Validator", "Fake-Agent-Orchestrationstest", "High-Finding-Blockadetest"]
+    },
+    {
+      "id": "PLAT-024",
+      "title": "Lokale Sprachprüfung und hochwertige Dokumentexporte anbinden",
+      "type": "application_pipeline",
+      "target_repository": "bewerbungs-schreib-assistent + root",
+      "status": "todo",
+      "priority": "medium",
+      "risk": "medium",
+      "progress_percent": 0,
+      "dependencies": ["PLAT-022", "PLAT-023"],
+      "activation_gate": "Export- und Language-Backend-Verträge in eigenem Upstream-Todo festlegen.",
+      "deliverables": ["LanguageCheckPort", "lokales LanguageTool/Hunspell-Setup", "DOCX/PDF-Export", "Render-Vorschau", "Exportmanifest"],
+      "acceptance_criteria": [
+        "Sprachprüfung verwendet standardmäßig ausschließlich ein lokales Backend; Remote-Übertragung benötigt separate ausdrückliche Freigabe.",
+        "Findings werden als Vorschläge angezeigt und verändern Texte nie automatisch.",
+        "DOCX und PDF enthalten keine internen Evidence-Kommentare, versteckten Pfade oder unnötigen Metadaten.",
+        "Export bewahrt lesbare, ATS-taugliche Struktur und wird visuell auf Überlauf, leere Seiten und abgeschnittene Inhalte geprüft.",
+        "Finalisierung weist eindeutig aus, wenn keine Sprachprüfung verfügbar war."
+      ],
+      "verification_plan": ["Language-Backend-Fake", "Metadatenprüfung", "Render-/Snapshot-QA mit synthetischen Dokumenten"]
+    },
+    {
+      "id": "PLAT-025",
+      "title": "Freigabepflichtiges Bewerbungspaket erstellen",
+      "type": "submission",
+      "target_repository": "root",
+      "status": "todo",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 0,
+      "dependencies": ["PLAT-015", "PLAT-022", "PLAT-024"],
+      "deliverables": ["ApplicationPackage", "Freigabecheckliste", "Datei-/Hashmanifest", "Preview", "Explizite Bestätigung"],
+      "acceptance_criteria": [
+        "Ein Paket enthält Zielstelle, reale Identität, freigegebene Dokumente, Dateihashes und offene Warnungen.",
+        "Inkognito, ungeklärte High/Critical Findings, fehlende Pflichtdokumente oder unzulässige Claims blockieren die Freigabe.",
+        "Der Nutzer sieht vor jeder Übergabe Empfänger, Dateien, sichtbare Kontaktdaten und alle externen Seiteneffekte.",
+        "Inhaltliche Änderungen nach Freigabe invalidieren die Freigabe und verlangen eine erneute Prüfung.",
+        "Die Paketprüfung ist deterministisch und ohne Portalzugriff vollständig testbar."
+      ],
+      "verification_plan": ["Policy-Unit-Tests", "Hash-/Invalidierungstest", "Angular-Freigabe-E2E"]
+    },
+    {
+      "id": "PLAT-026",
+      "title": "Kontrollierte Portalübergabe hinter separaten Submission-Adaptern vorbereiten",
+      "type": "submission",
+      "target_repository": "job-search-mcp + root",
+      "status": "todo",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 0,
+      "dependencies": ["PLAT-010", "PLAT-025"],
+      "activation_gate": "Für jedes Portal Rechts-/Policy-Prüfung, eigenes Upstream-Todo und separate Nutzerfreigabe; zunächst ausschließlich Dry Run.",
+      "deliverables": ["SubmissionPort", "Dry-Run-Plan", "portalbezogene Capability", "Bestätigungsgrenze", "sicheres Ergebnisprotokoll"],
+      "acceptance_criteria": [
+        "Der erste Lieferumfang erzeugt nur einen Dry-Run-Plan und führt keine externe Bewerbung aus.",
+        "Eine spätere echte Übergabe ist pro Portal separat freizuschalten und benötigt unmittelbar vorher eine explizite Bestätigung.",
+        "Der Adapter darf keine Captchas, 2FA, Nutzungsbedingungen oder manuelle Pflichtschritte umgehen.",
+        "Unklare Portalantworten werden niemals als erfolgreiche Bewerbung gespeichert.",
+        "Idempotenzschlüssel und Ergebnisreferenz verhindern unbeabsichtigte Doppelübermittlung."
+      ],
+      "verification_plan": ["Dry-Run-Contract-Test", "Doppelübermittlungs-Negativtest", "manueller Policy-Abnahmepunkt"]
+    },
+    {
+      "id": "PLAT-027",
+      "title": "Lokales Bewerbungs-Tracking und Follow-up-Unterstützung bereitstellen",
+      "type": "submission",
+      "target_repository": "root",
+      "status": "todo",
+      "priority": "medium",
+      "risk": "medium",
+      "progress_percent": 0,
+      "dependencies": ["PLAT-005", "PLAT-025"],
+      "deliverables": ["ApplicationStatus-Historie", "Timeline", "lokale Erinnerungen", "Notizen", "CSV/JSON-Export"],
+      "acceptance_criteria": [
+        "Statusänderungen sind append-only nachvollziehbar und können Korrekturen explizit referenzieren.",
+        "System unterscheidet geplant, freigegeben, manuell übergeben, bestätigt, Interview, abgelehnt, zurückgezogen und abgeschlossen.",
+        "Portalstatus wird nur bei eindeutiger Quelle übernommen; manuelle Angaben bleiben als solche gekennzeichnet.",
+        "Follow-up-Texte durchlaufen dieselbe Evidence- und Freigabepolicy wie andere Bewerbungsdokumente.",
+        "Erinnerungen sind lokal, optional, zeitzonenfest und vollständig löschbar."
+      ],
+      "verification_plan": ["Statusübergangstests", "Fake-Clock-Erinnerungstest", "Export-Roundtrip"]
+    },
+    {
+      "id": "PLAT-028",
+      "title": "Angular-Oberfläche als zugänglichen End-to-End-Arbeitsplatz ausbauen",
+      "type": "quality_operations",
+      "target_repository": "root",
+      "status": "todo",
+      "priority": "medium",
+      "risk": "medium",
+      "progress_percent": 0,
+      "dependencies": ["PLAT-007", "PLAT-016", "PLAT-021", "PLAT-022", "PLAT-025", "PLAT-027"],
+      "deliverables": ["Workflow-Navigation", "responsive UI", "A11y-Konzept", "Lade-/Leer-/Fehlerzustände", "E2E-Kernpfad"],
+      "acceptance_criteria": [
+        "Der Kernpfad Suche, Auswahl, Analyse, Profilprüfung, Dokument, Review und Freigabe ist ohne Medienbruch navigierbar.",
+        "Jeder Bildschirm zeigt Datenherkunft, aktuellen Zustand, ausstehende Pflichtaktionen und irreversible Folgen verständlich.",
+        "Tastaturbedienung, Fokusführung, Labels, Kontrast und Screenreader-Hinweise erfüllen die festgelegte WCAG-Zielstufe.",
+        "Lange Texte, mobile Breiten, Offlinezustände, Teilausfälle und Wiederaufnahme sind gestaltet und getestet.",
+        "Ein synthetischer E2E-Test nutzt Inkognito und verursacht keine externen Seiteneffekte."
+      ],
+      "verification_plan": ["Angular-Tests", "Browser-E2E", "automatisierter A11y-Scan", "manuelle Tastaturprüfung"]
+    },
+    {
+      "id": "PLAT-029",
+      "title": "Cross-Repository-Testpyramide, Security Gates und CI etablieren",
+      "type": "quality_operations",
+      "target_repository": "root + beide Submodules",
+      "status": "todo",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 0,
+      "dependencies": ["PLAT-002", "PLAT-003", "PLAT-006"],
+      "activation_gate": "CI-Änderungen je Repository separat planen; Root orchestriert nur veröffentlichte Prüfkommandos.",
+      "deliverables": ["Contract-Testmatrix", "CI-Workflows", "Secret-/PII-Scan", "Dependency-Scan", "Offline-E2E", "Release-Gates"],
+      "acceptance_criteria": [
+        "Jedes Repository führt eigene Unit-, Typ-, Format- und Security-Prüfungen aus.",
+        "Root-CI initialisiert gepinnte Submodules und prüft beide Contract-Versionen mit synthetischen Fixtures.",
+        "Kein Standardtest benötigt echte Credentials, private Profile, externe Portale oder bezahlte Dienste.",
+        "Secret- und PII-Scanner blockieren bekannte Tokens, private Schlüssel, reale Profildaten und nicht erlaubte Artefakte.",
+        "Kompatibilitätsbruch, Policy-Verletzung, Inkognito-Finalisierung und unbeabsichtigter Netzwerkzugriff besitzen Negativtests."
+      ],
+      "verification_plan": ["CI auf allen drei Repositories", "absichtlich fehlerhafte Contract-Fixture", "Secret-/PII-Testfixture"]
+    },
+    {
+      "id": "PLAT-030",
+      "title": "Lokale Betriebsdiagnose, Dokumentation und Release-Prozess vervollständigen",
+      "type": "quality_operations",
+      "target_repository": "root",
+      "status": "todo",
+      "priority": "medium",
+      "risk": "low",
+      "progress_percent": 0,
+      "dependencies": ["PLAT-006", "PLAT-015", "PLAT-029"],
+      "deliverables": ["Health-/Diagnostics-Ansicht", "Setup-Check", "Troubleshooting", "Upgrade-/Rollback-Anleitung", "Release-Checkliste"],
+      "acceptance_criteria": [
+        "Ein Diagnosebefehl prüft Node, Python, Submodule, Contract-Versionen, lokale Profile, optionale Sprachbackends und MCP-Startbarkeit ohne Secrets auszugeben.",
+        "Dokumentation deckt Windows, WSL2/Ubuntu, Demo-Modus, lokale Integration, Backup, Restore und vollständige Deinstallation ab.",
+        "Release-Checkliste enthält Tests, Schema-/Contract-Kompatibilität, Submodule-Pins, Datenschutzreview und bekannte Einschränkungen.",
+        "Upgrade und Rollback bewahren oder migrieren lokale Daten nachvollziehbar.",
+        "Ein frischer Checkout kann den synthetischen Kernpfad anhand der Dokumentation reproduzierbar ausführen."
+      ],
+      "verification_plan": ["Clean-Checkout-Smoke-Test", "Setup-Diagnose-Test", "Dokumentationsreview"]
+    }
+  ],
+  "critical_path_tasks": [
+    "PLAT-001", "PLAT-002", "PLAT-003", "PLAT-004", "PLAT-005", "PLAT-006",
+    "PLAT-007", "PLAT-008", "PLAT-013", "PLAT-016", "PLAT-018", "PLAT-019",
+    "PLAT-020", "PLAT-022", "PLAT-023", "PLAT-024", "PLAT-025", "PLAT-029"
+  ],
+  "decision_gates": [
+    {
+      "id": "DG-01",
+      "before_tasks": ["PLAT-002", "PLAT-003"],
+      "decision": "Contract-Versionierung und Cross-Repository-Releasefluss freigeben."
+    },
+    {
+      "id": "DG-02",
+      "before_tasks": ["PLAT-011", "PLAT-012"],
+      "decision": "Zulässigen Datenzugriffsweg, Portalbedingungen, Datenminimierung und Retention je Quelle bestätigen."
+    },
+    {
+      "id": "DG-03",
+      "before_tasks": ["PLAT-013"],
+      "decision": "Lokales Verschlüsselungs- und Recovery-Modell anhand eines Threat Models auswählen."
+    },
+    {
+      "id": "DG-04",
+      "before_tasks": ["PLAT-023"],
+      "decision": "Agentenlaufzeit, unabhängige Kontexte, Kosten-/Iterationslimit und lokaler Fallback festlegen."
+    },
+    {
+      "id": "DG-05",
+      "before_tasks": ["PLAT-026"],
+      "decision": "Nach erfolgreichem Dry Run pro Portal separat entscheiden, ob echte Übergabe technisch und rechtlich aktiviert werden darf."
+    }
+  ],
+  "tasks_status_summary": {
+    "total": 30,
+    "by_status": { "todo": 30, "in_progress": 0, "partial": 0, "blocked": 0, "done": 0 },
+    "progress_percent_done": 0,
+    "by_priority": { "high": 22, "medium": 8, "low": 0 },
+    "by_risk": { "high": 17, "medium": 12, "low": 1 },
+    "critical_path": { "total": 18, "done": 0, "remaining": 18 },
+    "milestones": { "total": 10, "todo": 10, "in_progress": 0, "blocked": 0, "done": 0 }
+  },
+  "tasks_type_summary": {
+    "total": 30,
+    "by_type": {
+      "contracts": 3,
+      "domain": 3,
+      "search": 3,
+      "portal_integration": 3,
+      "privacy": 3,
+      "candidate_profile": 3,
+      "matching": 3,
+      "application_pipeline": 3,
+      "submission": 3,
+      "quality_operations": 3
+    }
+  },
+  "progress_summary": {
+    "state": "todo",
+    "todo_remaining": 30,
+    "in_progress": 0,
+    "partial": 0,
+    "blocked": 0,
+    "done": 0
+  },
+  "recommended_execution_order": [
+    "M1: Verträge vor Implementierung stabilisieren.",
+    "M2: Domänenmodell, Persistenz und sichere Fehlerbasis schaffen.",
+    "M3 und M4: Suche und Portalintegration auf versionierte Capabilities umstellen.",
+    "M5 und M6: Identitäts- und Evidenzdaten absichern, bevor echte Dokumente verarbeitet werden.",
+    "M7: Kandidatenmatch ausschließlich aus validierter Evidence aufbauen.",
+    "M8: Dokument- und Agentenpipeline mit blockierenden Quality Gates integrieren.",
+    "M9: Erst Paketfreigabe und Dry Run, danach separat über reale Portalübergabe entscheiden.",
+    "M10: UX, CI, Security und Betrieb fortlaufend mit jedem vertikalen Slice ausbauen."
+  ],
+  "summary_notes": [
+    "Dies ist ein Feature-Track; keine Aufgabe wurde begonnen oder als abgeschlossen markiert.",
+    "Die Todo-JSON-Schemas wurden nicht verändert.",
+    "Submodule-Arbeit wird bei Aktivierung in eigenen Todos der jeweiligen Repositories detailliert und separat committed.",
+    "Externe Portale, echte Identitäten und Versand bleiben opt-in und durch technische Policy-Gates geschützt.",
+    "Jeder Milestone soll als kleiner ausführbarer vertikaler Slice mit synthetischen Fixtures geliefert werden."
+  ]
+}

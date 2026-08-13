@@ -14,6 +14,7 @@ und behalten ihre eigene Historie.
 - generischer stdio-MCP-Client für Suche, Status und sichtbaren StepStone-Login
 - Quellenansicht für StepStone, Arbeitnow, Remotive, WWR und Profilimporte
 - faktenkonservativer Bewerbungsentwurf hinter einer eigenen Assistenten-Schnittstelle
+- serverseitige Inkognito-Sperre für Finalisierung sowie Profil-, Claim-, Stil- und Review-Gates
 
 ## Start
 
@@ -58,3 +59,6 @@ npm.cmd run build
 ```
 
 Details zu Grenzen und Erweiterungen: [docs/architecture.md](docs/architecture.md).
+
+Entwicklungs-Todos, Skill-Routing und Agentenrollen sind in
+[docs/application-agent-system.md](docs/application-agent-system.md) getrennt beschrieben.

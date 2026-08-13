@@ -31,3 +31,6 @@ Eine Quelle implementiert `JobSourcePort` in `server/src/ports/job-source.ts`. S
 kanonische `JobPosting`-Modell. Matching und UI ändern sich dadurch nicht. Für produktive Quellen
 sollten ein Contract-Test, dokumentierte Nutzungsbedingungen und ein explizites Zugriffs-Gate
 ergänzt werden.
+
+Die Verantwortungsgrenzen zwischen Entwicklungs-Todos, Skills, MCP und Review-Agenten beschreibt
+[application-agent-system.md](application-agent-system.md).

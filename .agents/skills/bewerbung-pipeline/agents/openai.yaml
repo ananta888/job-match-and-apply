@@ -1,0 +1,4 @@
+interface:
+  display_name: "Bewerbungspipeline"
+  short_description: "Evidenzbasierte Bewerbungsunterlagen erstellen"
+  default_prompt: "Use $bewerbung-pipeline to create an evidence-backed application for this job."

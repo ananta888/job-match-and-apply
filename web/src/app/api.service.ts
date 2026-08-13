@@ -25,4 +25,16 @@ export class ApiService {
   draft(match: JobMatch, identityId: string, documentType: 'cover_letter' | 'email'): Observable<ApplicationDraft> {
     return this.http.post<ApplicationDraft>('/api/applications/draft', { match, identityId, documentType });
   }
+
+  finalize(
+    match: JobMatch,
+    identityId: string,
+    documentType: 'cover_letter' | 'email',
+    annotatedContent: string,
+    iterationManifest: string
+  ): Observable<ApplicationDraft> {
+    return this.http.post<ApplicationDraft>('/api/applications/finalize', {
+      match, identityId, documentType, annotatedContent, iterationManifest
+    });
+  }
 }

@@ -1,0 +1,151 @@
+{
+  "$schema": "todos/todo.track.schema.json",
+  "version": 1,
+  "owner": "job-match-and-apply",
+  "track": "application-agent-pipeline",
+  "created": "2026-08-13",
+  "updated": "2026-08-13",
+  "purpose": "Entwicklungs-Todos, Bewerbungs-Skill, Such-MCP und spezialisierte Review-Rollen ohne Verantwortungsvermischung zusammenführen.",
+  "goal": "Das Integrationsprojekt besitzt dauerhafte Repository-Regeln, unveränderte Todo-Schemas, einen dünnen Skill-Router und eine serverseitig erzwungene Grenze zwischen Suchpräferenzen, Kandidatenevidenz, Inkognito-Vorschau und finalen Bewerbungsdokumenten.",
+  "status_scale": ["todo", "in_progress", "partial", "blocked", "done"],
+  "priority_scale": ["low", "medium", "high"],
+  "risk_scale": ["low", "medium", "high"],
+  "milestones": [
+    {
+      "id": "M1",
+      "title": "Projektsteuerung und Routing",
+      "task_ids": ["AAP-01", "AAP-02"],
+      "status": "done"
+    },
+    {
+      "id": "M2",
+      "title": "Fachliche und technische Sicherheitsgrenzen",
+      "task_ids": ["AAP-03", "AAP-04"],
+      "status": "done"
+    },
+    {
+      "id": "M3",
+      "title": "Verifikation und Dokumentation",
+      "task_ids": ["AAP-05"],
+      "status": "done"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "AAP-01",
+      "title": "Root-AGENTS und Todo-Verantwortung einführen",
+      "status": "done",
+      "priority": "high",
+      "risk": "medium",
+      "progress_percent": 100,
+      "acceptance_criteria": [
+        "Root-AGENTS trennt Hauptprojekt, Submodules, Entwicklungstodos und Bewerbungsartefakte.",
+        "Die beiden Todo-Schemas werden inhaltlich unverändert übernommen.",
+        "Der Hauptprojekt-Track dupliziert keine historischen Submodule-Todos."
+      ],
+      "verification_evidence": [
+        "AGENTS.md und die Root-Todo-Verzeichnisse wurden angelegt; der semantische Schema-Gleichheitstest ist vor Abschluss auszuführen."
+      ]
+    },
+    {
+      "id": "AAP-02",
+      "title": "Projekt-Skill als dünnen Router bereitstellen",
+      "status": "done",
+      "priority": "high",
+      "risk": "low",
+      "progress_percent": 100,
+      "acceptance_criteria": [
+        "Der Repo-Skill routet Bewerbungstasks zum Submodule-Skill.",
+        "Evidence-, ATS-, Stil- und Review-Regeln werden nicht dupliziert.",
+        "Der Skill ist mit dem offiziellen Skill-Validator prüfbar."
+      ],
+      "verification_evidence": [
+        "Der Router liegt unter .agents/skills/bewerbung-pipeline und verweist auf den autoritativen Submodule-Skill."
+      ]
+    },
+    {
+      "id": "AAP-03",
+      "title": "Suchpräferenz und Kandidatenevidenz trennen",
+      "status": "done",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 100,
+      "acceptance_criteria": [
+        "Der Suchwert heißt in API und UI searchPreferenceScore beziehungsweise Suchprofil-Score.",
+        "Der Vorschauadapter stellt Suchbegriffe nicht als Kandidatenfähigkeiten dar.",
+        "Der Wert wird nicht als ATS-Score bezeichnet."
+      ],
+      "verification_evidence": [
+        "Domainmodell, Sortierung, Tests und UI wurden auf searchPreferenceScore umgestellt."
+      ]
+    },
+    {
+      "id": "AAP-04",
+      "title": "Inkognito-Finalisierung und Evidence-Gates erzwingen",
+      "status": "done",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 100,
+      "acceptance_criteria": [
+        "Inkognito-Identitäten können Vorschauen erzeugen, aber keine finalen Dokumente.",
+        "Finalisierung verlangt Profilvalidierung, Review-Manifest, Claim-Audit und Stilprüfung.",
+        "Interne Evidence-Annotationen werden erst nach erfolgreichen Prüfungen entfernt.",
+        "Policy- und Fehlerpfade sind automatisiert getestet."
+      ],
+      "verification_evidence": [
+        "Der Finalisierungsadapter führt validate_profiles, validate_iteration, audit_claims und check_style aus; zwei API-Regressionstests belegen Preview- und Inkognito-Policy."
+      ]
+    },
+    {
+      "id": "AAP-05",
+      "title": "Gesamtsystem prüfen und Grenzen dokumentieren",
+      "status": "done",
+      "priority": "medium",
+      "risk": "medium",
+      "progress_percent": 100,
+      "acceptance_criteria": [
+        "Todo und Skill sind valide.",
+        "API- und UI-Tests sowie Production-Build sind grün.",
+        "Architekturdokumentation beschreibt Todo-, Skill-, MCP-, Subagent- und Artefaktgrenzen."
+      ],
+      "verification_evidence": [
+        "Skill-Validator erfolgreich; Todo-Schemas semantisch identisch zur Referenz und der Track schema-valide; 13 API-/Domain-Tests sowie 1 Angular-Test grün; Server- und Angular-Production-Build erfolgreich."
+      ]
+    }
+  ],
+  "critical_path_tasks": ["AAP-01", "AAP-02", "AAP-03", "AAP-04", "AAP-05"],
+  "tasks_status_summary": {
+    "total": 5,
+    "by_status": { "todo": 0, "in_progress": 0, "partial": 0, "blocked": 0, "done": 5 },
+    "progress_percent_done": 100,
+    "by_priority": { "high": 4, "medium": 1, "low": 0 },
+    "by_risk": { "high": 2, "medium": 2, "low": 1 },
+    "critical_path": { "total": 5, "done": 5, "remaining": 0 },
+    "milestones": { "total": 3, "todo": 0, "in_progress": 0, "blocked": 0, "done": 3 }
+  },
+  "progress_summary": {
+    "state": "done",
+    "todo_remaining": 0,
+    "in_progress": 0,
+    "partial": 0,
+    "blocked": 0,
+    "done": 5
+  },
+  "summary_notes": [
+    "Die Todo-Schemas wurden auf ausdrücklichen Nutzerwunsch nicht verschärft.",
+    "Die fachlichen Regeln bleiben im Bewerbungs-Submodule; der Root-Skill dient nur als Router.",
+    "Abschluss: Skill- und Todo-Validierung, 14 Tests und beide Production-Builds sind erfolgreich."
+  ],
+  "end_summaries": [
+    {
+      "summary_id": "AAP-END-01",
+      "title": "Abschluss 2026-08-13",
+      "items": [
+        "Projektregeln und unveränderte Todo-Schemas sind im Hauptrepository verankert.",
+        "Der Repo-Skill routet zum fachlich autoritativen Bewerbungs-Submodule.",
+        "Suchpräferenz, Kandidatenevidenz und ATS-Bewertung sind begrifflich und technisch getrennt.",
+        "Inkognito ist auf Vorschauen begrenzt; Finalisierung verlangt die deterministischen Evidence- und Review-Gates."
+      ]
+    }
+  ]
+}

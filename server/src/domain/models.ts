@@ -43,9 +43,9 @@ export interface JobPosting {
   publishedAt?: string;
 }
 
-export interface JobMatch {
+export interface SearchPreferenceMatch {
   job: JobPosting;
-  score: number;
+  searchPreferenceScore: number;
   accepted: boolean;
   matchedMustHave: string[];
   missingMustHave: string[];
@@ -89,4 +89,5 @@ export interface ApplicationDraft {
   strongestMatches: string[];
   gaps: string[];
   warnings: string[];
+  lifecycle: 'preview' | 'final';
 }

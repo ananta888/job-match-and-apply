@@ -1,8 +1,8 @@
-import type { JobMatch, JobPosting, SearchProfile } from '../domain/models.js';
+import type { JobPosting, SearchPreferenceMatch, SearchProfile } from '../domain/models.js';
 
 const normalize = (value: string): string => value.trim().toLocaleLowerCase('de-DE');
 
-export function matchJob(profile: SearchProfile, job: JobPosting): JobMatch {
+export function matchJob(profile: SearchProfile, job: JobPosting): SearchPreferenceMatch {
   const haystack = normalize([job.title, job.company, job.description, ...job.skills].join(' '));
   const contains = (term: string): boolean => haystack.includes(normalize(term));
   const matchedMustHave = profile.mustHave.filter(contains);
@@ -17,7 +17,7 @@ export function matchJob(profile: SearchProfile, job: JobPosting): JobMatch {
   const accepted = missingMustHave.length === 0 && exclusions.length === 0 && salaryAccepted;
   return {
     job,
-    score: Math.max(0, Math.round(mustScore + niceScore + regionScore + workModelScore - exclusions.length * 30)),
+    searchPreferenceScore: Math.max(0, Math.round(mustScore + niceScore + regionScore + workModelScore - exclusions.length * 30)),
     accepted,
     matchedMustHave,
     missingMustHave,

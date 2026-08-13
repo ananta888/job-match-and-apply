@@ -54,7 +54,7 @@
           </div>
           <div class="match-orbit" aria-hidden="true">
             <div class="orbit orbit-a"></div><div class="orbit orbit-b"></div>
-            <div class="score-core"><strong>92</strong><span>Match</span></div>
+            <div class="score-core"><strong>{{ matches[0]?.searchPreferenceScore ?? '—' }}</strong><span>Suchscore</span></div>
             <span class="float-chip chip-a">TypeScript <b>✓</b></span>
             <span class="float-chip chip-b">Remote <b>✓</b></span>
             <span class="float-chip chip-c">Berlin <b>✓</b></span>
@@ -108,7 +108,7 @@
             }
             @for (match of matches; track match.job.id) {
               <article class="job-card" [class.selected]="selectedMatch?.job?.id === match.job.id" (click)="chooseMatch(match)">
-                <div class="score-ring" [class.good]="match.accepted"><strong>{{ match.score }}</strong><small>%</small></div>
+                <div class="score-ring" [class.good]="match.accepted"><strong>{{ match.searchPreferenceScore }}</strong><small>%</small></div>
                 <div class="job-main"><div class="job-title"><span class="source-logo">{{ match.job.sourceId.slice(0, 2) }}</span><div><h3>{{ match.job.title }}</h3><p>{{ match.job.company }} · {{ match.job.location }}</p></div></div>
                   <p class="description">{{ match.job.description }}</p>
                   <div class="chips">@for (skill of match.matchedMustHave; track skill) { <span class="chip match">✓ {{ skill }}</span> } @for (skill of match.matchedNiceToHave; track skill) { <span class="chip">{{ skill }}</span> } @for (gap of match.missingMustHave; track gap) { <span class="chip gap">Fehlt: {{ gap }}</span> }</div>
@@ -160,7 +160,7 @@
         <section class="page-intro"><div><span class="kicker">FAKTENBASIERT</span><h2>Bewerbungswerkstatt</h2><p>Der Assistent nutzt nur belegte Aussagen. Die Inkognito-Daten bleiben als klar erkennbare Platzhalter erhalten.</p></div><span class="status" [class.ok]="assistant.available">{{ assistant.available ? 'Skill bereit' : 'Lokaler Fallback' }}</span></section>
         @if (!selectedMatch) { <div class="empty"><span>▤</span><h3>Noch keine Stelle ausgewählt</h3><p>Wähle zuerst ein Suchergebnis aus.</p><button class="primary" (click)="select('search')">Zur Jobsuche</button></div> }
         @if (selectedMatch; as match) {
-          <section class="page-grid application-layout"><article class="panel application-context"><span class="kicker">ZIELSTELLE</span><h3>{{ match.job.title }}</h3><p>{{ match.job.company }} · {{ match.job.location }}</p><div class="mini-score"><strong>{{ match.score }}%</strong><span>Profil-Match</span></div><h4>Stärkste Übereinstimmungen</h4><div class="chips">@for (term of [...match.matchedMustHave, ...match.matchedNiceToHave]; track term) { <span class="chip match">✓ {{ term }}</span> }</div>@if (match.missingMustHave.length) { <h4>Offene Lücken</h4><div class="chips">@for (term of match.missingMustHave; track term) { <span class="chip gap">{{ term }}</span> }</div> }</article>
+          <section class="page-grid application-layout"><article class="panel application-context"><span class="kicker">ZIELSTELLE</span><h3>{{ match.job.title }}</h3><p>{{ match.job.company }} · {{ match.job.location }}</p><div class="mini-score"><strong>{{ match.searchPreferenceScore }}%</strong><span>Suchprofil-Score</span></div><h4>Suchkriterien gefunden</h4><div class="chips">@for (term of [...match.matchedMustHave, ...match.matchedNiceToHave]; track term) { <span class="chip match">✓ {{ term }}</span> }</div>@if (match.missingMustHave.length) { <h4>Suchkriterien nicht gefunden</h4><div class="chips">@for (term of match.missingMustHave; track term) { <span class="chip gap">{{ term }}</span> }</div> }</article>
             <article class="panel editor"><div class="editor-toolbar"><div class="segmented"><button [class.active]="documentType === 'cover_letter'" (click)="documentType = 'cover_letter'; prepareApplication()">Anschreiben</button><button [class.active]="documentType === 'email'" (click)="documentType = 'email'; prepareApplication()">E-Mail</button></div><button class="primary compact" (click)="prepareApplication()">Neu erzeugen</button></div>
               @if (draft) { <textarea [(ngModel)]="draft.content" aria-label="Bewerbungsentwurf"></textarea><div class="warnings">@for (warning of draft.warnings; track warning) { <p>◇ {{ warning }}</p> }</div> } @else { <div class="empty compact-empty"><span>✦</span><h3>Entwurf erstellen</h3><p>Der lokale Assistent formuliert eine sichere Basis ohne erfundene Erfahrung.</p><button class="primary" (click)="prepareApplication()">Entwurf erzeugen</button></div> }
             </article></section>

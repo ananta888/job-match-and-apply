@@ -20,7 +20,7 @@ export interface JobPosting {
 }
 
 export interface JobMatch {
-  job: JobPosting; score: number; accepted: boolean; matchedMustHave: string[]; missingMustHave: string[];
+  job: JobPosting; searchPreferenceScore: number; accepted: boolean; matchedMustHave: string[]; missingMustHave: string[];
   matchedNiceToHave: string[]; exclusions: string[];
 }
 
@@ -38,4 +38,5 @@ export interface AppConfig {
 export interface ApplicationDraft {
   jobId: string; identityId: string; documentType: 'cover_letter' | 'email'; content: string;
   strongestMatches: string[]; gaps: string[]; warnings: string[];
+  lifecycle: 'preview' | 'final';
 }

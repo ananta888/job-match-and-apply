@@ -18,7 +18,7 @@ describe('matchJob', () => {
   it('accepts a job that satisfies all hard filters', () => {
     const result = matchJob(profile, job);
     expect(result.accepted).toBe(true);
-    expect(result.score).toBe(100);
+    expect(result.searchPreferenceScore).toBe(100);
   });
 
   it('rejects excluded wording even when skills match', () => {

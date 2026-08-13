@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { DemoJobSourceAdapter } from './adapters/demo-job-source.js';
 import { LocalApplicationAssistantAdapter } from './adapters/local-application-assistant.js';
 import { McpJobSourceAdapter } from './adapters/mcp-job-source.js';
-import type { AppConfig, JobMatch } from './domain/models.js';
+import type { AppConfig, SearchPreferenceMatch } from './domain/models.js';
 import type { JobSourcePort } from './ports/job-source.js';
 import type { ConfigStore } from './services/config-store.js';
 import { JsonConfigStore } from './services/config-store.js';
@@ -96,7 +96,7 @@ export function createApp(store: ConfigStore = new JsonConfigStore()) {
       ? searchProfileSchema.parse(request.body)
       : config.searchProfile;
     const jobs = await sourceFor(config).search(profile);
-    response.json({ matches: jobs.map((job) => matchJob(profile, job)).sort((a, b) => b.score - a.score) });
+    response.json({ matches: jobs.map((job) => matchJob(profile, job)).sort((a, b) => b.searchPreferenceScore - a.searchPreferenceScore) });
   }));
 
   app.get('/api/assistant/status', asyncRoute(async (_request, response) => {
@@ -106,7 +106,7 @@ export function createApp(store: ConfigStore = new JsonConfigStore()) {
 
   app.post('/api/applications/draft', asyncRoute(async (request, response) => {
     const payload = z.object({
-      match: z.custom<JobMatch>((value) => Boolean(value && typeof value === 'object')),
+      match: z.custom<SearchPreferenceMatch>((value) => Boolean(value && typeof value === 'object')),
       identityId: z.string().min(1),
       documentType: z.enum(['cover_letter', 'email']).default('cover_letter')
     }).parse(request.body);
@@ -117,7 +117,31 @@ export function createApp(store: ConfigStore = new JsonConfigStore()) {
       return;
     }
     const assistant = new LocalApplicationAssistantAdapter(config.assistant);
-    response.json(await assistant.draft(payload.match, identity, payload.documentType));
+    response.json(await assistant.preview(payload.match.job, identity, payload.documentType));
+  }));
+
+  app.post('/api/applications/finalize', asyncRoute(async (request, response) => {
+    const payload = z.object({
+      match: z.custom<SearchPreferenceMatch>((value) => Boolean(value && typeof value === 'object')),
+      identityId: z.string().min(1),
+      documentType: z.enum(['cover_letter', 'email']),
+      annotatedContent: z.string().min(1).max(200_000),
+      iterationManifest: z.string().min(1).max(200_000)
+    }).parse(request.body);
+    const config = await store.load();
+    const identity = config.identities.find((candidate) => candidate.id === payload.identityId);
+    if (!identity) {
+      response.status(404).json({ error: 'Identität nicht gefunden.' });
+      return;
+    }
+    const assistant = new LocalApplicationAssistantAdapter(config.assistant);
+    response.json(await assistant.finalize({
+      job: payload.match.job,
+      identity,
+      documentType: payload.documentType,
+      annotatedContent: payload.annotatedContent,
+      iterationManifest: payload.iterationManifest
+    }));
   }));
 
   app.use((error: unknown, _request: Request, response: Response, _next: NextFunction) => {

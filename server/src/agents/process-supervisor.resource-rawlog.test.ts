@@ -115,10 +115,13 @@ describe('ProcessSupervisor injected resource boundaries', () => {
     expect(calls[0]?.timeoutMs).toBe(5_000);
     expect(calls[0]?.args).toEqual(expect.arrayContaining(['-NoProfile', '-NonInteractive', '-EncodedCommand']));
     const decodedWindowsProbe = Buffer.from(calls[0]?.args.at(-1) ?? '', 'base64').toString('utf16le');
-    expect(decodedWindowsProbe).toContain('System.Management.ManagementObjectSearcher');
-    expect(decodedWindowsProbe).toContain('SELECT ProcessId,ParentProcessId,WorkingSetSize FROM Win32_Process');
+    expect(decodedWindowsProbe).toContain('System.Management.Automation.PlatformInvokes');
+    expect(decodedWindowsProbe).toContain('CreateToolhelp32Snapshot');
+    expect(decodedWindowsProbe).toContain('Process32First');
+    expect(decodedWindowsProbe).toContain('System.Diagnostics.Process]::GetProcesses()');
     expect(decodedWindowsProbe).not.toContain('Add-Type');
     expect(decodedWindowsProbe).not.toContain('Get-CimInstance');
+    expect(decodedWindowsProbe).not.toContain('ManagementObjectSearcher');
     expect(decodedWindowsProbe).not.toContain('NtQueryInformationProcess');
 
     const posixExecutor: ProcessTableCommandExecutor = { async run(executable, args, timeoutMs) {

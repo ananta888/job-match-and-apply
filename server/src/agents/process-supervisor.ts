@@ -124,27 +124,76 @@ export function summarizeProcessTree(rootPid: number, entries: readonly ProcessT
 const WINDOWS_PROCESS_TABLE_SCRIPT = String.raw`
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
-$searcher = [System.Management.ManagementObjectSearcher]::new(
-  "SELECT ProcessId,ParentProcessId,WorkingSetSize FROM Win32_Process"
+$automationAssembly = [System.Management.Automation.PSObject].Assembly
+$platformType = $automationAssembly.GetType(
+  "System.Management.Automation.PlatformInvokes",
+  $true
 )
-$collection = $null
+$entryType = $automationAssembly.GetType(
+  "System.Management.Automation.PlatformInvokes+PROCESSENTRY32",
+  $true
+)
+$snapshotFlagsType = $automationAssembly.GetType(
+  "System.Management.Automation.PlatformInvokes+SnapshotFlags",
+  $true
+)
+$bindingFlags = [System.Reflection.BindingFlags]"Static,Public,NonPublic"
+$createSnapshot = $platformType.GetMethod("CreateToolhelp32Snapshot", $bindingFlags)
+$processFirst = $platformType.GetMethod("Process32First", $bindingFlags)
+$processNext = $platformType.GetMethod("Process32Next", $bindingFlags)
+$snapshot = $createSnapshot.Invoke(
+  $null,
+  @([System.Enum]::ToObject($snapshotFlagsType, 2), [uint32]0)
+)
 try {
-  $collection = $searcher.Get()
-  $rows = @(
-    foreach ($process in $collection) {
-      [PSCustomObject]@{
-        ProcessId = [long]($process.GetPropertyValue("ProcessId"))
-        ParentProcessId = [long]($process.GetPropertyValue("ParentProcessId"))
-        WorkingSetSize = [long]($process.GetPropertyValue("WorkingSetSize"))
-      }
+  if ($snapshot.IsInvalid) {
+    throw "CreateToolhelp32Snapshot failed."
+  }
+
+  $memoryByPid = @{}
+  foreach ($process in [System.Diagnostics.Process]::GetProcesses()) {
+    try {
+      $memoryByPid[[long]$process.Id] = [long]$process.WorkingSet64
+    } catch {
+      # A process may leave between enumeration and sampling. Its snapshot row
+      # remains useful for parentage and is conservatively recorded with 0 RSS.
+    } finally {
+      $process.Dispose()
     }
+  }
+
+  $pidField = $entryType.GetField("th32ProcessID")
+  $parentPidField = $entryType.GetField("th32ParentProcessID")
+  $sizeField = $entryType.GetField("dwSize")
+  $entry = [System.Activator]::CreateInstance($entryType)
+  $sizeField.SetValue(
+    $entry,
+    [uint32][System.Runtime.InteropServices.Marshal]::SizeOf($entry)
   )
+  $arguments = [object[]]@($snapshot, $entry)
+  $hasEntry = [bool]$processFirst.Invoke($null, $arguments)
+  $rows = [System.Collections.Generic.List[object]]::new()
+  while ($hasEntry) {
+    $entry = $arguments[1]
+    $processId = [long]$pidField.GetValue($entry)
+    if ($processId -gt 0) {
+      $workingSetSize = if ($memoryByPid.ContainsKey($processId)) {
+        [long]$memoryByPid[$processId]
+      } else {
+        [long]0
+      }
+      $rows.Add([PSCustomObject]@{
+        ProcessId = $processId
+        ParentProcessId = [long]$parentPidField.GetValue($entry)
+        WorkingSetSize = $workingSetSize
+      })
+    }
+    $arguments[1] = $entry
+    $hasEntry = [bool]$processNext.Invoke($null, $arguments)
+  }
   ConvertTo-Json -InputObject $rows -Compress
 } finally {
-  if ($null -ne $collection) {
-    $collection.Dispose()
-  }
-  $searcher.Dispose()
+  $snapshot.Dispose()
 }
 `;
 

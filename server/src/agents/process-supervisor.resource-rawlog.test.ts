@@ -113,6 +113,7 @@ describe('ProcessSupervisor injected resource boundaries', () => {
       .resolves.toEqual({ residentMemoryBytes: 500, childProcessCount: 1 });
     expect(calls[0]?.executable).toMatch(/^[A-Za-z]:\\.*\\powershell\.exe$/i);
     expect(calls[0]?.args).toEqual(expect.arrayContaining(['-NoProfile', '-NonInteractive', '-Command']));
+    expect(calls[0]?.args.at(-1)).toContain('SELECT ProcessId,ParentProcessId,WorkingSetSize FROM Win32_Process');
 
     const posixExecutor: ProcessTableCommandExecutor = { async run(executable, args) {
       calls.push({ executable, args });
@@ -163,6 +164,69 @@ describe('ProcessSupervisor injected resource boundaries', () => {
 
     expect(result.termination).toBe('memory_limit');
     expect(result.lastResourceUsage).toEqual({ residentMemoryBytes: 101, childProcessCount: 0 });
+  });
+
+  it('retries one Windows root-visibility lag and then enforces the measured limit', async () => {
+    let rootPid = 0;
+    let samples = 0;
+    const resourceExecutor: ProcessTableCommandExecutor = { async run() {
+      samples += 1;
+      return { exitCode: 0, stdout: JSON.stringify(samples === 1
+        ? [{ ProcessId: 1, ParentProcessId: 0, WorkingSetSize: 1 }]
+        : [{ ProcessId: rootPid, ParentProcessId: 1, WorkingSetSize: 101 }]), stderr: '' };
+    } };
+    const cleanupExecutor: ProcessTableCommandExecutor = { async run(_executable, _args, timeoutMs) {
+      expect(timeoutMs).toBe(2_000);
+      return { exitCode: 0, stdout: JSON.stringify([
+        { ProcessId: rootPid, ParentProcessId: 1, WorkingSetSize: 101 },
+      ]), stderr: '' };
+    } };
+    const cwd = await temporaryRoot('supervisor-visibility-lag-');
+    const result = await new ProcessSupervisor(
+      new HostProcessTreeResourceProbe('win32', resourceExecutor),
+      cleanupExecutor,
+    ).start({
+      executable: process.execPath, args: ['-e', 'setInterval(() => {}, 1000)'], cwd,
+      limits: {
+        maxResidentMemoryBytes: 100, resourceProbeIntervalMs: 10,
+        wallTimeMs: 2_000, idleTimeMs: 2_000, cancelGraceMs: 50,
+      },
+    }, { onStart: (pid) => { rootPid = pid; } }).completion;
+
+    expect(samples).toBe(2);
+    expect(result.termination).toBe('memory_limit');
+    expect(result.lastResourceUsage).toEqual({ residentMemoryBytes: 101, childProcessCount: 0 });
+  });
+
+  it('fails closed when the supervised root is still absent on the retry', async () => {
+    let rootPid = 0;
+    let samples = 0;
+    const missingRootExecutor: ProcessTableCommandExecutor = { async run() {
+      samples += 1;
+      return { exitCode: 0, stdout: JSON.stringify([
+        { ProcessId: 1, ParentProcessId: 0, WorkingSetSize: 1 },
+      ]), stderr: '' };
+    } };
+    const cleanupExecutor: ProcessTableCommandExecutor = { async run() {
+      return { exitCode: 0, stdout: JSON.stringify([
+        { ProcessId: rootPid, ParentProcessId: 1, WorkingSetSize: 1 },
+      ]), stderr: '' };
+    } };
+    const cwd = await temporaryRoot('supervisor-visibility-closed-');
+    const result = await new ProcessSupervisor(
+      new HostProcessTreeResourceProbe('win32', missingRootExecutor),
+      cleanupExecutor,
+    ).start({
+      executable: process.execPath, args: ['-e', 'setInterval(() => {}, 1000)'], cwd,
+      limits: {
+        maxResidentMemoryBytes: 100, resourceProbeIntervalMs: 10,
+        wallTimeMs: 2_000, idleTimeMs: 2_000, cancelGraceMs: 50,
+      },
+    }, { onStart: (pid) => { rootPid = pid; } }).completion;
+
+    expect(samples).toBe(2);
+    expect(result.termination).toBe('resource_probe_error');
+    expect(result.error).toContain('Root-Prozess fehlt');
   });
 
   it.runIf(['win32', 'linux', 'darwin'].includes(process.platform))('enforces a real host process-table sample', async () => {

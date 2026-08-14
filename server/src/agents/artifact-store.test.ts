@@ -58,6 +58,19 @@ describe('AgentArtifactStore', () => {
     })).rejects.toThrow('collision_or_corruption');
   });
 
+  it.runIf(process.platform === 'win32')('uses canonical Windows root identity for safe deletion staging', async () => {
+    const physicalRoot = await mkdtemp(join(tmpdir(), 'agent-artifacts-path-case-')); roots.push(physicalRoot);
+    const store = new AgentArtifactStore(physicalRoot.toUpperCase());
+    const record = await store.create({
+      kind: 'draft', content: 'case-insensitive-root', mediaType: 'text/plain', provenance: provenance(),
+    });
+    const preview = await store.previewDeletion([record.id]);
+    await expect(store.applyDeletion(preview)).resolves.toMatchObject({
+      deletedRecords: [record.id], deletedBlobs: [record.sha256],
+    });
+    await expect(store.get(record.id)).resolves.toBeUndefined();
+  });
+
   it('allows used only through the injected validated adoption port', async () => {
     const { store, record } = await fixture();
     const approved = await store.review(record.id, 'approved', 0, 'local-user');

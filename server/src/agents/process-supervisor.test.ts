@@ -2,7 +2,11 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { classifyNaturalProcessTermination, ProcessSupervisor } from './process-supervisor.js';
+import {
+  classifyNaturalProcessTermination,
+  ProcessSupervisor,
+  type ProcessTableCommandExecutor,
+} from './process-supervisor.js';
 
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
@@ -78,6 +82,25 @@ describe('ProcessSupervisor', () => {
     if (process.platform === 'win32') {
       expect(() => new ProcessSupervisor().start({ executable: 'unsafe.cmd', args: [], cwd })).toThrow('CMD-/BAT');
     }
+  });
+
+  it.runIf(process.platform === 'win32')('fails closed with a forced tree kill when the Windows snapshot is unavailable', async () => {
+    const cwd = await root();
+    const processTable: ProcessTableCommandExecutor = { async run(_executable, _args, timeoutMs) {
+      expect(timeoutMs).toBe(2_000);
+      return { exitCode: null, stdout: '', stderr: 'synthetic snapshot timeout' };
+    } };
+    const handle = new ProcessSupervisor(undefined, processTable).start({
+      executable: process.execPath,
+      args: ['-e', 'setInterval(()=>{},1000)'],
+      cwd,
+      limits: { wallTimeMs: 5_000, idleTimeMs: 5_000, cancelGraceMs: 50 },
+    });
+
+    await handle.cancel('snapshot fallback canary');
+    const result = await handle.completion;
+    expect(result.termination).toBe('cancelled');
+    expect(result.error).toContain('Prozessbaum-Snapshot fehlgeschlagen');
   });
 
   it('kills a stubborn descendant process when the direct child exits on cancellation', async () => {

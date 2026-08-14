@@ -53,6 +53,13 @@ export interface ProcessTableCommandExecutor {
   run(executable: string, args: readonly string[], timeoutMs: number): Promise<ProcessTableCommandResult>;
 }
 
+class ProcessTreeRootNotVisibleError extends Error {
+  constructor() {
+    super('Supervidierter Root-Prozess fehlt in der Prozesstabelle.');
+    this.name = 'ProcessTreeRootNotVisibleError';
+  }
+}
+
 /** Fixed-command executor used only for OS process accounting; no run/client value reaches argv. */
 export class SpawnProcessTableCommandExecutor implements ProcessTableCommandExecutor {
   async run(executable: string, args: readonly string[], timeoutMs: number): Promise<ProcessTableCommandResult> {
@@ -96,7 +103,7 @@ export function summarizeProcessTree(rootPid: number, entries: readonly ProcessT
     siblings.push(normalized.pid);
     children.set(normalized.parentPid, siblings);
   }
-  if (!byPid.has(rootPid)) throw new Error('Supervidierter Root-Prozess fehlt in der Prozesstabelle.');
+  if (!byPid.has(rootPid)) throw new ProcessTreeRootNotVisibleError();
 
   const pending = [rootPid];
   const visited = new Set<number>();
@@ -116,7 +123,7 @@ export function summarizeProcessTree(rootPid: number, entries: readonly ProcessT
 
 const WINDOWS_PROCESS_TABLE_COMMAND = [
   '-NoLogo', '-NoProfile', '-NonInteractive', '-Command',
-  '$ErrorActionPreference="Stop"; @(Get-CimInstance -ClassName Win32_Process | Select-Object ProcessId,ParentProcessId,WorkingSetSize) | ConvertTo-Json -Compress',
+  '$ErrorActionPreference="Stop"; @(Get-CimInstance -Query "SELECT ProcessId,ParentProcessId,WorkingSetSize FROM Win32_Process") | Select-Object ProcessId,ParentProcessId,WorkingSetSize | ConvertTo-Json -Compress',
 ] as const;
 
 function windowsSystemExecutable(name: 'powershell.exe' | 'taskkill.exe'): string {
@@ -167,7 +174,10 @@ async function snapshotWindowsProcessTree(
   rootPid: number,
   executor: ProcessTableCommandExecutor,
 ): Promise<number[]> {
-  const result = await executor.run(windowsSystemExecutable('powershell.exe'), WINDOWS_PROCESS_TABLE_COMMAND, 5_000);
+  // Cleanup has to fit inside ordinary request/test deadlines. If the Windows
+  // process table is cold or unavailable, the caller immediately falls back
+  // to forceful taskkill /T while the root PID still owns its descendants.
+  const result = await executor.run(windowsSystemExecutable('powershell.exe'), WINDOWS_PROCESS_TABLE_COMMAND, 2_000);
   if (result.exitCode !== 0) throw new Error(`Windows-Prozessbaum konnte nicht gelesen werden: ${result.stderr.trim().slice(0, 512)}`);
   return processTreeIds(rootPid, parseWindowsProcessTable(result.stdout));
 }
@@ -452,6 +462,7 @@ export class ProcessSupervisor {
     let terminationCleanup: Promise<void> | undefined;
     let lastResourceUsage: ProcessResourceUsage | undefined;
     let resourceProbeRunning = false;
+    let resourceRootVisibilityMisses = 0;
     let settled = false;
     let resolveCompletion!: (result: ProcessResult) => void;
     const completion = new Promise<ProcessResult>((resolve) => { resolveCompletion = resolve; });
@@ -467,10 +478,22 @@ export class ProcessSupervisor {
       });
     };
 
+    const isProcessAlive = (pid: number): boolean => {
+      try { process.kill(pid, 0); return true; }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ESRCH') return false;
+        // EPERM still proves that the PID exists. Keep it as a kill target and
+        // let taskkill report whether the supervisor may terminate it.
+        if ((error as NodeJS.ErrnoException).code === 'EPERM') return true;
+        throw error;
+      }
+    };
+
     const killTree = async (force: boolean): Promise<void> => {
       if (!child.pid || (!force && (child.exitCode !== null || child.killed))) return;
       if (process.platform === 'win32') {
-        await killWindowsTree(child.pid, force);
+        if (force) await killWindowsTree(child.pid, true);
+        else child.kill('SIGTERM');
       } else {
         try { process.kill(-child.pid, force ? 'SIGKILL' : 'SIGTERM'); }
         catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error; }
@@ -496,12 +519,22 @@ export class ProcessSupervisor {
           }
         }
         await killTree(false);
-        await new Promise<void>((resolveGrace) => { setTimeout(resolveGrace, limits.cancelGraceMs); });
+        // POSIX process groups receive SIGTERM and get the configured grace
+        // period. Windows has no equivalent graceful signal for console
+        // process trees: Node's SIGTERM emulation terminates only the root, so
+        // waiting would merely leave snapshotted descendants alive longer.
+        if (process.platform !== 'win32') {
+          await new Promise<void>((resolveGrace) => { setTimeout(resolveGrace, limits.cancelGraceMs); });
+        }
         if (windowsTree) {
-          // A Windows root may exit during the grace period, after which
-          // taskkill /T on that root can no longer discover re-parented
-          // descendants. Force every validated snapshot PID, deepest first.
-          for (const pid of [...windowsTree].reverse()) await killWindowsTree(pid, true);
+          // Once the Windows root exits, taskkill /T on that root can no
+          // longer discover re-parented descendants. Force every *surviving*
+          // validated snapshot PID,
+          // deepest first. Avoiding taskkill processes for PIDs which are
+          // already gone keeps cleanup bounded on cold Windows CI hosts.
+          for (const pid of [...windowsTree].reverse()) {
+            if (isProcessAlive(pid)) await killWindowsTree(pid, true);
+          }
         } else await killTree(true);
       })();
       await terminationCleanup;
@@ -522,6 +555,7 @@ export class ProcessSupervisor {
           || !Number.isSafeInteger(usage.childProcessCount) || usage.childProcessCount < 0) {
           throw new Error('ResourceProbe lieferte ungueltige Messwerte.');
         }
+        resourceRootVisibilityMisses = 0;
         lastResourceUsage = { ...usage };
         const violation = classifyProcessResourceUsage(usage, limits);
         if (violation === 'memory_limit') {
@@ -530,6 +564,17 @@ export class ProcessSupervisor {
           await requestTermination('child_process_limit', `Kindprozesslimit ueberschritten: ${usage.childProcessCount} > ${limits.maxChildProcesses}.`);
         }
       } catch (error) {
+        // Host process tables (especially Win32_Process) can lag the Node
+        // `spawn` event briefly. Tolerate one specifically classified
+        // visibility miss, then fail closed on the next sample. All other
+        // probe failures terminate immediately.
+        if (error instanceof ProcessTreeRootNotVisibleError
+          && resourceRootVisibilityMisses === 0
+          && child.exitCode === null
+          && !child.killed) {
+          resourceRootVisibilityMisses += 1;
+          return;
+        }
         await requestTermination('resource_probe_error', `ResourceProbe fehlgeschlagen: ${(error as Error).message}`);
       } finally { resourceProbeRunning = false; }
     };
@@ -573,7 +618,6 @@ export class ProcessSupervisor {
     child.stderr.on('data', (chunk: Buffer) => consume('stderr', chunk));
     child.once('spawn', () => {
       if (child.pid) callbacks.onStart?.(child.pid);
-      void probeResources();
     });
     child.once('error', (error) => {
       if (!requestedTermination) { requestedTermination = 'spawn_error'; terminationError = error.message; }

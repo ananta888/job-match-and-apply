@@ -139,6 +139,9 @@ export class LocalApplicationAssistantAdapter implements ApplicationAssistantPor
   }
 
   async finalize(command: FinalizeApplicationCommand): Promise<ApplicationDraft> {
+    if (command.identity.mode === 'incognito') {
+      throw policyError('Inkognito-Identitäten dürfen nur Vorschauen erzeugen. Für die Finalisierung ist eine reale Identität erforderlich.');
+    }
     const preparation = await this.analyze(command.job, command.documentType);
     const matrixValidation = await this.validateMatchMatrix(preparation.matchMatrix, command.documentType);
     if (!matrixValidation.valid) throw policyError('Die Evidence-Match-Matrix ist nicht gueltig; Finalisierung bleibt gesperrt.');
@@ -219,9 +222,6 @@ export class LocalApplicationAssistantAdapter implements ApplicationAssistantPor
   }
 
   private async finalizeWithoutEvidence(command: FinalizeApplicationCommand): Promise<ApplicationDraft> {
-    if (command.identity.mode === 'incognito') {
-      throw policyError('Inkognito-Identitäten dürfen nur Vorschauen erzeugen. Für die Finalisierung ist eine reale Identität erforderlich.');
-    }
     const skillRoot = this.projectPath(this.settings.skillPath);
     const candidate = this.projectPath(this.settings.candidateProfilePath);
     const style = this.projectPath(this.settings.styleProfilePath);

@@ -336,7 +336,11 @@ export class AgentArtifactStore {
       if (current.digest !== preview.digest) throw new Error('artifact_deletion_preview_stale');
       const rootInfo = await lstat(this.root);
       if (rootInfo.isSymbolicLink() || !rootInfo.isDirectory()) throw new Error('artifact_store_root_unsafe');
-      const stagingRoot = resolve(this.root, '.deletion-staging'); ensureInside(this.root, stagingRoot);
+      // Windows may expose the configured root with different casing or an
+      // 8.3 alias. Derive every identity-sensitive staging path from the same
+      // realpath result while still rejecting a reparse/symlinked staging dir.
+      const canonicalRoot = await realpath(this.root);
+      const stagingRoot = resolve(canonicalRoot, '.deletion-staging'); ensureInside(canonicalRoot, stagingRoot);
       await mkdir(stagingRoot, { recursive: true, mode: 0o700 });
       const stagingInfo = await lstat(stagingRoot);
       if (stagingInfo.isSymbolicLink() || !stagingInfo.isDirectory() || await realpath(stagingRoot) !== stagingRoot) throw new Error('artifact_deletion_staging_unsafe');

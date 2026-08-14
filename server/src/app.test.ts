@@ -215,7 +215,10 @@ describe('API', () => {
   });
 
   it('blocks finalization for an incognito identity before running external checks', async () => {
-    const app = createApp(new MemoryConfigStore());
+    const config = structuredClone(defaultConfig);
+    config.assistant.candidateProfilePath = '.local-data/profiles/__ci-missing-candidate-profile__.yaml';
+    config.assistant.styleProfilePath = '.local-data/profiles/__ci-missing-style-profile__.yaml';
+    const app = createApp(new MemoryConfigStore(config));
     const search = await request(app).post('/api/jobs/search').send({}).expect(200);
     const response = await request(app)
       .post('/api/applications/finalize')

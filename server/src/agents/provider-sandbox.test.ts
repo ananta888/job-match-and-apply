@@ -16,9 +16,10 @@ const installation: AgentProviderInstallation = {
 };
 
 describe('WslBubblewrapSandboxBoundary', () => {
-  it('constructs a fixed offline read-only boundary without a shell', async () => {
-    const boundary = new WslBubblewrapSandboxBoundary(async () => true);
+  it('constructs a fixed read-only boundary with a provider-only control plane and no shell tool', async () => {
+    const boundary = new WslBubblewrapSandboxBoundary(async () => true, async () => '/home/synthetic');
     const result = await boundary.plan({
+      provider: 'opencode',
       installation,
       providerExecutable: '/usr/local/bin/opencode',
       providerArgs: ['run', '--format', 'json', '--dir', '/mnt/c/work', 'safe prompt'],
@@ -29,18 +30,30 @@ describe('WslBubblewrapSandboxBoundary', () => {
 
     expect(result.executable).toBe(installation.executable);
     expect(result.args.slice(0, 4)).toEqual(['-d', 'Ubuntu', '--', 'bwrap']);
-    expect(result.args).toContain('--unshare-net');
+    expect(result.args).not.toContain('--unshare-net');
     expect(result.args).toContain('--ro-bind');
     expect(result.args).not.toContain('--bind');
     expect(result.args.at(-1)).toBe('safe prompt');
-    expect(result.network).toBe('none');
+    expect(result.networkEnforcement).toBe('provider-tool-capability-policy');
+    expect(result.networkMechanism).toBe('server-owned-read-only-tool-allowlist');
+    expect(result.networkAccessClaim).toBe('provider-control-plane-only');
     expect(result.args).toContain('--clearenv');
     expect(result.args).toContain('/tmp/agent-home');
+    expect(result.args).toContain('OPENCODE_DISABLE_PROJECT_CONFIG');
+    const inline = result.args[result.args.indexOf('OPENCODE_CONFIG_CONTENT') + 1] ?? '';
+    const config = JSON.parse(inline) as Record<string, unknown>;
+    expect(config).toMatchObject({
+      share: 'disabled',
+      agent: { 'job-match-read-only': { permission: { '*': 'deny', read: 'allow' } } },
+    });
+    expect(config).not.toHaveProperty('permission');
+    expect(result.args).toContain('/home/synthetic/.local/share/opencode/auth.json');
   });
 
   it('binds only the selected workspace for workspace-write', async () => {
-    const boundary = new WslBubblewrapSandboxBoundary(async () => true);
+    const boundary = new WslBubblewrapSandboxBoundary(async () => true, async () => '/home/synthetic');
     const result = await boundary.plan({
+      provider: 'opencode',
       installation,
       providerExecutable: '/usr/local/bin/opencode',
       providerArgs: ['run'],
@@ -54,21 +67,25 @@ describe('WslBubblewrapSandboxBoundary', () => {
   });
 
   it('fails closed for unsupported targets, network modes, and missing backends', async () => {
-    const available = new WslBubblewrapSandboxBoundary(async () => true);
+    const available = new WslBubblewrapSandboxBoundary(async () => true, async () => '/home/synthetic');
     await expect(available.plan({
+      provider: 'opencode',
       installation: { ...installation, runtimeTarget: 'windows' },
       providerExecutable: '/usr/local/bin/opencode', providerArgs: [], workspaceRoot: '/mnt/c/work',
       sandbox: 'read-only', network: 'disabled'
     })).rejects.toThrow('requires_wsl');
     await expect(available.plan({
+      provider: 'opencode',
       installation, providerExecutable: '/usr/local/bin/opencode', providerArgs: [], workspaceRoot: '/mnt/c/work',
       sandbox: 'read-only', network: 'restricted'
     })).rejects.toThrow('network_mode_not_enforceable');
-    await expect(new WslBubblewrapSandboxBoundary(async () => false).plan({
+    await expect(new WslBubblewrapSandboxBoundary(async () => false, async () => '/home/synthetic').plan({
+      provider: 'opencode',
       installation, providerExecutable: '/usr/local/bin/opencode', providerArgs: [], workspaceRoot: '/mnt/c/work',
       sandbox: 'read-only', network: 'disabled'
     })).rejects.toThrow('backend_unavailable');
     await expect(available.plan({
+      provider: 'opencode',
       installation: { ...installation, executable: '/usr/bin/wsl.exe' },
       providerExecutable: '/usr/local/bin/opencode', providerArgs: [], workspaceRoot: '/mnt/c/work',
       sandbox: 'read-only', network: 'disabled'

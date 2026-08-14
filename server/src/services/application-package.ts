@@ -8,7 +8,9 @@ export function createApplicationPackage(
   now: string
 ): ApplicationPackageManifest {
   if (application.identityMode !== 'real') throw Object.assign(new Error('Ein Bewerbungspaket benötigt eine reale Identität.'), { statusCode: 409 });
-  if (application.state !== 'approved') throw Object.assign(new Error('Der Bewerbungsfall muss vor der Paketerstellung freigegeben sein.'), { statusCode: 409 });
+  if (application.state !== 'approved' && application.state !== 'exported') {
+    throw Object.assign(new Error('Der Bewerbungsfall muss vor der Paketerstellung freigegeben sein.'), { statusCode: 409 });
+  }
   if (files.length === 0) throw Object.assign(new Error('Mindestens ein freigegebenes Dokument ist erforderlich.'), { statusCode: 409 });
   for (const file of files) {
     if (/<!--\s*evidence:/i.test(file.content)) throw Object.assign(new Error(`Datei ${file.name} enthält interne Evidence-Annotationen.`), { statusCode: 409 });

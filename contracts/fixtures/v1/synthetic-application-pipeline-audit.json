@@ -1,0 +1,49 @@
+{
+  "contract": "application-pipeline-root-proxy",
+  "contractVersion": "1.0",
+  "applicationCaseId": "synthetic-case-1",
+  "applicationCaseRevision": 4,
+  "jobId": "synthetic-job-1",
+  "documentType": "cover_letter",
+  "upstream": {
+    "contract": "bewerbungs-pipeline",
+    "contractVersion": "1.0",
+    "compatible": true,
+    "networkRequired": false
+  },
+  "sourceVersion": {
+    "applicationCaseRevision": 4,
+    "jobSnapshotSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "analysisVersion": "synthetic-analysis-v1",
+    "analysisSourceSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "pipelineContractVersion": "1.0"
+  },
+  "jobAnalysis": {
+    "contract": "bewerbungs-pipeline",
+    "contract_version": "1.0",
+    "analysis_version": "synthetic-analysis-v1",
+    "source_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "job": { "id": "synthetic-job-1", "title": "Software Engineer" },
+    "requirements": [
+      { "id": "req-1", "normalized_competency": "RabbitMQ", "priority": "important" }
+    ]
+  },
+  "matchMatrix": {
+    "contract": "bewerbungs-pipeline",
+    "contract_version": "1.0",
+    "matches": [
+      {
+        "requirement_id": "req-1",
+        "classification": "direct_match",
+        "evidence_claim_ids": ["claim-synthetic-1"]
+      }
+    ],
+    "unresolved_questions": []
+  },
+  "validation": { "valid": true, "errors": [] },
+  "finalization": {
+    "executable": false,
+    "route": "approved-artifact-review-adoption",
+    "proofContract": "application-pipeline-proof@1.0"
+  }
+}

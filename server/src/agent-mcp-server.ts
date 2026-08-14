@@ -182,7 +182,7 @@ export function createAgentMcpServer(options: AgentMcpServerOptions = {}): Agent
     { name: SERVER_NAME, version: SERVER_VERSION },
     {
       capabilities: { tools: { listChanged: false } },
-      instructions: 'Lokaler fail-closed MCP-Zugang. Keine Shell-, Versand-, Portal-, Login- oder beliebigen Netzwerkwerkzeuge.',
+      instructions: 'Lokaler fail-closed MCP-Zugang. Keine Shell-, Versand-, Login-, Credential- oder beliebigen Netzwerkwerkzeuge; die optionale Jobsuche ist ausschliesslich ein Root-seitig begrenzter Trusted-Host-Leseproxy.',
     },
   );
 

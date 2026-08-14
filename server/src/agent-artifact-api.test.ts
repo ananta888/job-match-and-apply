@@ -111,7 +111,7 @@ describe('agent artifact REST and adoption boundary', () => {
     const real = await fixture();
     const created = await request(real.app).post(`/api/agent-runs/${real.runId}/artifacts`).send({ kind: 'draft', content: 'adopt me', mediaType: 'text/plain' });
     const approved = await request(real.app).post(`/api/agent-runs/${real.runId}/artifacts/${created.body.id}/review`).send({ decision: 'approved', expectedRevision: 0, confirmed: true });
-    await expect(adoptApprovedAgentArtifact(real.dependencies, created.body.id, approved.body.revision)).rejects.toMatchObject({ statusCode: 503 });
+    await expect(adoptApprovedAgentArtifact(real.dependencies, created.body.id, approved.body.revision)).rejects.toMatchObject({ statusCode: 409 });
     const adopt = vi.fn(async () => ({
       applicationCaseId: real.applicationCase.id, jobId: real.applicationCase.job.id, companyKey: 'example',
       sourceReference: 'application-artifact:domain-revision-1',

@@ -1,213 +1,237 @@
 # Agent Control Center
 
-## Zielbild und aktueller Stand
+## Implementierter Stand
 
-Das Agent Control Center soll die lokale Steuerungs- und Beobachtungsschicht für austauschbare
-Agentenprozesse werden. Angular spricht bereits ausschließlich mit der lokalen Express-API. Nur
-der Server wählt Providerprogramme und feste Argumenttemplates aus; Prozesse werden mit
-`shell: false` gestartet. Für serverseitig gehostete Runs existiert eine explizite Factory, die
-RunCapabilityAuthority, RestrictedAgentMcpFacade, Policy, einmalige Approvals und injizierte
-schmale Domain-/Submodule-Ports zu einer rungebundenen MCP-Sitzung zusammensetzt. Der direkt
-gestartete MCP-Server besitzt absichtlich weder Run-Scope noch Ports und bietet deshalb weiterhin
-nur Health und Toolkatalog.
-
-Das folgende Diagramm beschreibt das Zielbild. REST/SSE, Run Store, Context Builder, CLI-Adapter
-und die explizit erzeugte rungebundene MCP-Kette sind vorhanden. Die vollständige automatische
-Workflow-/DAG-Orchestrierung jedes Angular-Starts bleibt dagegen unvollständig.
+Das Agent Control Center ist die lokale Steuerungs- und Beobachtungsschicht für austauschbare
+Agentenprozesse. Angular spricht ausschließlich mit der Express-API auf Loopback. Nur der Server
+wählt Executables, exakte Provider-Versionen und feste Argumenttemplates aus; Prozesse starten mit
+`shell:false`. Browserrequests können weder einen Executable-Pfad noch freie Argumente oder
+Environmentwerte einschleusen.
 
 ```text
 Angular Agent Center
-  | REST: Commands, Inputs, Approvals
-  | SSE:  kanonische, resumierbare Events
-  v
+  ├── REST: Runs, Orchestrierungen, Input, Approval, Review, Adoption
+  └── SSE:  globale und rungebundene kanonische Events
+          │
+          ▼
 Agent Control Center (Express)
-  |-- Policy Engine + Approval Broker
-  |-- Run Store + Artifact/Provenance Store
-  |-- Context Builder + Workflow Orchestrator
-  `-- AgentRunnerPort
-       |-- CodexExecAdapter       (stabiler JSONL-Pfad)
-       |-- CodexAppServerAdapter  (experimentelles Feature Flag)
-       |-- OpenCodeAdapter
-       |-- ClaudeCliAdapter
-       `-- GenericJsonlAdapter
-             |
-             | runbezogene MCP-Capabilities
-             v
-       Root-Domain-Fassade
-          |-- Jobs und Firmen (read/propose)
-          |-- Mail und Termine (read/propose/confirm)
-          |-- job-search-mcp (Portalverantwortung)
-          `-- Bewerbungs-Pipeline (Evidence-Verantwortung)
+  ├── Policy, Approval und Run-Capability-Authority
+  ├── Run-, Event-, Artefakt- und Orchestrierungsstores
+  ├── Context Builder und fünfstufige Bewerbungsorchestrierung
+  ├── AgentRunnerPort
+  │    ├── Codex Exec
+  │    ├── Codex App Server mit Dynamic Tools
+  │    ├── OpenCode 1.14.41 in WSL/Bubblewrap
+  │    └── Claude Code 2.1.232 in WSL/Bubblewrap
+  └── servereigene Root-Domain-Ports
+       ├── Jobs, Bewerbungsfälle und Firmen
+       ├── Mail-/Status-/Dokumentvorschläge
+       ├── Bewerbungs-Evidence-Pipeline
+       └── job-search-mcp als separater Trusted Host
 ```
 
-## Derzeit wirksame sichere Voreinstellungen
+Der Portal-MCP ist absichtlich kein Agentenkind. Der Root-Server startet ihn direkt nativ oder über
+WSL-stdio mit `executionIsolation: trusted-host`. Er läuft niemals in Codex-, OpenCode-, Claude-,
+Bubblewrap-, Container- oder Netzwerk-Sandboxes. Agenten erhalten nur normalisierte Daten oder
+rungebundene, minimierte Root-Werkzeuge.
 
-- Browserrequests können weder Executable, Arbeitsverzeichnis noch freie Argumentarrays setzen.
-  Provider und Argumenttemplates sind serverseitig festgelegt.
-- Neue Runs verwenden standardmäßig `read-only`; Netzwerkrequests werden von der REST-API derzeit
-  vollständig abgelehnt, weil kein aktivierter Adapter begrenzten Netzwerkzugriff nachweisbar
-  erzwingt.
-- Codex erhält den Prompt über stdin. OpenCode und Claude verwenden nach ihrem aktuellen
-  CLI-Vertrag einen begrenzten Einzelparameter; der Prompt ist bei diesen beiden Providern daher
-  in der lokalen Prozessliste sichtbar. Er wird nie als Shellfragment ausgewertet.
-- Workspace-Schreibrechte sind in Angular bewusst auswählbar. Der normale CLI-Start bleibt mit
-  `approvalMode: deny` toolfrei. Nur eine explizit serverseitig erzeugte MCP-Sitzung kann die
-  rungebundene Policy-/Approval-Kette und die injizierten Ports verwenden.
-- `dangerously-bypass-approvals`, `yolo` und vergleichbare globale Umgehungen sind nicht Teil des
-  Produktvertrags.
-- Stellenanzeigen und Mails werden im Prompt als `dataOnly` markiert. Die rungebundene MCP-Kette
-  prüft zusätzlich Tool-, Case-, Provider- und Approval-Scope bei jedem Aufruf neu.
-- Die bestehenden Domain-Endpunkte blockieren Inkognito-Finalisierung und `used`; der Agentenpfad
-  besitzt derzeit keine Versand- oder Portalwerkzeuge.
+## Runvertrag und sichere Defaults
 
-## Kanonischer Runvertrag
+Ein Run bindet Providerinstallation, Capabilityvertrag, Prompttemplate und -witness, Workspace,
+Sandbox, fachlichen Scope, Datenquellen, Budgets und Prozesslimits. Neue Runs sind standardmäßig
+read-only. Die REST-API lehnt `network:true` ab. Events besitzen monotone Sequenzen; der Browser
+kann per `Last-Event-ID`, Cursor und ergänzendem REST-Polling fortsetzen. Prompt und klassifizierte
+Eventfelder liegen AES-256-GCM-verschlüsselt im lokalen Run Store.
 
-Ein Run speichert Provider, erkannte Capabilities, Prompttemplate und Version, angeforderten
-Workspace-/Sandbox-Scope, Netzwerkpolicy, fachliche Referenzen, Budgets und Status. Events besitzen
-eine monoton steigende Sequenz. Provider-JSONL wird in normalisierte Events übersetzt; unbekannte
-Typen werden als Warnung erhalten. Ein rotierendes Roh-stdout-/stderr-Archiv ist noch nicht
-implementiert.
+Provider- und Projektkonfiguration wird vor jedem Spawn geprüft. Ein Verweis auf
+`job-search-mcp` oder eine projektverwaltete MCP-/Plugin-Deklaration blockiert den Agentenlauf.
+`dangerously-bypass-approvals`, `yolo`, freie Shellbefehle und frei wählbare Netz- oder Dateitools
+sind kein Bestandteil des Vertrags.
 
-Nur das Erstellen eines Runs unterstützt derzeit einen `Idempotency-Key`. Bereits persistierte
-Runs werden darüber wiedergefunden; gleichzeitig eintreffende Requests mit demselben Schlüssel
-teilen innerhalb eines Express-Prozesses dasselbe Enqueue-Promise. Abweichende Requestinhalte zum
-gleichen Schlüssel werden abgelehnt. Diese Koaleszierung ist nur prozesslokal: Der Store besitzt
-keine transaktionale Unique-Constraint, daher gibt es über mehrere Serverprozesse oder einen
-Crash-/Neustart-Rand hinweg keine dauerhafte Exactly-once-Garantie. `expectedRevision` ist bei
-Steuerkommandos optional. Der Eventstream akzeptiert `Last-Event-ID` beziehungsweise `after`. Die
-Angular-Anwendung ergänzt ausgefallene Streams per REST-Polling; der native EventSource-Client
-verbindet sich außerdem automatisch neu und sendet dabei `Last-Event-ID`.
+Ein `Idempotency-Key` wird als Hash plus Requestfingerprint und opaker Runverweis unter
+`.local-data/agent-idempotency/` gespeichert. Damit kann ein abgeschlossener Run nach einem
+Serverneustart wiedergefunden werden. Gleichzeitige Requests werden zusätzlich innerhalb eines
+Express-Prozesses koalesziert. Der Dateistore bietet jedoch keine prozessübergreifende Transaktion;
+über mehrere Serverprozesse besteht keine harte Exactly-once-Garantie.
 
-Eine HMAC-basierte Freigabequeue bindet Freigaben an Run, Tool, Parameter, Ziel und Ablaufzeit.
-Die REST-Approvalroute des interaktiven Offlinepfads durchläuft Policy, erzeugt ein einmaliges
-Token und verbraucht es vor der Providerentscheidung. Die rungebundene MCP-Factory verwendet
-dieselbe serverseitige Semantik. Capability- und Approval-Tokens sind nie MCP-Clientargumente;
-ein Client kann eine Freigabe weder behaupten noch selbst einschleusen.
+Cancel unterbricht zunächst provider- und domainseitige Freigaben, wartet eine kurze Grace Period
+und beendet anschließend den validierten Prozessbaum tiefenorientiert. Beim Neustart rekonstruiert
+der Run Store fehlende oder beschädigte Snapshots aus dem append-only Eventlog und markiert
+nichtterminale Runs als `orphaned`. Ein Recovery-Workflow erzeugt bei Bedarf einen neuen Run; er
+adoptiert niemals einen alten PID oder Providerprozess.
 
-## Providerstrategie
+## Providerverträge
 
-`codex exec --ignore-user-config --json` bleibt der stabile Codex-Transport. Nur die exakt
-freigegebene 0.147-Linie besitzt den dafür verifizierten CLI-Schalter. Projektkonfigurationen
-werden vor jedem Spawn auf agentverwaltete MCP-/Plugin-Deklarationen geprüft. Der experimentelle
-App-Server-Pfad wird mit `CODEX_APP_SERVER_EXPERIMENTAL=1` angefordert, bleibt produktiv aber im
-Exec-Fallback, solange Userconfig-Isolation nicht nachgewiesen ist. Sein geprüfter Protokollpfad startet
-`codex app-server --listen stdio://`, führt den versionierten `initialize`-/`initialized`-
-Healthcheck aus und bildet Thread, Turn, Resume, Steering, Interrupt und einmalige Command-/
-File-Approvals auf den Agent-Runner-Vertrag ab. Es wird weder ein TCP-/WebSocket-Listener noch die
-unsandboxed `process/*`-API geöffnet.
+### Codex
 
-Nur die im Manifest und in der Fixture freigegebenen CLI-Versionen dürfen den experimentellen
-Pfad verwenden. Eine unbekannte Version oder ein Fehler vor dem ersten Turn fällt mit einem
-sichtbaren `codex_app_server_fallback`-Ereignis auf `codex exec --ignore-user-config --json` zurück. Sobald ein
-App-Server-Turn angenommen wurde, führen unbekannte Ereignisse, Items, Request-IDs oder
-Thread-/Turn-Bindungen dagegen fail-closed zum Runfehler; in diesem Zustand findet kein Replay
-über den Exec-Fallback statt.
+Codex `0.147.0` ist die einzige freigegebene Version. `codex exec` läuft mit festen Argumenten für
+`--ignore-user-config --strict-config`, `web_search="disabled"` und
+`sandbox_workspace_write.network_access=false` als stabiler JSONL-Transport. Der Prompt wird über
+stdin übertragen. Die CLI-Sandbox unterstützt read-only und bewusst
+ausgewähltes Workspace-Write; Userprofile und projektverwaltete MCP-/Plugin-Konfigurationen sind im
+Agent Center gesperrt.
 
-OpenCode ist für `opencode run --format json` vorbereitet; `--auto` ist nicht Teil der
-Konfiguration. Claude ist für Print Mode mit `stream-json`, `plan`-Berechtigungsmodus und
-deaktivierter lokaler Sessionpersistenz vorbereitet. Bubblewrap leert HOME/XDG-Konfiguration,
-damit kein benutzerweit registrierter MCP als Agentenkind startet. Ein explizites Turn- oder Kostenlimit wird
-noch nicht als Claude-CLI-Argument gesetzt. `bypassPermissions` und
-`dangerously-skip-permissions` sind ausgeschlossen. Für OpenCode und Claude sind aktuell keine
-getesteten Versionsmuster freigegeben, weshalb gefundene Installationen fail-closed als
-`untested` blockiert bleiben. Es gibt keinen Fallback auf das Parsen einer farbigen Terminaloberfläche.
+Der Codex App Server ist ein experimenteller, servereigener stdio-Transport für dieselbe exakt
+freigegebene native Codex-Linie. Er ist standardmäßig aus und wird über das servereigene Flag
+`CODEX_APP_SERVER_EXPERIMENTAL=1` oder `features.codexAppServerExperimental` im bestätigten
+persistenten Agentenprofil aktiviert. Er verwendet ein runlokales `CODEX_HOME`, in das höchstens
+`auth.json`, aber keine Benutzerkonfiguration kopiert wird. `turn/start` erhält immer eine konkrete
+Codex-`SandboxPolicy`:
 
-## Fachliche Grenzen
+```json
+{ "type": "readOnly", "networkAccess": false }
+```
 
-Die produktive Factory exponiert ausschließlich den festen Read-/Propose-/Confirm-/lokalen
-Execute-Katalog. Sie erhält Run-ID, Provider, erlaubte Tools und ApplicationCases sowie alle
-schmalen Ports vom Server. Die intern ausgegebene Capability läuft ab, ist widerrufbar und wird
-bei jedem Toolaufruf erneut geprüft. Sensitive Reads bleiben selbst nach einer Freigabe maskiert;
-Ergebnisse führen normalisierte SourceReferences und Auditereignisse. Shell, Versand, Submit,
-Portal-Login, beliebiges Netzwerk und frei wählbare Dateien sind nicht Teil des Katalogs.
-Portalzugriff verbleibt im `job-search-mcp`; Claims, Match-Matrix, Review und finale Dokumente
-verbleiben in der Evidence-Pipeline des `bewerbungs-schreib-assistent`. Der Job-Search-MCP ist
-dabei bewusst ein separat vertrauenswürdiger Hostprozess (`executionIsolation: trusted-host`) und
-wird direkt nativ oder über WSL-stdio gestartet. Er läuft weder in der Agenten-Bubblewrap-/
-Container-Sandbox noch unter deren Netzwerkpolicy; bekannte Wrapper- und Shell-Umwege werden
-fail-closed abgelehnt. Diese Ausnahme überträgt sich nicht auf Agenten-CLIs.
+Bei Workspace-Write kommen ausschließlich die validierte Workspacewurzel und ebenfalls
+`networkAccess:false` hinzu. Ein für offline ausgewählter App-Server-Run schlägt bei Health-,
+Isolation- oder Dynamic-Tool-Problemen fail-closed fehl; er fällt nicht auf einen Transport mit
+schwächerer Netzwerkzusage zurück. Nach einem angenommenen Turn führen unbekannte Protokollteile,
+Request-IDs oder Thread-/Turn-Bindungen ebenfalls zum Runfehler und niemals zu einem Replay über
+Codex Exec.
 
-Mehrere Bewerbungen bei derselben Firma bleiben eigene ApplicationCases. Der Context Builder
-begrenzt fallbezogene Runs auf den explizit gewählten Fall. Nur der ausdrücklich ausgewählte
-Workflow `application-next-actions` erweitert diesen Scope serverseitig auf die Fälle derselben
-Firma und deren Trackingereignisse; jeder Fall und jede Dokumentrevision bleibt dabei getrennt.
-Runvergleich und die vollständige Darstellung der Artefakte in Angular sind noch nicht implementiert. Die REST-Strecke speichert
-Vorschläge content-addressed, listet und liest sie rungebunden, erzeugt begrenzte Textdiffs und
-bindet Approve/Reject an Lifecycle und Revision. Die vollständige Provenance wird aus dem
-serverseitig beim Run erfassten Provider-/Template-/Case-/Job-/Firmenkontext erzeugt. `used` ist
-bewusst kein REST-Kommando; diese Transition ist ausschließlich über einen injizierten
-fachlichen Validierungs- und Übernahmeport möglich und für Inkognito gesperrt.
+Nur der App-Server-Vertrag kann die serverseitigen Root-Domain-Tools als Codex Dynamic Tools
+exponieren. Die Freigabe ist provider-, workflow-, run- und fallgebunden. Ist ein vom Workflow
+benötigtes Tool nicht verfügbar, startet der Run nicht.
 
-## Betrieb und Wiederherstellung
+### OpenCode und Claude Code
 
-Der Process Supervisor beendet bekannte Prozessbäume und klassifiziert Cancel, Timeout,
-Idle-Timeout und Outputlimit. Beim API-Neustart rekonstruiert der Store den Zustand aus dem
-Eventlog und markiert nichtterminale Runs als `orphaned`; laufende Betriebssystemprozesse werden
-weder gesucht noch adoptiert. Die Angular-Oberfläche reserviert eine zeitlich begrenzte,
-operatorgebundene Recovery-Lease. Cleanup schließt den alten Run nachvollziehbar ab; Resume
-erzeugt immer einen neuen Queue-Run und adoptiert weder PID noch Providerprozess.
+OpenCode ist ausschließlich als WSL-Version `1.14.41`, Claude Code ausschließlich als WSL-Version
+`2.1.232 (Claude Code)` freigegeben. Unbekannte Versionen, native Windows-Ziele und fehlendes
+Bubblewrap werden blockiert. Beide erhalten den Prompt über stdin und unterstützen in diesem
+Vertrag nur read-only, keine interaktive Approval-Brücke, Pause oder Resume.
 
-Der Backup-Helper erzeugt atomar veröffentlichte, versionierte Bundles, prüft Datei- und
-Manifesthashes und stellt nach schreibfreiem Dry-run nur in eine exakt freigegebene Zielwurzel
-wieder her. Bestehende Ziele werden nur nach expliziter Overwrite-Entscheidung atomar ausgetauscht;
-fehlendes Schlüsselmaterial blockiert die Wiederherstellung. Eine Betriebsoberfläche dafür ist
-noch nicht verdrahtet. Die Run-Store-Recovery migriert bekannte
-Vorabversionsfälle: ein unverschlüsselt gespeichertes camelCase-Feld `userPrompt` wird geschützt
-und ein Snapshot mit historisch falscher Event-AAD für `failure` wird aus dem autoritativen
-Terminalevent repariert. Das ist keine allgemeine Run-Store-Schema-Migrationsstrecke. Backups
-müssen Konfiguration, Workspace, Agent-Run-Vault, Schlüssel und Artefakte konsistent enthalten.
-Supportexporte verwenden redigierte Views. Prompts, Antworten, Mails, reale
-Identitäten, Tokens und Credentials gehören weder in Git noch in normale Diagnoseausgaben.
+Bubblewrap bindet die Distribution und den Workspace read-only, verwendet flüchtige Verzeichnisse
+für HOME, Konfiguration und Cache und isoliert PID, IPC und UTS. Nur die jeweilige
+Authentifizierungsdatei wird read-only in das temporäre HOME eingebunden. Die Provider-Control-
+Plane darf für den Modellaufruf das Netzwerk erreichen. Modellaufrufbare Netz-, Shell-, Schreib-,
+MCP- und Subagent-Werkzeuge sind dagegen durch eine servereigene exakte Providerpolicy entfernt:
 
-## Implementierte Oberflächen
+- OpenCode: servereigener Agent `job-match-read-only`, Default `deny`; nur `read`, `glob`, `grep`
+  und `list` sind erlaubt, Plugins und MCPs sind leer.
+- Claude: `--safe-mode`, Permission Mode `plan`, nur das Built-in-Tool `Read`, strikter leerer
+  MCP-Vertrag, deaktivierte Slash Commands und keine Sessionpersistenz.
 
-- Angular: Providerkarten, explizite Windows-/WSL-Installations- und Distributionsauswahl,
-  Run-Erstellung, Queue/History, Detailansicht, Timeline, Usage, Approval-/Eingabebereich für den
-  interaktiven Fake, Abbruch, Replay-Vorlage und redigierter Export
-- REST: Provider/Health/Workflows, side-effect-freier Run-Preflight, Create/List/Get, Events, Cancel, Input, Approval,
-  rungebundene Artefakt-Metadaten/Inhalte/Textdiffs/Reviews, Resume-/Pause-Capability-Fehler,
-  Retention-Vorschau/-Anwendung und Emergency Stop
-- Streaming: SSE je Run mit monotoner Sequenz, Cursor, Heartbeat und Puffergrenze; Angular nutzt
-  den nativen EventSource-Reconnect, ein globaler autorisierter Stream fehlt
-- Persistenz: append-only JSONL-Ereignisse, atomare Snapshots, Recovery, Retention,
-  AES-256-GCM-Klassifizierung und lokaler Schlüssel außerhalb von Git
-- MCP: stdio-only, feste Domain-Tool-Allowlist und explizite serverseitige Run-Factory mit
-  Capability-, Case-, Policy-, Approval-, Audit- und SourceReference-Bindung; der direkte
-  CLI-Einstieg bleibt ohne injizierte Ports absichtlich auf Health und Katalog beschränkt
+Diese Kontrolle ist eine Tool-/Capability-Grenze und keine Netzwerk-Namespace-Isolation des
+gesamten Providerprozesses. OpenCode und Claude erhalten aktuell keine Root-Domain-Tools; ihre
+Workflows arbeiten mit dem vom Server aufgebauten, begrenzten Promptkontext.
 
-`fake` bildet den einfachen Offlinepfad ab; `fake-interactive` demonstriert Eingabe und eine
-Policy-/HMAC-gebundene Freigabe ohne Seiteneffekt. Codex nutzt bei kompatibler lokaler
-Installation `codex exec --ignore-user-config --json` mit stdin-Prompt. API und Angular stellen gefundene Windows- und
-WSL-Installationen getrennt dar; vor dem Start wird die Runtime einschließlich WSL-Distribution
-explizit gewählt und serverseitig gegen eine unterstützte Installation validiert. OpenCode und
-Claude bleiben blockiert, solange für die erkannte Version kein Versionsmuster freigegeben ist.
-Codex App Server ist experimentell hinter dem Feature Flag implementiert; Pause bleibt mangels
-belastbarer Providersemantik deaktiviert. Codex erzwingt den ausgewählten CLI-Sandboxmodus;
-OpenCode und Claude besitzen einen WSL-Bubblewrap-Vertrag, bleiben aber bis zur
-Versionskonformität blockiert. Für weitere optionale Providerziele ist keine gleichwertige
-OS-/Container-Isolation nachgewiesen.
+## Root-Domain-Tools
 
-## Abnahmestand
+Die produktive Factory setzt für einen konkreten Run eine `RunCapabilityAuthority`, die
+`RestrictedAgentMcpFacade`, Policy, Approvalqueue, Audit und schmale Domainports zusammen. Die
+interne Capability ist signiert, kurzlebig und widerrufbar und wird bei jedem Aufruf gegen Run,
+Provider, Tool und erlaubte ApplicationCase-IDs geprüft. Capability- und Approval-Tokens sind nie
+Teil des MCP-Clientvertrags.
 
-- Vorhanden: Unit-, Property-, Contract-, Load-, Recovery-, Process-Limit- und Canary-Tests für
-  Zustandsmaschine, Pfade, Provider-Mapping, Policy, Redaction, Approval-/Capability-Tokens,
-  fremde Case-IDs, Client-Bypass, Eventreplay und synthetische Kindprozesse.
-- Vorhanden: Angular-Unit- und Playwright-E2E-Abnahme für Start, Streaming, Rückfrage, Approval,
-  Cancel, Reload/Replay, Tastaturbedienung, Axe/WCAG sowie stabile Desktop-, Tablet- und
-  Mobile-Baselines. Der Preflight zeigt ausschließlich serverbelegte Daten-/Toolscopes und Limits.
-- Teilweise: Nach Erreichen des Outputlimits werden keine weiteren Provider-Chunks an die
-  Callback-/Eventqueue weitergereicht; optionale Speicher-/Kindprozess-Probes sind implementiert,
-  aber im normalen Produktstart nicht plattformspezifisch konfiguriert.
-- Ausstehend: vollständige Disk-full-/Key-loss-/Rollback-Abnahme, remote belegte Windows- und
-  Ubuntu-CI-Matrix, veröffentlichte Submodule-Commits sowie Versionsfreigaben für OpenCode und
-  Claude. Die vollständige Release-Abnahme bleibt daher offen.
+Der feste Katalog umfasst nur:
 
-## Referenzen
+- minimierte Jobsuche sowie maskierte Bewerbungs- und Mailreads;
+- Evidence-Analyse und lokale Vorschläge für Mailkorrelation, Status und Dokumentrevision;
+- bestätigte, revisions- und idempotenzgebundene lokale Domaincommands.
 
-- Offizielle OpenAI-Dokumentation: <https://learn.chatgpt.com/docs/non-interactive-mode>
-- Offizielle Codex-App-Server-Dokumentation: <https://learn.chatgpt.com/docs/app-server>
-- Codex Developer Commands: <https://learn.chatgpt.com/docs/developer-commands?surface=cli>
-- OpenCode CLI: <https://dev.opencode.ai/docs/cli/>
-- Claude Code CLI: <https://code.claude.com/docs/en/cli-usage>
-- Root-Policy: [../AGENTS.md](../AGENTS.md)
-- Bewerbungs-Agentensystem: [application-agent-system.md](application-agent-system.md)
+Shell, Mailversand, Bewerbungs-Submit, Portal-Login, beliebige Netzwerkzugriffe und freie
+Dateioperationen sind ausgeschlossen. `npm.cmd run agent:mcp` startet absichtlich nur Health und
+Katalog: Erst die serverseitige Run-Factory kann Ports und eine Capability injizieren.
+
+## Lokale Multi-Agent-Orchestrierung
+
+Angular kann vier versionierte Workflows starten und deren Nodes, Runs, Budgets, Gates und
+Vorschlagsartefakte verfolgen. `evidence-application-package` besteht aus fünf getrennten
+Node-Runs und Rollenkontexten:
+
+```text
+Evidence → Author → ┬→ ATS ─────────────┐
+                    └→ Recruiter/Style ─┴→ Finalizer
+```
+
+Der Server löst Inputs aus dem aktuellen Suchprofil, Job, Kandidatenprofil, Bewerbungsfall und den
+vorherigen Rohartefakten auf und speichert ihre Digests. Nur `verified` und `user_confirmed` Claims
+mit Evidence-Referenzen erfüllen das Evidence-Gate. Abweichende ATS-/Style-Varianten bleiben bis zu
+einer expliziten, revisions- und Variantendigest-gebundenen Konfliktentscheidung sichtbar. Das
+einzige browserauflösbare Vor-Gate des Finalizers ist `user_input`, gebunden an die aktuelle
+ApplicationCase-Revision und die ausdrückliche Bestätigung; `review_complete` ist kein Vor-Gate
+dieses Workflows. Eine wartende Orchestrierung lässt sich nur mit ihrer aktuellen Revision und
+passend gebundener Bestätigung fortsetzen; Cancel ist ebenfalls revisionsgebunden.
+
+Der Finalizer darf ausschließlich ein JSON-`application-pipeline-package` mit
+`annotatedContent` und `iterationManifest` erzeugen. Das Ergebnis ist weiterhin `proposed`; die
+Orchestrierung genehmigt, exportiert oder versendet nichts. Die `package_proposal` durchläuft erst
+danach Artefakt-Review, Adoption mit erneuter lokaler Pipelinevalidierung, eine fachliche
+Vorschlagsrevision, deren Review, die exakte Fallfreigabe sowie `used` beziehungsweise Export.
+
+## Artefakte und fachliche Übernahme
+
+Agentenartefakte besitzen unveränderliche, SHA-256-adressierte Inhalte und getrennte
+Lifecycle-Metadaten. Run, Provider-/Adapterversion, Template, Workflow, ApplicationCase-Revision,
+Job, Firmenschlüssel und Identitätsmodus stammen aus serverseitigem Kontext. Angular kann
+Metadaten, UTF-8-Inhalt und begrenzte Textdiffs anzeigen sowie eine exakte Artefaktrevision
+freigeben oder ablehnen.
+
+Nur ein freigegebenes `application-pipeline-package` mit realer Identität kann über die bestätigte
+Adopt-Aktion weitergegeben werden. Der servereigene Port führt die vollständige lokale
+Bewerbungs-Pipeline erneut aus und erstellt eine neue fachliche Dokumentrevision im Zustand
+`proposed`. Danach folgen getrennt:
+
+1. Review der fachlichen Revision mit vollständigem SHA-256 und bestätigter Zahl der
+   Sprachhinweise;
+2. Fallfreigabe mit derselben Revisions-ID und demselben Hash;
+3. `used` beziehungsweise Export ausschließlich für diese gebundene Revision.
+
+Inkognito darf Vorschau und Review erreichen. Adoption als reale Revision, Fallfreigabe, `used`
+und Export sind gesperrt. Ein freier Lifecycle-Schalter oder automatischer Submission-Pfad
+existiert nicht.
+
+## Betriebsspeicher und Oberflächen
+
+Die produktive Composition verwendet unter `.local-data/`:
+
+- append-only Run-Events und atomare Snapshots;
+- content-addressed Agentenartefakte und optionale Rohlogs;
+- ein payloadfreies Idempotenzregister;
+- ein append-only, `fsync`-gesichertes Approval-Lifecycle-Journal mit Hashes statt Rohparametern,
+  Akteursnamen oder Bearer-Tokens;
+- ein append-only, `fsync`-gesichertes Retention-/Legal-Hold-Journal;
+- ein versionsgebundenes, secret-freies Agenten-Konfigurationsprofil mit Last-known-good-Kopie;
+- ein allowlistetes Observability-JSONL mit gehashten Run-/Korrelations-IDs und ohne freie
+  Nachrichtenfelder.
+
+Retention erstellt zuerst einen digestgebundenen Impact-Plan. Aktive Legal Holds auf Run,
+Artefakt oder Bewerbungsfall blockieren die Kaskade. Bei verwendeten Artefakten kann der Rohinhalt
+gelöscht werden, während die Provenance-Metadaten erhalten bleiben. Das Journal ist lokal
+append-only, aber keine extern signierte, manipulationssichere Audit-Chain.
+
+Angular bietet Providerdiagnose, Installationsauswahl, Preflight, Runqueue und -detail,
+Live-/Replay-Timeline, Usage, Input, Approval, Cancel, Recovery, Artefaktvergleich und -adoption,
+Multi-Agent-Monitoring sowie redigierten Export. Das persistente Agenten-Konfigurationsprofil und
+der Angular-CAS-Editor sind produktiv verdrahtet: Die Oberfläche zeigt aktives Profil oder
+Last-known-good-Quelle, Provider-, Runtime-, Sandbox-, Offline-/Approval-, Budget- und
+Featurewerte, nimmt keine Secrets oder freien Pfade/Commands/argv an und erneuert nach dem
+Speichern Providererkennung und Preflight. Das Codex-App-Server-Opt-in benötigt eine zusätzliche
+Bestätigung. Eine Angular-Ansicht für das ebenfalls implementierte lokale Observability-Log fehlt
+weiterhin.
+
+## Ehrliche verbleibende Grenzen
+
+- Der Codex App Server ist ein experimenteller, standardmäßig deaktivierter Protokollpfad.
+  Root-Domain-Tools sind nur auf diesem nativen Codex-Pfad verfügbar.
+- OpenCode/Claude besitzen bewusst keine Root-Tool- oder Approval-Brücke. Ihre Modell-Control-
+  Plane benötigt Netzwerk; nur die modellaufrufbaren Werkzeuge sind offline/read-only begrenzt.
+- Der Approval-Lifecycle überlebt als append-only, hashbasierte Historie. Offene oder erteilte,
+  noch nicht verbrauchte Authority wird nach einem Serverneustart bewusst widerrufen und niemals
+  aus dem Journal wiederhergestellt. Aktive Orchestrierungen speichern ihren redigierten Zustand,
+  aber ihre Rohinputs nur prozesslokal; nach einem Neustart werden sie nicht automatisch
+  fortgesetzt.
+- Mehrprozess-Exactly-once, eine allgemeine Run-Store-Migrationsstrecke und eine extern
+  manipulationssichere Audit-Chain sind nicht vorhanden.
+- Der Backup-/Restore-Helper ist getestet, aber noch nicht als Angular-/CLI-Betriebsstrecke
+  verdrahtet. Plattformspezifische Memory-/Kindprozess-Probes sind im normalen Produktstart nicht
+  konfiguriert.
+- Eine vollständige Releasefreigabe benötigt weiterhin eine reproduzierbare Windows-/Ubuntu-CI-
+  Matrix, Chaosfälle wie Disk-full/Key-loss und veröffentlichte Submodule-Commits.
+
+Weitere Betriebsdetails stehen in [operations.md](operations.md), die Sicherheitsannahmen in
+[agent-threat-model.md](agent-threat-model.md) und die Verträge in [contracts.md](contracts.md).
+Die konkrete Freigabegrenze mit Pins und Rollback dokumentiert die
+[Release-Matrix](release-matrix.md); Incident-Schritte stehen im
+[Incident- und Datenschutz-Runbook](incident-privacy-runbook.md). Für neue Adapter und Workflows
+gilt [Provider-, MCP-Tool- und Workflow-Entwicklung](adapter-workflow-development.md).

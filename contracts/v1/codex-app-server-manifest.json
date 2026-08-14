@@ -2,11 +2,32 @@
   "schemaVersion": "1.0",
   "id": "codex-app-server",
   "adapter": "codex-app-server",
-  "enabled": false,
+  "enabled": true,
   "experimental": true,
-  "productionSelection": "fallback_until_user_config_isolation_verified",
-  "runtimeTargets": ["windows", "wsl", "linux", "darwin"],
-  "argumentTemplate": ["app-server", "--listen", "stdio://"],
-  "testedVersionRanges": [">=0.147.0 <0.148.0"],
-  "fixtureSet": "contracts/fixtures/v1/codex-app-server-events.json"
+  "productionSelection": "native_run_local_codex_home_with_pre_turn_fallback",
+  "runtimeTargets": ["windows", "linux", "darwin"],
+  "argumentTemplate": [
+    "app-server",
+    "--strict-config",
+    "-c",
+    "sandbox_workspace_write.network_access=false",
+    "-c",
+    "web_search=\"disabled\"",
+    "--listen",
+    "stdio://"
+  ],
+  "testedVersionRanges": ["=0.147.0"],
+  "fixtureSet": "contracts/fixtures/v1/codex-app-server-events.json",
+  "userConfigIsolation": "ephemeral-codex-home-auth-only",
+  "dynamicToolsContract": "codex-app-server-item-tool-call-v1",
+  "networkControl": true,
+  "offlineConfigOverrides": [
+    "sandbox_workspace_write.network_access=false",
+    "web_search=\"disabled\""
+  ],
+  "webSearch": "disabled",
+  "sandboxNetworkAccess": false,
+  "networkEnforcement": "codex-cli-0.147.0-fixed-offline-config-v1",
+  "networkMechanism": "server-owned-config-plus-codex-sandbox-policy",
+  "networkAccessClaim": "provider-control-plane-only"
 }

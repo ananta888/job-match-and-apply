@@ -42,6 +42,7 @@ export interface SourceStatus {
 }
 
 export interface AppConfig {
+  revision: number;
   searchProfile: SearchProfile; identities: IdentityProfile[]; activeIdentityId: string;
   mcp: { mode: 'demo' | 'stdio'; executionIsolation: 'trusted-host'; runtimeTarget?: 'windows' | 'wsl'; distribution?: string; command: string; args: string[]; env: Record<string, string>; configuredEnvironmentKeys?: string[] };
   assistant: { skillPath: string; candidateProfilePath: string; styleProfilePath: string };
@@ -51,6 +52,89 @@ export interface ApplicationDraft {
   jobId: string; identityId: string; documentType: 'cv' | 'cover_letter' | 'email'; content: string;
   strongestMatches: string[]; gaps: string[]; warnings: string[];
   lifecycle: 'preview' | 'final';
+  pipelineEvidence?: ApplicationPipelineEvidence;
+}
+
+export interface ApplicationProfileSetupStatus {
+  contract: 'application-profile-setup';
+  contractVersion: '1.0';
+  candidateProfile: 'present' | 'missing';
+  styleProfile: 'present' | 'missing';
+  initialized: boolean;
+  containsCandidateFacts: boolean;
+  note: string;
+  created?: Array<'candidate-profile' | 'style-profile'>;
+}
+
+export type ApplicationStyleDocumentType = 'cv' | 'cover_letter' | 'email' | 'linkedin';
+export type ApplicationStyleExampleDocumentType = ApplicationStyleDocumentType | 'interview';
+
+export interface EditableApplicationStyleProfile {
+  language: string;
+  locale: string;
+  tone: string;
+  formality: string;
+  directness: string;
+  sentenceLength: string;
+  technicalDepth: string;
+  enthusiasm: string;
+  selfPromotion: string;
+  humor: string;
+  vocabulary: { prefer: string[]; avoid: string[] };
+  preferredPatterns: string[];
+  avoidPatterns: string[];
+  documentStyles: Record<ApplicationStyleDocumentType, {
+    perspective: string;
+    technicalDensity: string;
+    maxSentenceWords: number;
+  }>;
+  personalizationDefault: 'conservative' | 'professional' | 'personal';
+  approvedExamples: Array<{
+    id: string;
+    documentType: ApplicationStyleExampleDocumentType;
+    text: string;
+    sourceRef?: string;
+    notes?: string;
+  }>;
+  rejectedExamples: Array<{
+    id: string;
+    documentType: ApplicationStyleExampleDocumentType;
+    text: string;
+    reason: string;
+  }>;
+  qualityThresholds: { maxRepeatedSentenceStarts: number; maxAvoidPatternMatches: number };
+  reviewWorkflow: {
+    defaultMode: 'compact' | 'standard' | 'rigorous';
+    maxRevisionCycles: number;
+    preferIndependentAgents: boolean;
+  };
+}
+
+export interface ApplicationStyleProfileView {
+  contract: 'application-style-profile';
+  contractVersion: '1.0';
+  revision: number;
+  sha256: string;
+  initialized: true;
+  profile: EditableApplicationStyleProfile;
+  languageBackend: { backend: 'nspell'; localOnly: true; remoteServiceAllowed: false };
+}
+
+export interface LanguageCheckIssue {
+  kind?: string;
+  ruleId?: string;
+  word?: string;
+  offset?: number;
+  length?: number;
+  suggestions?: string[];
+  [key: string]: unknown;
+}
+
+export interface LanguageCheckResult {
+  available: boolean;
+  backend?: string;
+  issues: LanguageCheckIssue[];
+  disclosure?: string;
 }
 
 export interface McpRuntimeStatus {
@@ -70,10 +154,13 @@ export interface CandidateClaim {
   evidenceRefs: string[]; allowedOutputs: string[]; validFrom?: string; validTo?: string;
 }
 export interface CandidateProfileSummary { contractVersion: string; valid: boolean; errors: string[]; profile: Record<string, unknown>; claims: CandidateClaim[]; }
-export interface CandidateMatchAnalysis { jobAnalysis: Record<string, unknown>; matchMatrix: { matches?: Array<{ competency: string; classification: 'direct_match' | 'transferable_match' | 'partial_match' | 'gap'; evidence_claim_ids: string[]; rationale: string }> }; }
+export interface CandidateMatchAnalysis { jobAnalysis: Record<string, unknown>; matchMatrix: { matches?: Array<{ competency: string; classification: 'direct_match' | 'transferable_match' | 'partial_match' | 'gap'; evidence_claim_ids: string[]; rationale: string }>; unresolved_questions?: string[] }; }
+export type ApplicationCaseState = 'selected' | 'analysis' | 'questions' | 'draft' | 'review' | 'approved' | 'exported' | 'dry_run' | 'submitted' | 'closed';
 export interface ApplicationCase {
   id: string; job: JobPosting; identityId: string; identityMode: 'real' | 'incognito'; documentType: 'cv' | 'cover_letter' | 'email';
-  state: string; createdAt: string; updatedAt: string; revision: number;
+  state: ApplicationCaseState; createdAt: string; updatedAt: string; revision: number;
+  artifactNames: string[]; warnings: string[];
+  approvedArtifactRevisionId?: string; approvedArtifactSha256?: string; approvedAt?: string;
 }
 export interface JobDecision { jobId: string; state: 'saved' | 'hidden' | 'neutral'; updatedAt: string }
 export interface DataInventory { generatedAt: string; stores: Array<{ id: string; location: string; purpose: string; records: number | null; encryptedFields: string[] }> }
@@ -86,9 +173,49 @@ export interface ProfileImportPreview {
 
 export interface ArtifactRevision {
   id: string; applicationCaseId: string; companyKey: string; jobId: string;
-  type: 'cv' | 'cover_letter' | 'application_email'; lifecycle: 'proposed' | 'approved' | 'used' | 'superseded';
+  type: 'cv' | 'cover_letter' | 'application_email'; lifecycle: 'proposed' | 'approved' | 'rejected' | 'used' | 'superseded';
   sha256: string; bytes: number; artifactPath: string; pipelineContractVersion: string;
+  pipelineProof?: ApplicationPipelineProof;
+  review?: {
+    decision: 'approved' | 'rejected'; reviewer: 'local-user'; reviewedAt: string;
+    expectedSha256: string; acknowledgedLanguageIssueCount: number;
+  };
   createdAt: string; usedAt?: string; usedForApplicationCaseId?: string;
+}
+
+export interface ApplicationPipelineEvidence {
+  pipelineContractVersion: string;
+  completedStages: string[];
+  annotatedSha256: string;
+  iterationManifestSha256: string;
+  candidateProfileSha256: string;
+  styleProfileSha256: string;
+  artifactSha256: string;
+  languageCheck: {
+    available: boolean; backend: string; language: string; issueCount: number;
+    issuesSha256: string; checkedArtifactSha256: string;
+  };
+  preparation?: {
+    jobAnalysisSha256: string; matchMatrixSha256: string; unresolvedQuestionsSha256: string; matchMatrixValid: true;
+  };
+}
+
+export interface ApplicationPipelineProof extends ApplicationPipelineEvidence {
+  contract: 'application-pipeline-proof';
+  contractVersion: '1.0';
+  applicationCaseId: string;
+  jobId: string;
+  identityId: string;
+  documentType: ArtifactRevision['type'];
+  issuedAt: string;
+  signature: string;
+}
+
+export interface ApplicationPipelineFinalizeResult { draft: ApplicationDraft; revision: ArtifactRevision; }
+export interface ApplicationExportResult {
+  fileName: string; mimeType: string; bytes: number; base64: string; revision: number;
+  artifactRevisionId: string; artifactSha256: string;
+  quality: { valid: boolean; warnings: string[]; [key: string]: unknown };
 }
 export interface CorrelatedMail {
   id: string; accountId: string; from: string[]; to: string[]; subject: string; sentAt: string; text: string;
@@ -139,6 +266,44 @@ export interface AgentProvider {
     networkControl?: boolean;
     workspaceModes?: AgentWorkspaceMode[];
   };
+}
+
+export interface AgentProviderConfigProfile {
+  provider: string;
+  enabled: boolean;
+  runtimeTarget: AgentRuntimeTarget;
+  wslDistribution?: string;
+  sandbox: 'read-only' | 'workspace-write';
+  network: 'disabled' | 'restricted';
+  approvalMode: 'deny' | 'explicit';
+  model?: string;
+}
+
+export interface AgentConfigProfile {
+  schemaVersion: 2;
+  profileId: string;
+  updatedAt: string;
+  providers: AgentProviderConfigProfile[];
+  budgets: {
+    warningAtPercent: number;
+    maxTotalTokens?: number;
+    maxToolCalls?: number;
+    maxRunDurationMs?: number;
+    maxCostMicros?: { amountMicros: number; currency: string };
+  };
+  features: {
+    codexAppServerExperimental: boolean;
+    multiAgentExperimental: boolean;
+    realtimeWebSocketExperimental: boolean;
+    rawProviderLogs: boolean;
+  };
+}
+
+export interface AgentConfigProfileView {
+  profile: AgentConfigProfile;
+  source: 'primary' | 'last_known_good';
+  migratedFrom?: 1;
+  primaryError?: string;
 }
 
 export interface AgentRunRequest {
@@ -211,7 +376,7 @@ export interface AgentRunPreflight {
     policy: 'deny_by_default';
     allowedRootMcpTools: string[];
     allowlistComplete: boolean;
-    providerTooling: 'sandbox_managed';
+    providerTooling: 'server_owned_dynamic_tools' | 'prompt_context_only';
     providerToolNamesExposed: boolean;
     prohibitedActions: string[];
   };
@@ -306,6 +471,120 @@ export interface AgentRun {
 export interface AgentRunEventsPage {
   events: AgentRunEvent[];
   nextAfter: number;
+}
+
+export interface AgentArtifactProvenance {
+  runId: string; provider: string; providerVersion: string; adapterVersion: string;
+  templateId: string; templateVersion: string; workflowId?: string; workflowVersion?: string;
+  applicationCaseId?: string; applicationCaseRevision?: number; jobId?: string; companyKey?: string;
+  mailId?: string; documentRevisionId?: string; workspaceRootId?: string;
+  identityMode: 'none' | 'real' | 'incognito'; claimIds?: string[]; reviewIds?: string[];
+}
+
+export interface AgentArtifactRecord {
+  schemaVersion: 1; id: string; kind: string; sha256: string; bytes: number; mediaType: string;
+  createdAt: string; updatedAt: string; revision: number;
+  lifecycle: 'proposed' | 'approved' | 'used' | 'rejected';
+  relativePath?: string; provenance: AgentArtifactProvenance;
+  review?: { decision: 'approved' | 'rejected'; actor: string; occurredAt: string };
+  adoption?: { sourceReference: string; occurredAt: string };
+  contentState?: 'available' | 'deleted'; contentDeletedAt?: string;
+}
+
+export interface AgentArtifactContent {
+  id: string; sha256: string; mediaType: string; content: string;
+}
+
+export interface AgentArtifactAdoptionResult {
+  artifact: AgentArtifactRecord;
+  documentRevisionId: string;
+}
+
+export interface EmployerResponseTriageProposalProjection {
+  contract: 'employer-response-triage-proposal'; contractVersion: '1.0'; sha256: string;
+  proposal: {
+    schemaVersion: 1; classification: 'interview' | 'rejection' | 'request' | 'info' | 'offer' | 'other'; confidence: number;
+    selectedMailId: string; sourceReferences: string[];
+    caseCandidates: Array<{ caseId: string; confidence: number; reason: string; sourceReferences: string[] }>;
+    appointment?: { start: string; end: string; timeZone: string; location: string; sourceReferences: string[] };
+    followUp?: { dueAt: string; timeZone: string; reason: string; sourceReferences: string[] };
+    replyDraft?: { subject: string; body: string; language: 'de' | 'en'; sourceReferences: string[] };
+  };
+}
+
+export interface ApplicationNextActionsProposalProjection {
+  contract: 'application-next-actions-proposal'; contractVersion: '1.0'; sha256: string;
+  proposal: {
+    schemaVersion: 1; companyKey: string;
+    suggestions: Array<{
+      id: string; applicationCaseId: string; kind: 'follow_up' | 'status_review' | 'document_review' | 'duplicate_warning' | 'deadline';
+      title: string; reason: string; confidence: number; sourceReferences: string[]; dueAt?: string;
+    }>;
+    conflicts: Array<{
+      id: string; kind: 'duplicate_application' | 'status_disagreement' | 'timeline_overlap' | 'document_disagreement' | 'deadline_collision';
+      applicationCaseIds: string[]; reason: string; sourceReferences: string[];
+    }>;
+  };
+}
+
+export type AgentOrchestrationStatus = 'queued' | 'running' | 'waiting_for_gate' | 'cancelling' | 'cancelled' | 'succeeded' | 'failed' | 'orphaned';
+export type AgentOrchestrationGate = 'user_input' | 'approval' | 'evidence_complete' | 'review_complete';
+export type AgentOrchestrationNodeStatus = 'pending' | 'queued' | 'running' | 'retrying' | 'succeeded' | 'failed' | 'cancelled' | 'policy_blocked' | 'skipped' | 'orphaned';
+
+export interface AgentOrchestrationArtifactReference {
+  outputRef: string; artifactId: string; runId: string; sha256: string; lifecycle: 'proposed';
+}
+
+export type AgentOrchestrationConflictStrategy = 'accept_complementary' | 'select_variant';
+
+export interface AgentOrchestrationConflictVariant {
+  sourceNodeId: string; sourceRole: string; outputRef: string; runId: string; artifactId: string; sha256: string;
+}
+
+export interface AgentOrchestrationConflictResolution {
+  strategy: AgentOrchestrationConflictStrategy; resolverId: string; resolutionReference: string;
+  selectedArtifactId?: string; resolvedAt: string; resolvedAgainstRevision: number; variantsSha256: string;
+}
+
+export interface AgentOrchestrationConflict {
+  id: string; targetNodeId: string; kind: 'ats_style_fan_in'; status: 'equivalent' | 'unresolved' | 'resolved';
+  requiresDomainResolution: boolean; variantsSha256: string; variants: AgentOrchestrationConflictVariant[];
+  resolution?: AgentOrchestrationConflictResolution;
+}
+
+export interface AgentOrchestrationRecord {
+  schemaVersion: 1; id: string; revision: number; workflowId: AgentWorkflow['id']; workflowVersion: string; providerId: string;
+  status: AgentOrchestrationStatus; producesSuggestionsOnly: true; promptSha256: string; redactedSummary: string;
+  scope: {
+    applicationCaseId?: string; applicationCaseRevision?: number; jobId?: string; companyKey?: string; mailId?: string;
+    documentRevisionId?: string; workspaceRootId?: string; identityMode: 'none' | 'real' | 'incognito';
+  };
+  resolvedGates: Array<{ nodeId: string; gate: AgentOrchestrationGate; authority: 'server_evidence' | 'server_revision_confirmation'; bindingSha256: string }>;
+  unresolvedGates: Array<{ nodeId: string; gate: AgentOrchestrationGate }>;
+  conflicts?: AgentOrchestrationConflict[];
+  nodes: Array<{
+    nodeId: string; role: string; dependsOn: string[]; status: AgentOrchestrationNodeStatus; attempts: number; runIds: string[];
+    inputDigests: Record<string, string>; artifacts: AgentOrchestrationArtifactReference[]; failureCategory?: string; reason?: string;
+  }>;
+  nodeRunIds: Record<string, string[]>; artifactRefs: AgentOrchestrationArtifactReference[];
+  budget: { wallTimeMs: number; tokens: number; costMicros: number; toolCalls: number; iterations: number };
+  createdAt: string; updatedAt: string; finishedAt?: string; failureReason?: string;
+  recovery?: { recoveredAt: string; processAdoptionAllowed: false; reason: 'server_restart_no_pid_adoption' };
+}
+
+export interface AgentOrchestrationConfirmationInput {
+  review?: { documentRevisionId: string; expectedSha256: string; confirmed: true };
+  userInput?: { confirmed: true };
+}
+
+export interface AgentOrchestrationConflictResolutionRequest {
+  expectedRevision: number; variantsSha256: string; strategy: AgentOrchestrationConflictStrategy;
+  selectedArtifactId?: string; confirmed: true;
+}
+
+export interface AgentOrchestrationCreateRequest {
+  workflowId: AgentWorkflow['id']; providerId: string; prompt: string; runtimeTarget: AgentRuntimeTarget; wslDistribution?: string;
+  applicationCaseId?: string; mailId?: string; documentRevisionId?: string;
 }
 
 export type AgentQueueBlockReason = 'global_limit' | 'provider_limit' | 'workspace_limit' | 'owner_limit';

@@ -1,11 +1,90 @@
 {
   "provider": "claude-cli",
-  "providerVersion": "unverified",
-  "activation": "blocked_until_version_fixture_is_approved",
+  "providerVersion": "2.1.232",
+  "versionOutput": "2.1.232 (Claude Code)",
+  "activation": "supported_exact_version_offline_read_only",
+  "fixtureKind": "synthetic-exact-contract-corpus-with-local-init-probe",
+  "capturedAt": "2026-08-14",
+  "conformance": {
+    "runtimeTarget": "wsl",
+    "argumentTemplate": [
+      "--safe-mode", "-p", "--output-format", "stream-json", "--verbose",
+      "--permission-mode", "plan", "--tools", "Read", "--disallowedTools", "mcp__*",
+      "--strict-mcp-config", "--mcp-config", "{\"mcpServers\":{}}",
+      "--disable-slash-commands", "--no-session-persistence"
+    ],
+    "promptTransport": "stdin",
+    "promptTransportEvidence": "local Claude Code 2.1.232 bwrap probe emitted system/init from a piped prompt; adapter process-boundary test proves argv exclusion",
+    "structuredTransport": "claude --print --output-format stream-json",
+    "sandboxBackend": "wsl-bubblewrap-v1",
+    "networkIsolation": "provider-tool-capability-policy",
+    "networkMechanism": "server-owned-read-only-tool-allowlist",
+    "networkAccessClaim": "provider-control-plane-only",
+    "approvalMode": "deny",
+    "providerPermissionMode": "plan",
+    "builtinToolAllowlist": ["Read"],
+    "resume": false,
+    "pause": false
+  },
   "events": [
-    { "type": "system", "subtype": "init" },
-    { "type": "assistant", "message": { "content": [{ "type": "text", "text": "synthetic result" }] } },
-    { "type": "result", "result": "done", "usage": { "input_tokens": 8, "output_tokens": 3 } },
-    { "type": "future.additive" }
+    {
+      "type": "system",
+      "subtype": "init",
+      "cwd": "/synthetic/workspace",
+      "session_id": "session-synthetic",
+      "tools": ["Read"],
+      "mcp_servers": [],
+      "permissionMode": "plan",
+      "slash_commands": [],
+      "claude_code_version": "2.1.232",
+      "agents": ["claude"],
+      "skills": [],
+      "plugins": [],
+      "capabilities": ["interrupt_receipt_v1", "interrupt_cancel_queued_v1", "msg_lifecycle_v1"],
+      "uuid": "00000000-0000-4000-8000-000000000001"
+    },
+    {
+      "type": "assistant",
+      "message": {
+        "id": "msg_synthetic",
+        "role": "assistant",
+        "content": [
+          { "type": "text", "text": "synthetic result" },
+          { "type": "tool_use", "id": "tool_synthetic", "name": "Read", "input": { "file_path": "synthetic.txt" } }
+        ],
+        "usage": { "input_tokens": 8, "output_tokens": 3 }
+      },
+      "session_id": "session-synthetic"
+    },
+    {
+      "type": "user",
+      "message": {
+        "role": "user",
+        "content": [
+          { "type": "tool_result", "tool_use_id": "tool_synthetic", "content": "synthetic output", "is_error": false }
+        ]
+      },
+      "session_id": "session-synthetic"
+    },
+    {
+      "type": "result",
+      "subtype": "success",
+      "is_error": false,
+      "result": "synthetic result",
+      "usage": { "input_tokens": 8, "cache_read_input_tokens": 2, "output_tokens": 3 },
+      "session_id": "session-synthetic"
+    },
+    {
+      "type": "system",
+      "subtype": "api_retry",
+      "attempt": 1,
+      "max_retries": 10,
+      "retry_delay_ms": 500,
+      "error_status": null,
+      "error": "unknown",
+      "session_id": "session-synthetic",
+      "uuid": "00000000-0000-4000-8000-000000000002"
+    },
+    { "type": "future.additive", "must-not-be-copied": "must-not-be-copied" }
   ]
 }

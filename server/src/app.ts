@@ -33,7 +33,13 @@ import { EncryptedMailVault } from './services/mail-vault.js';
 import { companyKey, parseAndCorrelateMail } from './services/mail-correlation.js';
 import { syncImapAccount, testImapAccount } from './services/imap-mail-source.js';
 import { buildCompanyCrm } from './services/application-crm.js';
-import { createArtifactRevision, markArtifactUsed } from './services/artifact-revisions.js';
+import {
+  assertApplicationApprovalReady,
+  createArtifactRevision,
+  markArtifactUsed,
+  readVerifiedArtifactRevision,
+  reviewArtifactRevision
+} from './services/artifact-revisions.js';
 import { importLocalMailDrop } from './services/local-mail-drop.js';
 import type { AgentEvent, AgentRunnerPort, AgentRun, AgentRunStore, RuntimeTarget } from './ports/agent-runner.js';
 import { AgentControlCenter } from './agents/agent-control-center.js';
@@ -44,53 +50,74 @@ import { ClaudeCliAgentAdapter, CodexExecAgentAdapter, OpenCodeAgentAdapter } fr
 import { APPLICATION_AGENT_WORKFLOWS } from './agents/application-workflows.js';
 import { AgentTelemetry } from './agents/telemetry.js';
 import { PromptAssembler, ScopedContextBuilder, TaskTemplateRegistry, registerBuiltinTaskTemplates, type ContextSource } from './agents/security-context.js';
-import { ApprovalQueue } from './agents/security-approval.js';
+import { ApprovalQueue, RunCapabilityAuthority } from './agents/security-approval.js';
 import { AgentPolicyEngine, type RiskClass } from './agents/security-policy.js';
 import { AgentArtifactStore, textDiff, type AgentArtifactAdoptionPort, type AgentArtifactProvenance } from './agents/artifact-store.js';
 import { AgentRealtimeTicketAuthority, assertAllowedRealtimeOrigin } from './agents/agent-realtime-gateway.js';
 import { AgentEventFeed } from './agents/agent-event-feed.js';
 import { createAgentSupportBundle } from './agents/support-bundle.js';
+import { ApplicationProfileOnboardingService } from './services/profile-onboarding.js';
+import {
+  ApplicationPipelineProofAuthority,
+  FileApplicationPipelineProofKeyProvider,
+  StaticApplicationPipelineProofKeyProvider
+} from './services/application-pipeline-proof.js';
+import { createRunBoundAgentMcpSession } from './agent-mcp-run-factory.js';
+import { createProviderDomainToolBridge } from './agents/agent-domain-tool-bridge.js';
+import { allowedRootDomainTools, providerSupportsRootDomainTools } from './agents/agent-domain-tool-policy.js';
+import { createRunBoundAgentDomainPorts } from './services/agent-domain-ports.js';
+import { VerifiedApplicationArtifactAdoptionPort } from './services/agent-artifact-adoption.js';
+import { ApplicationAgentOrchestrationService, type RevisionBoundGateConfirmation } from './agents/application-orchestration-service.js';
+import { JsonApplicationOrchestrationStore, MemoryApplicationOrchestrationStore } from './agents/application-orchestration-store.js';
+import { LocalApplicationOrchestrationDomain } from './services/application-orchestration-domain.js';
+import { ApplicationStyleProfileStore } from './services/style-profile.js';
+import {
+  AgentRetentionCoordinator, AgentRetentionJournal, FileAgentRawLogRetentionPort,
+} from './agents/retention.js';
+import { AgentConfigProfileStore, safeDefaultAgentConfigProfile } from './agents/config-profile-store.js';
+import { AgentLocalObservability } from './agents/local-observability.js';
+import { JsonAgentIdempotencyStore } from './agents/idempotency-store.js';
+import { JsonlApprovalLifecycleJournal } from './agents/approval-lifecycle-journal.js';
 
 const searchProfileSchema = z.object({
   name: z.string().min(1).max(80),
   query: z.string().min(2).max(120),
-  regions: z.array(z.string().min(1)).max(20),
+  regions: z.array(z.string().min(1).max(120)).max(20),
   radiusKm: z.number().int().min(0).max(500),
-  workModels: z.array(z.enum(['remote', 'hybrid', 'onsite'])),
-  employmentTypes: z.array(z.enum(['full_time', 'part_time', 'contract', 'freelance', 'internship'])),
-  mustHave: z.array(z.string().min(1)).max(50),
-  niceToHave: z.array(z.string().min(1)).max(50),
-  exclude: z.array(z.string().min(1)).max(50),
+  workModels: z.array(z.enum(['remote', 'hybrid', 'onsite'])).max(3),
+  employmentTypes: z.array(z.enum(['full_time', 'part_time', 'contract', 'freelance', 'internship'])).max(5),
+  mustHave: z.array(z.string().min(1).max(200)).max(50),
+  niceToHave: z.array(z.string().min(1).max(200)).max(50),
+  exclude: z.array(z.string().min(1).max(200)).max(50),
   minSalary: z.number().int().positive().optional(),
-  sourceIds: z.array(z.string().min(1)).max(30)
-});
+  sourceIds: z.array(z.string().min(1).max(120)).max(30)
+}).strict();
 
 const identitySchema = z.object({
-  id: z.string().min(1), label: z.string().min(1), mode: z.enum(['real', 'incognito']),
-  fullName: z.string(), email: z.string(), phone: z.string(), location: z.string(), linkedin: z.string(),
-  placeholders: z.record(z.string(), z.string())
-});
+  id: z.string().min(1).max(120), label: z.string().min(1).max(120), mode: z.enum(['real', 'incognito']),
+  fullName: z.string().max(200), email: z.string().max(320), phone: z.string().max(80),
+  location: z.string().max(200), linkedin: z.string().max(2_048),
+  placeholders: z.record(z.string().min(1).max(120), z.string().max(2_000))
+}).strict();
 
 const mcpConfigSchema = z.object({
   mode: z.enum(['demo', 'stdio']), executionIsolation: z.literal('trusted-host'),
   runtimeTarget: z.enum(['windows', 'wsl']).optional(), distribution: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/).optional(),
-  command: z.string(), args: z.array(z.string()), env: z.record(z.string(), z.string()),
-  configuredEnvironmentKeys: z.array(z.string().min(1).max(128)).max(128).optional()
-}).superRefine((mcp, context) => {
-  if (mcp.mode !== 'stdio') return;
-  try { assertTrustedHostMcpLaunch(mcp); }
-  catch (error) {
-    context.addIssue({ code: 'custom', message: error instanceof Error ? error.message : 'job_search_mcp_launch_invalid' });
-  }
-});
+  command: z.string().max(4_096), args: z.array(z.string().max(4_096)).max(128),
+  env: z.record(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]{0,127}$/), z.string().max(16_384)),
+  configuredEnvironmentKeys: z.array(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]{0,127}$/)).max(128).optional()
+}).strict();
 
 const configSchema = z.object({
+  revision: z.number().int().nonnegative(),
   searchProfile: searchProfileSchema,
-  identities: z.array(identitySchema).min(1),
-  activeIdentityId: z.string().min(1),
+  identities: z.array(identitySchema).min(1).max(100),
+  activeIdentityId: z.string().min(1).max(120),
   mcp: mcpConfigSchema,
-  assistant: z.object({ skillPath: z.string(), candidateProfilePath: z.string(), styleProfilePath: z.string() })
-}).refine((config) => config.identities.some((identity) => identity.id === config.activeIdentityId), {
+  assistant: z.object({
+    skillPath: z.string().max(4_096), candidateProfilePath: z.string().max(4_096), styleProfilePath: z.string().max(4_096)
+  }).strict()
+}).strict().refine((config) => config.identities.some((identity) => identity.id === config.activeIdentityId), {
   message: 'Die aktive Identität muss in identities enthalten sein.', path: ['activeIdentityId']
 });
 
@@ -105,16 +132,50 @@ const agentRunCreateSchema = z.object({
   priority: z.number().int().min(-10).max(10).default(0)
 }).strict();
 
+const styleText = z.string().trim().min(1).max(2_000).refine((value) => !/[\u0000-\u001f\u007f]/.test(value));
+const styleTextList = z.array(styleText).max(100);
+const documentStyleSchema = z.object({
+  perspective: styleText.max(80), technicalDensity: styleText.max(80),
+  maxSentenceWords: z.number().int().min(10).max(100),
+}).strict();
+const editableStyleProfileSchema = z.object({
+  language: styleText.max(40), locale: styleText.max(40), tone: styleText.max(80), formality: styleText.max(80),
+  directness: styleText.max(80), sentenceLength: styleText.max(80), technicalDepth: styleText.max(80),
+  enthusiasm: styleText.max(80), selfPromotion: styleText.max(80), humor: styleText.max(80),
+  vocabulary: z.object({ prefer: styleTextList, avoid: styleTextList }).strict(),
+  preferredPatterns: styleTextList, avoidPatterns: styleTextList,
+  documentStyles: z.object({
+    cv: documentStyleSchema, cover_letter: documentStyleSchema, email: documentStyleSchema, linkedin: documentStyleSchema,
+  }).strict(),
+  personalizationDefault: z.enum(['conservative', 'professional', 'personal']),
+  approvedExamples: z.array(z.object({
+    id: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/), documentType: z.enum(['cv', 'cover_letter', 'email', 'linkedin', 'interview']),
+    text: styleText.max(20_000), sourceRef: styleText.max(500).optional(), notes: styleText.max(2_000).optional(),
+  }).strict()).max(50),
+  rejectedExamples: z.array(z.object({
+    id: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/), documentType: z.enum(['cv', 'cover_letter', 'email', 'linkedin', 'interview']),
+    text: styleText.max(20_000), reason: styleText.max(2_000),
+  }).strict()).max(50),
+  qualityThresholds: z.object({
+    maxRepeatedSentenceStarts: z.number().int().min(0).max(100), maxAvoidPatternMatches: z.number().int().min(0).max(100),
+  }).strict(),
+  reviewWorkflow: z.object({
+    defaultMode: z.enum(['compact', 'standard', 'rigorous']), maxRevisionCycles: z.number().int().min(1).max(5),
+    preferIndependentAgents: z.boolean(),
+  }).strict(),
+}).strict();
+
 const asyncRoute = (handler: (request: Request, response: Response) => Promise<void>) =>
   (request: Request, response: Response, next: NextFunction): void => { handler(request, response).catch(next); };
 
 const sourceFor = (config: AppConfig): JobSourcePort =>
   config.mcp.mode === 'stdio' ? new McpJobSourceAdapter(config.mcp) : new DemoJobSourceAdapter();
 
-function publicConfigView(config: AppConfig): AppConfig {
+function publicConfigView(config: AppConfig, revision: number): AppConfig & { revision: number } {
   const configuredEnvironmentKeys = Object.keys(config.mcp.env).sort();
   return {
     ...structuredClone(config),
+    revision,
     mcp: {
       ...structuredClone(config.mcp),
       env: Object.fromEntries(configuredEnvironmentKeys.map((key) => [key, ''])),
@@ -153,6 +214,10 @@ function withServerOwnedIntegrationSettings(submitted: AppConfig, current: AppCo
   const persisted = structuredClone(submitted);
   persisted.mcp = { ...structuredClone(current.mcp), mode: submitted.mcp.mode };
   persisted.assistant = structuredClone(current.assistant);
+  if (persisted.mcp.mode === 'stdio') {
+    try { assertTrustedHostMcpLaunch(persisted.mcp); }
+    catch (error) { throw Object.assign(error as Error, { statusCode: 409 }); }
+  }
   return persisted;
 }
 
@@ -183,6 +248,16 @@ export interface AgentApiDependencies {
   artifacts: AgentArtifactStore;
   /** Server-only domain adoption; deliberately has no generic REST counterpart. */
   artifactAdoption?: AgentArtifactAdoptionPort;
+  retention?: AgentRetentionCoordinator;
+  retentionJournal?: AgentRetentionJournal;
+  configProfiles?: AgentConfigProfileStore;
+  observability?: AgentLocalObservability;
+  idempotency?: JsonAgentIdempotencyStore;
+}
+
+export interface ApplicationPipelineApiDependencies {
+  proofAuthority: ApplicationPipelineProofAuthority;
+  workRoot: string;
 }
 
 function localRuntimeTarget(): Exclude<RuntimeTarget, 'container' | 'wsl'> {
@@ -195,6 +270,21 @@ export function createDefaultAgentApiDependencies(memory = false): AgentApiDepen
   const workspaceRoot = resolve(process.cwd(), '..');
   const telemetry = new AgentTelemetry();
   const eventFeed = new AgentEventFeed();
+  const artifacts = new AgentArtifactStore(resolve(workspaceRoot, '.local-data', 'agent-artifacts'));
+  const configProfiles = memory ? undefined
+    : new AgentConfigProfileStore(resolve(workspaceRoot, '.local-data', 'agent-config'));
+  const observability = memory ? undefined : new AgentLocalObservability(
+    resolve(workspaceRoot, '.local-data', 'agent-observability', 'events.jsonl'),
+    resolve(workspaceRoot, '.local-data'),
+  );
+  const loadPersistentAgentProfile = async () => {
+    if (!configProfiles) return safeDefaultAgentConfigProfile();
+    try { return (await configProfiles.load()).profile; }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      return configProfiles.reset();
+    }
+  };
   const approvalStarted = new Map<string, number>();
   const store: AgentRunStore = memory
     ? new MemoryAgentRunStore()
@@ -210,15 +300,27 @@ export function createDefaultAgentApiDependencies(memory = false): AgentApiDepen
       ],
       outcome: { state: 'succeeded' }
     }, 'fake-interactive'),
-    new CodexExecAgentAdapter(), new OpenCodeAgentAdapter(), new ClaudeCliAgentAdapter()
+    new CodexExecAgentAdapter(undefined, undefined, false, {
+      enabled: async () => process.env.CODEX_APP_SERVER_EXPERIMENTAL === '1'
+        || (await loadPersistentAgentProfile()).features.codexAppServerExperimental,
+      // The adapter creates a run-local CODEX_HOME containing only auth.json;
+      // user/project MCP and plugin configuration is therefore not inherited.
+      userConfigIsolationVerified: true,
+    }),
+    new OpenCodeAgentAdapter(), new ClaudeCliAgentAdapter()
   ];
-  const center = new AgentControlCenter(store, providers, {
+  const runToolCalls = new Map<string, number>();
+  const budgetStops = new Set<string>();
+  let center!: AgentControlCenter;
+  center = new AgentControlCenter(store, providers, {
     maxParallel: 2, maxParallelPerProvider: 1, allowedWorkspaceRoots: [workspaceRoot],
     onQueueDepth: (depth) => telemetry.setQueueDepth(depth),
     onEvent: (event) => {
       eventFeed.append(event);
       const data = event.data as Record<string, unknown>;
       if (event.kind === 'process_started') telemetry.runStarted(event.provider);
+      if (event.kind === 'error') telemetry.errorObserved();
+      if (event.kind === 'tool_started') runToolCalls.set(event.runId, (runToolCalls.get(event.runId) ?? 0) + 1);
       if (event.kind === 'run_completed' && ['succeeded', 'failed', 'timed_out', 'cancelled'].includes(String(data.state))) {
         telemetry.runTerminal(data.state as 'succeeded' | 'failed' | 'timed_out' | 'cancelled');
       }
@@ -230,18 +332,92 @@ export function createDefaultAgentApiDependencies(memory = false): AgentApiDepen
       }
       if (event.kind === 'usage_updated') {
         const numeric = (name: string): number | undefined => typeof data[name] === 'number' ? data[name] as number : undefined;
+        const inputTokens = numeric('inputTokens'); const outputTokens = numeric('outputTokens');
+        const reportedCostMicros = numeric('reportedCostMicros');
+        const reportedCurrency = typeof data.currency === 'string' && /^[A-Z]{3}$/.test(data.currency) ? data.currency : undefined;
         telemetry.recordUsage(event.runId, {
           provider: event.provider, source: 'provider', capturedAt: event.timestamp,
-          inputTokens: numeric('inputTokens'), cachedInputTokens: numeric('cachedInputTokens'),
-          outputTokens: numeric('outputTokens'), reasoningTokens: numeric('reasoningTokens'), totalTokens: numeric('totalTokens')
+          inputTokens, cachedInputTokens: numeric('cachedInputTokens'), outputTokens,
+          reasoningTokens: numeric('reasoningTokens'), totalTokens: numeric('totalTokens') ?? ((inputTokens ?? 0) + (outputTokens ?? 0)),
+          toolCalls: runToolCalls.get(event.runId) ?? 0,
+          reportedCost: reportedCostMicros !== undefined && reportedCurrency
+            ? { amountMicros: reportedCostMicros, currency: reportedCurrency, source: 'provider' }
+            : undefined,
         });
+      }
+      void observability?.record({
+        level: event.kind === 'error' ? 'error' : event.kind === 'warning' ? 'warn' : 'debug',
+        component: 'agent', operation: event.kind, code: 'agent_event', correlationId: event.correlationId,
+        runId: event.runId, provider: event.provider, eventSequence: event.sequence,
+        ...(event.kind === 'error' ? { errorClass: typeof data.code === 'string' && /^[a-z][a-z0-9_.:-]{0,127}$/i.test(data.code) ? data.code : 'provider_error' } : {}),
+      }).catch(() => undefined);
+      if (event.kind === 'usage_updated' || event.kind === 'tool_started' || event.kind === 'run_completed') {
+        void (async () => {
+          const run = await center.get(event.runId);
+          if (!run) return;
+          const previous = telemetry.usageFor(event.runId);
+          const rawVersion = run.capabilities?.providerVersion;
+          const providerVersion = typeof rawVersion === 'string' ? /\d+\.\d+\.\d+/.exec(rawVersion)?.[0] : undefined;
+          const started = run.startedAt ? Date.parse(run.startedAt) : undefined;
+          const duration = started === undefined ? undefined : Math.max(0, Date.parse(run.finishedAt ?? event.timestamp) - started);
+          telemetry.recordUsage(event.runId, {
+            provider: event.provider,
+            providerVersion,
+            source: previous?.source ?? (event.kind === 'usage_updated' ? 'provider' : 'unknown'),
+            capturedAt: event.timestamp,
+            inputTokens: previous?.inputTokens,
+            cachedInputTokens: previous?.cachedInputTokens,
+            outputTokens: previous?.outputTokens,
+            reasoningTokens: previous?.reasoningTokens,
+            totalTokens: previous?.totalTokens,
+            toolCalls: runToolCalls.get(event.runId) ?? previous?.toolCalls ?? 0,
+            runDurationMs: duration,
+            templateId: typeof run.request.metadata?.promptWitness === 'object'
+              && run.request.metadata.promptWitness !== null
+              && typeof (run.request.metadata.promptWitness as Record<string, unknown>).templateId === 'string'
+              ? (run.request.metadata.promptWitness as Record<string, unknown>).templateId as string : undefined,
+            workflowId: typeof run.request.metadata?.workflowId === 'string' ? run.request.metadata.workflowId : undefined,
+            reportedCost: previous?.reportedCost,
+          });
+          const profile = await loadPersistentAgentProfile();
+          const evaluation = telemetry.evaluateBudget(event.runId, profile.budgets);
+          if (evaluation.state === 'warning' || evaluation.state === 'exceeded') {
+            await observability?.record({
+              level: evaluation.state === 'exceeded' ? 'error' : 'warn', component: 'budget', operation: 'evaluate',
+              code: `budget_${evaluation.state}`, runId: event.runId, provider: event.provider, providerVersion,
+              eventSequence: event.sequence,
+            });
+          }
+          if (evaluation.state === 'exceeded' && !budgetStops.has(event.runId)
+            && !['succeeded', 'failed', 'timed_out', 'cancelled'].includes(run.state)) {
+            budgetStops.add(event.runId);
+            await center.cancel(event.runId, 'Hartes lokales Agentenbudget ueberschritten.');
+          }
+          if (event.kind === 'run_completed') { runToolCalls.delete(event.runId); budgetStops.delete(event.runId); }
+        })().catch(() => undefined);
       }
     }
   });
+  const retentionJournal = memory ? undefined
+    : new AgentRetentionJournal(resolve(workspaceRoot, '.local-data', 'agent-retention', 'journal.jsonl'));
+  const approvalQueue = new ApprovalQueue(
+    randomBytes(32), undefined, undefined,
+    memory ? undefined : new JsonlApprovalLifecycleJournal(resolve(workspaceRoot, '.local-data', 'agent-approvals', 'lifecycle.jsonl')),
+  );
   return {
-    center, store, providers, workspaceRoot, telemetry, emergencyStop: { enabled: false }, approvalQueue: new ApprovalQueue(randomBytes(32)),
+    center, store, providers, workspaceRoot, telemetry, emergencyStop: { enabled: false }, approvalQueue,
     realtimeTickets: process.env.AGENT_REALTIME_WS === '1' ? new AgentRealtimeTicketAuthority() : undefined,
-    eventFeed, artifacts: new AgentArtifactStore()
+    eventFeed, artifacts,
+    retentionJournal,
+    retention: retentionJournal ? new AgentRetentionCoordinator(
+      store as AgentRunStore & { deleteRuns(runIds: readonly string[], options?: { dryRun?: boolean }): Promise<Array<{ runId: string; events: number }>> },
+      artifacts,
+      new FileAgentRawLogRetentionPort(resolve(workspaceRoot, '.local-data', 'agent-raw-logs')),
+      retentionJournal,
+    ) : undefined,
+    configProfiles,
+    observability,
+    idempotency: memory ? undefined : new JsonAgentIdempotencyStore(resolve(workspaceRoot, '.local-data', 'agent-idempotency')),
   };
 }
 
@@ -391,10 +567,86 @@ export function createApp(
   audit?: AuditLogger,
   workspace?: WorkspaceStore,
   mailVault: EncryptedMailVault = new EncryptedMailVault(),
-  agentApi: AgentApiDependencies = createDefaultAgentApiDependencies(store instanceof MemoryConfigStore)
+  agentApi: AgentApiDependencies = createDefaultAgentApiDependencies(store instanceof MemoryConfigStore),
+  applicationPipeline?: ApplicationPipelineApiDependencies
 ) {
   audit ??= store instanceof MemoryConfigStore ? new MemoryAuditLogger() : new JsonLinesAuditLogger();
   workspace ??= store instanceof MemoryConfigStore ? new MemoryWorkspaceStore() : new JsonWorkspaceStore();
+  applicationPipeline ??= {
+    proofAuthority: new ApplicationPipelineProofAuthority(
+      store instanceof MemoryConfigStore
+        ? new StaticApplicationPipelineProofKeyProvider(randomBytes(32))
+        : new FileApplicationPipelineProofKeyProvider()
+    ),
+    workRoot: resolve(process.cwd(), '..', '.application-work')
+  };
+  agentApi.artifactAdoption ??= new VerifiedApplicationArtifactAdoptionPort(
+    workspace, store, applicationPipeline.proofAuthority, applicationPipeline.workRoot,
+  );
+  const orchestrationDomain = new LocalApplicationOrchestrationDomain(
+    workspace, store, mailVault, applicationPipeline.proofAuthority, applicationPipeline.workRoot, randomBytes(32),
+  );
+  const orchestrationStore = store instanceof MemoryConfigStore
+    ? new MemoryApplicationOrchestrationStore()
+    : new JsonApplicationOrchestrationStore(resolve(process.cwd(), '..', '.local-data', 'agent-orchestrations'));
+  const orchestrationService = new ApplicationAgentOrchestrationService(
+    agentApi.center, agentApi.artifacts, orchestrationStore, orchestrationDomain, orchestrationDomain,
+    { runPersistenceProtection: store instanceof MemoryConfigStore ? 'ephemeral' : 'encrypted', maxParallelNodes: 2 },
+  );
+  let styleProfileService: ApplicationStyleProfileStore | undefined;
+  const styleProfiles = async (): Promise<ApplicationStyleProfileStore> => {
+    if (!styleProfileService) styleProfileService = new ApplicationStyleProfileStore((await store.load()).assistant);
+    return styleProfileService;
+  };
+  const domainCapabilityAuthority = new RunCapabilityAuthority(randomBytes(32));
+  const domainPorts = createRunBoundAgentDomainPorts({ workspace, config: store, mailVault });
+  agentApi.center.configureDomainToolFactory(({ run, installation, capabilities }) => {
+    if (!providerSupportsRootDomainTools(run.provider, installation.runtimeTarget)
+      || capabilities.extensions?.dynamicTools !== true) return undefined;
+    const allowedTools = allowedRootDomainTools(run.request);
+    const declared = Array.isArray(run.request.metadata?.requiredRootMcpTools)
+      ? run.request.metadata.requiredRootMcpTools.filter((value): value is string => typeof value === 'string') : allowedTools;
+    if (JSON.stringify([...declared].sort()) !== JSON.stringify([...allowedTools].sort())) {
+      throw new Error('root_domain_tool_scope_mismatch');
+    }
+    const metadataCases = Array.isArray(run.request.metadata?.allowedApplicationCaseIds)
+      ? run.request.metadata.allowedApplicationCaseIds.filter((value): value is string => typeof value === 'string') : [];
+    const allowedApplicationCaseIds = [...new Set([
+      ...metadataCases,
+      ...(run.request.applicationCaseId ? [run.request.applicationCaseId] : []),
+    ])];
+    const rawIdentityMode = run.request.metadata?.identityMode;
+    const identityMode = rawIdentityMode === 'incognito' ? 'incognito' : rawIdentityMode === 'real' ? 'real' : 'none';
+    const session = createRunBoundAgentMcpSession({
+      context: {
+        runId: run.id, providerId: run.provider, identityMode,
+        sandboxProfile: run.request.sandbox === 'workspace-write' ? 'workspace_write_offline' : 'read_only_offline',
+        allowedTools, allowedApplicationCaseIds,
+        capabilityTtlMs: Math.min(24 * 60 * 60_000, (run.request.limits?.wallTimeMs ?? 30 * 60_000) + 5 * 60_000),
+      },
+      ports: domainPorts,
+      capabilityAuthority: domainCapabilityAuthority,
+      approvalQueue: agentApi.approvalQueue,
+      auditSink: {
+        append: async (event) => {
+          const correlationId = typeof run.request.metadata?.correlationId === 'string'
+            ? run.request.metadata.correlationId : `agent-mcp-${event.runId}`;
+          await audit!.write({
+            correlationId,
+            operation: `agent.mcp.${event.action}`,
+            status: event.action === 'tool_denied' || event.action === 'approval_denied' ? 403 : 200,
+            category: 'agent_mcp', occurredAt: event.occurredAt,
+          });
+          await agentApi.observability?.record({
+            level: event.action === 'tool_denied' || event.action === 'approval_denied' ? 'warn' : 'info',
+            component: 'mcp', operation: event.action, code: 'domain_tool_audit',
+            correlationId, runId: event.runId, provider: event.providerId,
+          });
+        },
+      },
+    });
+    return createProviderDomainToolBridge(session);
+  });
   const app = express();
   app.use(cors({ origin: ['http://localhost:4200', 'http://127.0.0.1:4200'] }));
   app.use(express.json({ limit: '512kb' }));
@@ -412,6 +664,7 @@ export function createApp(
     }
   };
   app.use((request, response, next) => {
+    const requestStartedAt = Date.now();
     const requested = request.header('x-correlation-id');
     const correlationId = requested && /^[a-zA-Z0-9_-]{8,80}$/.test(requested) ? requested : randomUUID();
     response.locals.correlationId = correlationId;
@@ -421,11 +674,111 @@ export function createApp(
         correlationId, operation: `${request.method} ${request.route?.path ?? request.path}`,
         status: response.statusCode, occurredAt: new Date().toISOString()
       }).catch(() => undefined);
+      void agentApi.observability?.record({
+        level: response.statusCode >= 500 ? 'error' : response.statusCode >= 400 ? 'warn' : 'info',
+        component: 'http', operation: 'request', code: `status_${response.statusCode}`,
+        correlationId, durationMs: Math.max(0, Date.now() - requestStartedAt),
+        ...(response.statusCode >= 500 ? { errorClass: 'server_error' } : {}),
+      }).catch(() => undefined);
     });
     next();
   });
 
   app.get('/api/health', (_request, response) => response.json({ status: 'ok' }));
+
+  const loadAgentConfigProfile = async () => {
+    if (!agentApi.configProfiles) throw Object.assign(new Error('Agenten-Konfigurationsprofile sind nicht persistent konfiguriert.'), { statusCode: 503 });
+    try { return await agentApi.configProfiles.load(); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      const profile = await agentApi.configProfiles.reset();
+      return { profile, source: 'primary' as const };
+    }
+  };
+
+  type AgentProfileRequest = {
+    providerId: string;
+    runtimeTarget: Exclude<RuntimeTarget, 'container'>;
+    wslDistribution?: string;
+    workspaceMode: 'read_only' | 'workspace_write';
+    network: boolean;
+  };
+  const evaluateAgentProfile = async (input: AgentProfileRequest) => {
+    if (!agentApi.configProfiles) return { profile: undefined, provider: undefined, blockers: [] as Array<{ code: string; field?: string; message: string }> };
+    const profile = (await loadAgentConfigProfile()).profile;
+    const provider = profile.providers.find((candidate) => candidate.provider === input.providerId);
+    const blockers: Array<{ code: string; field?: string; message: string }> = [];
+    if (!provider || !provider.enabled) blockers.push({ code: 'provider_disabled_by_profile', field: 'providerId', message: 'Der Provider ist im aktiven lokalen Sicherheitsprofil deaktiviert.' });
+    else {
+      if (provider.runtimeTarget !== input.runtimeTarget) blockers.push({ code: 'runtime_blocked_by_profile', field: 'runtimeTarget', message: `Das aktive Profil erlaubt fuer diesen Provider nur ${provider.runtimeTarget}.` });
+      if (provider.wslDistribution && provider.wslDistribution !== input.wslDistribution) blockers.push({ code: 'distribution_blocked_by_profile', field: 'wslDistribution', message: 'Die WSL-Distribution stimmt nicht mit dem aktiven Profil ueberein.' });
+      if (input.workspaceMode === 'workspace_write' && provider.sandbox !== 'workspace-write') blockers.push({ code: 'workspace_write_blocked_by_profile', field: 'workspaceMode', message: 'Das aktive Profil erlaubt nur einen schreibgeschuetzten Workspace.' });
+      if (input.network && provider.network === 'disabled') blockers.push({ code: 'network_blocked_by_profile', field: 'network', message: 'Das aktive Profil erlaubt keinen Agenten-Netzwerkzugriff.' });
+    }
+    return { profile, provider, blockers };
+  };
+
+  const requireAgentProfile = async (input: AgentProfileRequest) => {
+    const decision = await evaluateAgentProfile(input);
+    if (decision.blockers.length) {
+      throw Object.assign(new Error(decision.blockers.map((blocker) => blocker.message).join(' ')), { statusCode: 409 });
+    }
+    return decision;
+  };
+
+  let providerDiscoveryCache: { expiresAt: number; value: AgentProviderView[] } | undefined;
+
+  app.get('/api/agents/config-profile', asyncRoute(async (_request, response) => {
+    response.setHeader('cache-control', 'no-store');
+    response.json(await loadAgentConfigProfile());
+  }));
+
+  app.put('/api/agents/config-profile', asyncRoute(async (request, response) => {
+    if (!agentApi.configProfiles) throw Object.assign(new Error('Agenten-Konfigurationsprofile sind nicht persistent konfiguriert.'), { statusCode: 503 });
+    const payload = z.object({
+      expectedUpdatedAt: z.string().datetime(), confirmed: z.literal(true), profile: z.record(z.string(), z.unknown()),
+    }).strict().parse(request.body);
+    let saved;
+    try {
+      saved = await agentApi.configProfiles.compareAndSave(payload.expectedUpdatedAt, payload.profile);
+    } catch (error) {
+      if (error instanceof Error && error.message === 'agent_config_revision_conflict') {
+        throw Object.assign(new Error('Das Agentenprofil wurde zwischenzeitlich geändert.'), { statusCode: 409 });
+      }
+      if (error instanceof Error && error.message.startsWith('agent_config_')) {
+        throw Object.assign(new Error('Das Agentenprofil verletzt den versionierten Sicherheitsvertrag.'), { statusCode: 400 });
+      }
+      throw error;
+    }
+    providerDiscoveryCache = undefined;
+    await audit!.write({
+      correlationId: response.locals.correlationId, operation: 'agent.config-profile.update',
+      status: 200, category: 'agent_policy_profile', occurredAt: new Date().toISOString(),
+    });
+    await agentApi.observability?.record({
+      level: 'info', component: 'policy', operation: 'profile_update', code: 'profile_updated',
+      correlationId: response.locals.correlationId,
+    });
+    response.setHeader('cache-control', 'no-store');
+    response.json({ profile: saved, source: 'primary' });
+  }));
+
+  app.post('/api/agents/config-profile/reset', asyncRoute(async (request, response) => {
+    if (!agentApi.configProfiles) throw Object.assign(new Error('Agenten-Konfigurationsprofile sind nicht persistent konfiguriert.'), { statusCode: 503 });
+    z.object({ confirmed: z.literal(true) }).strict().parse(request.body);
+    const profile = await agentApi.configProfiles.save(safeDefaultAgentConfigProfile());
+    providerDiscoveryCache = undefined;
+    await audit!.write({
+      correlationId: response.locals.correlationId, operation: 'agent.config-profile.reset',
+      status: 200, category: 'agent_policy_profile', occurredAt: new Date().toISOString(),
+    });
+    await agentApi.observability?.record({
+      level: 'warn', component: 'policy', operation: 'profile_reset', code: 'profile_reset',
+      correlationId: response.locals.correlationId,
+    });
+    response.setHeader('cache-control', 'no-store');
+    response.json({ profile, source: 'primary' });
+  }));
 
   const providerNames: Record<string, string> = {
     fake: 'Synthetischer Offline-Agent', 'fake-interactive': 'Interaktiver Offline-Agent',
@@ -441,7 +794,6 @@ export function createApp(
     installations?: AgentProviderInstallationView[];
     experimental?: boolean; fallbackProviderId?: string;
   };
-  let providerDiscoveryCache: { expiresAt: number; value: AgentProviderView[] } | undefined;
   const discoverAgentProviders = async (refresh = false): Promise<AgentProviderView[]> => {
     if (!refresh && providerDiscoveryCache && providerDiscoveryCache.expiresAt > Date.now()) return providerDiscoveryCache.value;
     const value = await Promise.all(agentApi.providers.map(async (provider) => {
@@ -458,10 +810,11 @@ export function createApp(
           capabilities: {
             interactiveInput: capabilities.interactiveInput, approvals: capabilities.approvals,
             networkControl: capabilities.extensions?.networkControl === true,
-            workspaceModes: capabilities.sandboxPolicies.flatMap((policy) => policy === 'read-only' ? ['read_only'] : policy === 'workspace-write' ? ['workspace_write'] : [])
+            workspaceModes: capabilities.sandboxPolicies.flatMap((policy) => policy === 'read-only' ? ['read_only'] : policy === 'workspace-write' ? ['workspace_write'] : []),
+            rootDomainTools: capabilities.extensions?.dynamicTools === true,
           },
-          experimental: provider.provider === 'codex-exec' && process.env.CODEX_APP_SERVER_EXPERIMENTAL === '1',
-          fallbackProviderId: provider.provider === 'codex-exec' && process.env.CODEX_APP_SERVER_EXPERIMENTAL === '1' ? 'codex-exec' : undefined,
+          experimental: provider.provider === 'codex-exec' && capabilities.extensions?.maturity === 'experimental',
+          fallbackProviderId: provider.provider === 'codex-exec' ? 'codex-exec' : undefined,
           installations: installations.map((item) => ({
             runtimeTarget: item.runtimeTarget, distribution: item.distribution, version: item.version,
             adapterVersion: item.capabilities?.adapterVersion ?? (item === preferred ? capabilities.adapterVersion : undefined),
@@ -574,7 +927,8 @@ export function createApp(
       polling = true;
       try {
         if (response.writableLength > 256 * 1024) { response.end(); close(); return; }
-        const page = agentApi.eventFeed.since(cursor, filter);
+        const authorizedRunIds = new Set((await agentApi.center.list()).map((run) => run.id));
+        const page = agentApi.eventFeed.sinceAuthorized(cursor, (runId) => authorizedRunIds.has(runId), filter);
         if (page.resetRequired) await snapshot('reset');
         else {
           for (const event of page.events) {
@@ -599,16 +953,239 @@ export function createApp(
     prohibitedActions: workflow.prohibitedActions
   }))));
 
+  const orchestrationCreateSchema = z.object({
+    workflowId: z.enum(['guided-job-analysis', 'evidence-application-package', 'employer-response-triage', 'application-next-actions']),
+    providerId: z.string().regex(/^[a-z][a-z0-9-]{1,63}$/),
+    prompt: z.string().min(1).max(64 * 1024),
+    runtimeTarget: z.enum(['windows', 'wsl', 'linux', 'darwin']).default(localRuntimeTarget),
+    wslDistribution: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/).optional(),
+    applicationCaseId: z.string().uuid().optional(),
+    mailId: z.string().uuid().optional(),
+    documentRevisionId: z.string().uuid().optional(),
+  }).strict();
+
+  const providerForOrchestration = async (providerId: string, runtimeTarget: RuntimeTarget, wslDistribution?: string) => {
+    if (runtimeTarget === 'container') throw Object.assign(new Error('Container-Runtimes sind fuer diese lokale Orchestrierung nicht freigegeben.'), { statusCode: 409 });
+    const profileDecision = await requireAgentProfile({
+      providerId, runtimeTarget, wslDistribution, workspaceMode: 'read_only', network: false,
+    });
+    if (profileDecision.profile && !profileDecision.profile.features.multiAgentExperimental) {
+      throw Object.assign(new Error('Die suggestion-only Multi-Agent-Kette ist im aktiven lokalen Profil deaktiviert.'), { statusCode: 409 });
+    }
+    const provider = (await discoverAgentProviders()).find((candidate) => candidate.id === providerId);
+    const installation = provider?.installations?.find((candidate) => candidate.runtimeTarget === runtimeTarget
+      && (!wslDistribution || candidate.distribution === wslDistribution));
+    if (!provider || !provider.available || !installation || installation.support !== 'supported') {
+      throw Object.assign(new Error(installation?.note ?? provider?.note ?? 'Die Providerinstallation ist nicht freigegeben.'), { statusCode: 409 });
+    }
+    if (runtimeTarget === 'wsl' && !wslDistribution) throw Object.assign(new Error('Fuer WSL muss die Distribution explizit gewaehlt werden.'), { statusCode: 400 });
+    if (installation.authStatus === 'unauthenticated') throw Object.assign(new Error('Der Provider ist nicht authentifiziert.'), { statusCode: 409 });
+    return { installation, profile: profileDecision.profile, providerProfile: profileDecision.provider };
+  };
+
+  const orchestrationConfirmations = (
+    workflowId: string,
+    workflowVersion: string,
+    applicationCaseId: string,
+    applicationCaseRevision: number,
+    review: { documentRevisionId: string; expectedSha256: string; confirmed: true } | undefined,
+    userInput: { confirmed: true } | undefined,
+  ): RevisionBoundGateConfirmation[] => {
+    const workflow = APPLICATION_AGENT_WORKFLOWS.find((candidate) => candidate.id === workflowId)!;
+    const confirmations: RevisionBoundGateConfirmation[] = [];
+    for (const node of workflow.plan('server-validation').nodes) {
+      if (node.gates.includes('review_complete') && review) {
+        const body = {
+          workflowId, workflowVersion, nodeId: node.id, gate: 'review_complete' as const,
+          applicationCaseId, applicationCaseRevision,
+          documentRevisionId: review.documentRevisionId, documentRevisionSha256: review.expectedSha256,
+        };
+        confirmations.push({
+          nodeId: node.id, gate: body.gate, applicationCaseId, applicationCaseRevision,
+          documentRevisionId: body.documentRevisionId, documentRevisionSha256: body.documentRevisionSha256,
+          confirmationReference: orchestrationDomain.issueConfirmation(body),
+        });
+      }
+      if (node.gates.includes('user_input') && userInput) {
+        const body = {
+          workflowId, workflowVersion, nodeId: node.id, gate: 'user_input' as const,
+          applicationCaseId, applicationCaseRevision,
+        };
+        confirmations.push({
+          nodeId: node.id, gate: body.gate, applicationCaseId, applicationCaseRevision,
+          confirmationReference: orchestrationDomain.issueConfirmation(body),
+        });
+      }
+    }
+    return confirmations;
+  };
+
+  app.get('/api/agent-orchestrations', asyncRoute(async (_request, response) => {
+    response.setHeader('cache-control', 'no-store');
+    response.json({ orchestrations: await orchestrationService.list() });
+  }));
+
+  app.get('/api/agent-orchestrations/:orchestrationId', asyncRoute(async (request, response) => {
+    const id = z.string().uuid().parse(request.params.orchestrationId);
+    const orchestration = await orchestrationService.get(id);
+    if (!orchestration) { response.status(404).json({ error: 'Agentenorchestrierung nicht gefunden.' }); return; }
+    response.setHeader('cache-control', 'no-store');
+    response.json(orchestration);
+  }));
+
+  app.post('/api/agent-orchestrations', asyncRoute(async (request, response) => {
+    if (agentApi.emergencyStop.enabled) throw Object.assign(new Error('Der Emergency Stop blockiert neue Agentenorchestrierungen.'), { statusCode: 409 });
+    const payload = orchestrationCreateSchema.parse(request.body);
+    const orchestrationProvider = await providerForOrchestration(payload.providerId, payload.runtimeTarget, payload.wslDistribution);
+    const workflow = APPLICATION_AGENT_WORKFLOWS.find((candidate) => candidate.id === payload.workflowId)!;
+    const configuration = await store.load();
+    const application = payload.applicationCaseId ? await workspace.getApplicationCase(payload.applicationCaseId) : undefined;
+    if (workflow.requiredScope !== 'search_profile' && !application) {
+      throw Object.assign(new Error('Dieser Workflow benoetigt einen expliziten Bewerbungsfall.'), { statusCode: 400 });
+    }
+    if (payload.documentRevisionId && !application) throw Object.assign(new Error('Eine Dokumentrevision benoetigt einen Bewerbungsfall.'), { statusCode: 400 });
+    if (payload.workflowId === 'employer-response-triage' && !payload.mailId) {
+      throw Object.assign(new Error('Die Antworttriage benoetigt eine explizit ausgewaehlte Mail.'), { statusCode: 400 });
+    }
+    let selectedMailId: string | undefined;
+    if (payload.mailId) {
+      if (payload.workflowId !== 'employer-response-triage' || !application) {
+        throw Object.assign(new Error('Eine Mailbindung ist nur fuer die fallgebundene Antworttriage erlaubt.'), { statusCode: 400 });
+      }
+      const message = (await mailVault.listMessages()).find((candidate) => candidate.id === payload.mailId);
+      if (!message) throw Object.assign(new Error('Die ausgewaehlte Nachricht wurde nicht gefunden.'), { statusCode: 404 });
+      selectedMailId = message.id;
+    }
+    if (payload.workflowId === 'guided-job-analysis') {
+      const sourceResult = await sourceFor(configuration).searchDetailed(configuration.searchProfile);
+      const matches = deduplicateJobs(sourceResult.jobs).map((job) => matchJob(configuration.searchProfile, job))
+        .sort((left, right) => right.searchPreferenceScore - left.searchPreferenceScore).slice(0, 20);
+      if (!matches.length) throw Object.assign(new Error('Die Trusted-Host-Jobsuche lieferte keine Stellen.'), { statusCode: 409 });
+      await workspace.saveSearchRun({
+        id: randomUUID(), createdAt: new Date().toISOString(), profile: configuration.searchProfile,
+        sourceIds: configuration.searchProfile.sourceIds, matches, partialFailures: sourceResult.failures,
+      });
+    }
+    let claimIds: string[] = [];
+    if (payload.workflowId === 'evidence-application-package') {
+      const profile = await new LocalCandidateProfileAdapter(configuration.assistant).summary();
+      claimIds = profile.claims.filter((claim) => ['verified', 'user_confirmed'].includes(claim.status) && claim.evidenceRefs.length)
+        .map((claim) => claim.id);
+      if (!profile.valid || !claimIds.length) {
+        throw Object.assign(new Error('Die Multi-Agent-Bewerbungskette benoetigt mindestens einen belegten Claim im Kandidatenprofil.'), { statusCode: 409 });
+      }
+    }
+    const identity = application
+      ? configuration.identities.find((candidate) => candidate.id === application.identityId)
+      : configuration.identities.find((candidate) => candidate.id === configuration.activeIdentityId);
+    if (!identity) throw Object.assign(new Error('Die gebundene Identitaet wurde nicht gefunden.'), { statusCode: 409 });
+    const documentRevisionId = payload.documentRevisionId;
+    const scope = {
+      applicationCaseId: application?.id,
+      applicationCaseRevision: application?.revision,
+      jobId: application?.job.id,
+      companyKey: application ? companyKey(application.job.company) : undefined,
+      mailId: selectedMailId,
+      documentRevisionId,
+      workspaceRootId: 'workspace-local',
+      identityMode: application?.identityMode ?? identity.mode,
+    } as const;
+    const orchestration = await orchestrationService.create({
+      workflowId: workflow.id, providerId: payload.providerId,
+      workspaceRoot: agentApi.workspaceRoot, runtimeTarget: payload.runtimeTarget,
+      wslDistribution: payload.wslDistribution,
+      model: orchestrationProvider.providerProfile?.model,
+      profile: orchestrationProvider.profile?.profileId,
+      approvalMode: orchestrationProvider.providerProfile?.approvalMode,
+      ownerId: 'local-user', prompt: payload.prompt,
+      correlationId: response.locals.correlationId,
+      scope, claimIds, confirmations: [],
+    });
+    response.setHeader('cache-control', 'no-store');
+    response.status(202).json(orchestration);
+  }));
+
+  app.post('/api/agent-orchestrations/:orchestrationId/continue', asyncRoute(async (request, response) => {
+    const id = z.string().uuid().parse(request.params.orchestrationId);
+    const payload = z.object({
+      expectedRevision: z.number().int().min(0),
+      review: z.object({ documentRevisionId: z.string().uuid(), expectedSha256: z.string().regex(/^[a-f0-9]{64}$/), confirmed: z.literal(true) }).strict().optional(),
+      userInput: z.object({ confirmed: z.literal(true) }).strict().optional(),
+    }).strict().parse(request.body);
+    const current = await orchestrationService.get(id);
+    if (!current) { response.status(404).json({ error: 'Agentenorchestrierung nicht gefunden.' }); return; }
+    if (current.revision !== payload.expectedRevision) throw Object.assign(new Error('Die Orchestrierung wurde zwischenzeitlich veraendert.'), { statusCode: 409 });
+    const application = current.scope.applicationCaseId ? await workspace.getApplicationCase(current.scope.applicationCaseId) : undefined;
+    if (!application || application.revision !== current.scope.applicationCaseRevision) {
+      throw Object.assign(new Error('Der Bewerbungsfall hat sich seit Start der Orchestrierung veraendert.'), { statusCode: 409 });
+    }
+    const confirmations = orchestrationConfirmations(
+      current.workflowId, current.workflowVersion, application.id, application.revision,
+      payload.review, payload.userInput,
+    ).filter((confirmation) => current.unresolvedGates.some((gate) => gate.nodeId === confirmation.nodeId && gate.gate === confirmation.gate));
+    if (!confirmations.length) throw Object.assign(new Error('Keine offene, passend gebundene Freigabe wurde bestaetigt.'), { statusCode: 409 });
+    response.setHeader('cache-control', 'no-store');
+    response.json(await orchestrationService.continue(id, confirmations));
+  }));
+
+  app.post('/api/agent-orchestrations/:orchestrationId/cancel', asyncRoute(async (request, response) => {
+    const id = z.string().uuid().parse(request.params.orchestrationId);
+    const payload = z.object({ expectedRevision: z.number().int().min(0), confirmed: z.literal(true) }).strict().parse(request.body);
+    const current = await orchestrationService.get(id);
+    if (!current) { response.status(404).json({ error: 'Agentenorchestrierung nicht gefunden.' }); return; }
+    if (current.revision !== payload.expectedRevision) throw Object.assign(new Error('Die Orchestrierung wurde zwischenzeitlich veraendert.'), { statusCode: 409 });
+    response.setHeader('cache-control', 'no-store');
+    response.json(await orchestrationService.cancel(id));
+  }));
+
+  app.post('/api/agent-orchestrations/:orchestrationId/conflicts/:conflictId/resolve', asyncRoute(async (request, response) => {
+    const id = z.string().uuid().parse(request.params.orchestrationId);
+    const conflictId = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/).parse(request.params.conflictId);
+    const payload = z.object({
+      expectedRevision: z.number().int().min(0),
+      variantsSha256: z.string().regex(/^[a-f0-9]{64}$/),
+      strategy: z.enum(['accept_complementary', 'select_variant']),
+      selectedArtifactId: z.string().uuid().optional(),
+      confirmed: z.literal(true),
+    }).strict().superRefine((value, context) => {
+      if ((value.strategy === 'select_variant') !== Boolean(value.selectedArtifactId)) {
+        context.addIssue({ code: 'custom', message: 'Eine Variantenauswahl erfordert exakt eine Artefakt-ID.' });
+      }
+    }).parse(request.body);
+    const resolutionReference = `ui-${createHash('sha256').update(JSON.stringify({
+      id, conflictId, revision: payload.expectedRevision, variantsSha256: payload.variantsSha256,
+      strategy: payload.strategy, selectedArtifactId: payload.selectedArtifactId,
+      correlationId: response.locals.correlationId,
+    })).digest('hex')}`;
+    response.setHeader('cache-control', 'no-store');
+    response.json(await orchestrationService.resolveConflict(id, {
+      expectedRevision: payload.expectedRevision, conflictId, variantsSha256: payload.variantsSha256,
+      strategy: payload.strategy, selectedArtifactId: payload.selectedArtifactId,
+      resolverId: 'local-user', resolutionReference,
+    }));
+  }));
+
   app.post('/api/agent-runs/preflight', asyncRoute(async (request, response) => {
     const payload = agentRunCreateSchema.parse(request.body);
-    const [providers, queue] = await Promise.all([discoverAgentProviders(), agentApi.center.getQueueDiagnostics()]);
+    const [providers, queue, profileDecision] = await Promise.all([
+      discoverAgentProviders(), agentApi.center.getQueueDiagnostics(), evaluateAgentProfile(payload),
+    ]);
     const provider = providers.find((candidate) => candidate.id === payload.providerId);
     const installation = provider?.installations?.find((candidate) => candidate.runtimeTarget === payload.runtimeTarget
       && (!payload.wslDistribution || candidate.distribution === payload.wslDistribution));
+    const advertisedCapabilities = provider?.capabilities && typeof provider.capabilities === 'object'
+      ? provider.capabilities as Record<string, unknown> : {};
+    const rootToolsSupported = providerSupportsRootDomainTools(payload.providerId, payload.runtimeTarget)
+      && advertisedCapabilities.rootDomainTools === true;
+    const networkIsolationEnforced = payload.providerId.startsWith('fake') || advertisedCapabilities.networkControl === true;
+    const effectiveRootTools = rootToolsSupported
+      ? allowedRootDomainTools({ applicationCaseId: payload.applicationCaseId, metadata: { workflowId: payload.workflowId } })
+      : [];
     const workflow = payload.workflowId ? APPLICATION_AGENT_WORKFLOWS.find((candidate) => candidate.id === payload.workflowId) : undefined;
     const application = payload.applicationCaseId ? await workspace.getApplicationCase(payload.applicationCaseId) : undefined;
     const blockers: Array<{ code: string; field?: string; message: string }> = [];
     const warnings: Array<{ code: string; field?: string; message: string }> = [];
+    blockers.push(...profileDecision.blockers);
     if (agentApi.emergencyStop.enabled) blockers.push({ code: 'emergency_stop', message: 'Der Emergency Stop blockiert neue Agentenläufe.' });
     if (!provider) blockers.push({ code: 'provider_unknown', field: 'providerId', message: 'Der Provider ist nicht allowlisted.' });
     else if (!provider.available) blockers.push({ code: 'provider_unavailable', field: 'providerId', message: provider.note ?? 'Der Provider ist nicht verfügbar.' });
@@ -623,6 +1200,10 @@ export function createApp(
     const workspaceSupported = Boolean(capabilityView?.workspaceModes?.includes(payload.workspaceMode));
     if (!workspaceSupported) blockers.push({ code: 'workspace_mode_not_supported', field: 'workspaceMode', message: 'Der Provider erzwingt den angeforderten Workspace-Modus nicht.' });
     if (payload.network) blockers.push({ code: 'network_not_enforceable', field: 'network', message: 'Kein freigegebener Provider kann den angeforderten Netzwerkzugriff nachweisbar begrenzen.' });
+    if (!rootToolsSupported) warnings.push({
+      code: 'provider_root_tools_prompt_context_only', field: 'providerId',
+      message: 'Dieser Provider erhält normalisierten Kontext, aber keinen providerspezifisch ungeprüften Root-Toolkanal.',
+    });
     if (payload.workflowId && !workflow) blockers.push({ code: 'workflow_unknown', field: 'workflowId', message: 'Der Workflow ist nicht versioniert registriert.' });
     if (workflow && workflow.requiredScope !== 'search_profile' && !payload.applicationCaseId) {
       blockers.push({ code: 'application_case_required', field: 'applicationCaseId', message: 'Der Workflow benötigt einen expliziten Bewerbungsfall.' });
@@ -671,6 +1252,12 @@ export function createApp(
     if (!workflow) declaredScope = 'workspace';
     const maxContextCharacters = payload.providerId === 'opencode' || payload.providerId === 'claude-cli' ? 8_000 : 60_000;
     const outputBytes = payload.budget.maxOutputMiB * 1024 * 1024;
+    const requestedWallTimeMs = payload.budget.wallTimeMinutes * 60_000;
+    const effectiveWallTimeMs = Math.min(requestedWallTimeMs, profileDecision.profile?.budgets.maxRunDurationMs ?? requestedWallTimeMs);
+    if (effectiveWallTimeMs < requestedWallTimeMs) warnings.push({
+      code: 'duration_capped_by_profile', field: 'budget.wallTimeMinutes',
+      message: 'Das aktive lokale Sicherheitsprofil begrenzt die Laufzeit strenger als der Entwurf.',
+    });
     response.setHeader('cache-control', 'no-store');
     response.json({
       contract: 'agent-run-preflight', contractVersion: '1.0', capturedAt: new Date().toISOString(),
@@ -694,12 +1281,12 @@ export function createApp(
         maxContextCharacters, actualManifestAvailableAfterStart: true
       },
       tools: {
-        policy: 'deny_by_default', allowedRootMcpTools: [], allowlistComplete: true,
-        providerTooling: 'sandbox_managed', providerToolNamesExposed: false,
+        policy: 'deny_by_default', allowedRootMcpTools: effectiveRootTools, allowlistComplete: true,
+        providerTooling: rootToolsSupported ? 'server_owned_dynamic_tools' : 'prompt_context_only', providerToolNamesExposed: false,
         prohibitedActions: workflow?.prohibitedActions ?? []
       },
       network: {
-        requested: payload.network, effective: 'disabled', enforced: true,
+        requested: payload.network, effective: 'disabled', enforced: networkIsolationEnforced,
         trustedHostServices: workflow?.id === 'guided-job-analysis'
           ? [{ id: 'job-search-mcp', executionIsolation: 'trusted-host', agentAccessible: false, invocation: 'root_before_agent' }]
           : []
@@ -707,8 +1294,8 @@ export function createApp(
       limits: {
         requested: payload.budget,
         effective: {
-          wallTimeMs: payload.budget.wallTimeMinutes * 60_000,
-          idleTimeMs: Math.min(payload.budget.wallTimeMinutes * 60_000, 5 * 60_000),
+          wallTimeMs: effectiveWallTimeMs,
+          idleTimeMs: Math.min(effectiveWallTimeMs, 5 * 60_000),
           totalOutputBytes: outputBytes, stdoutBytes: Math.floor(outputBytes * 0.8), stderrBytes: Math.floor(outputBytes * 0.2),
           maxInputBytes: 256 * 1024
         }
@@ -737,6 +1324,7 @@ export function createApp(
   app.post('/api/agent-runs', asyncRoute(async (request, response) => {
     if (agentApi.emergencyStop.enabled) throw Object.assign(new Error('Der Emergency Stop blockiert neue Agentenläufe.'), { statusCode: 409 });
     const payload = agentRunCreateSchema.parse(request.body);
+    const profileDecision = await requireAgentProfile(payload);
     if (payload.network) throw Object.assign(new Error('Kein aktivierter Provider kann derzeit einen begrenzten Netzwerkzugriff nachweisbar erzwingen.'), { statusCode: 409 });
     if (!agentApi.providers.some((provider) => provider.provider === payload.providerId)) throw Object.assign(new Error('Unbekannter oder nicht allowlisteter Agentenprovider.'), { statusCode: 400 });
     const providerStatus = (await discoverAgentProviders()).find((provider) => provider.id === payload.providerId);
@@ -899,12 +1487,21 @@ export function createApp(
       throw Object.assign(new Error('Der strukturierte Prompt überschreitet das sichere Argumentlimit dieses Providers. Bitte Aufgabe oder Kontext verkürzen.'), { statusCode: 400 });
     }
     const outputBytes = payload.budget.maxOutputMiB * 1024 * 1024;
+    const requestedWallTimeMs = payload.budget.wallTimeMinutes * 60_000;
+    const effectiveWallTimeMs = Math.min(requestedWallTimeMs, profileDecision.profile?.budgets.maxRunDurationMs ?? requestedWallTimeMs);
+    const providerRootToolsSupported = providerSupportsRootDomainTools(payload.providerId, payload.runtimeTarget)
+      && Boolean(providerStatus.capabilities && typeof providerStatus.capabilities === 'object'
+        && (providerStatus.capabilities as Record<string, unknown>).rootDomainTools === true);
+    const requiredRootMcpTools = providerRootToolsSupported
+      ? allowedRootDomainTools({ applicationCaseId: payload.applicationCaseId, metadata: { workflowId: payload.workflowId } })
+      : [];
     const enqueueRequest = {
       provider: payload.providerId, task: assembled.prompt, workspaceRoot: agentApi.workspaceRoot,
       runtimeTarget: payload.runtimeTarget, wslDistribution: payload.wslDistribution,
       sandbox: payload.workspaceMode === 'workspace_write' ? 'workspace-write' : 'read-only',
       network: 'disabled',
-      approvalMode: payload.providerId === 'codex-exec' && process.env.CODEX_APP_SERVER_EXPERIMENTAL === '1' ? 'explicit' : 'deny',
+      approvalMode: providerRootToolsSupported && profileDecision.provider?.approvalMode === 'explicit' ? 'explicit' : 'deny',
+      model: profileDecision.provider?.model,
       applicationCaseId: payload.applicationCaseId, priority: payload.priority,
       metadata: {
         idempotencyKeyHash, requestHash, parentRunId: payload.parentRunId, userPrompt: payload.prompt,
@@ -922,42 +1519,158 @@ export function createApp(
           redactedAssemblyHash: assembled.witness.redactedAssemblyHash, contextManifest: assembled.witness.contextManifest
         },
         identityMode: application?.identityMode ?? activeIdentity?.mode ?? 'none',
-        dataScope: selectedWorkflow?.requiredScope ?? (payload.applicationCaseId ? 'application_case' : 'workspace')
+        dataScope: selectedWorkflow?.requiredScope ?? (payload.applicationCaseId ? 'application_case' : 'workspace'),
+        requiredRootMcpTools,
+        allowedApplicationCaseIds,
       },
-      limits: { wallTimeMs: payload.budget.wallTimeMinutes * 60_000, idleTimeMs: Math.min(payload.budget.wallTimeMinutes * 60_000, 5 * 60_000), totalOutputBytes: outputBytes, stdoutBytes: Math.floor(outputBytes * 0.8), stderrBytes: Math.floor(outputBytes * 0.2), maxInputBytes: 256 * 1024 }
+      limits: { wallTimeMs: effectiveWallTimeMs, idleTimeMs: Math.min(effectiveWallTimeMs, 5 * 60_000), totalOutputBytes: outputBytes, stdoutBytes: Math.floor(outputBytes * 0.8), stderrBytes: Math.floor(outputBytes * 0.2), maxInputBytes: 256 * 1024 }
     } as const;
     let run: AgentRun;
     if (idempotencyKeyHash) {
       const concurrent = idempotentAgentRuns.get(idempotencyKeyHash);
       if (concurrent) {
-        if (concurrent.requestHash !== requestHash) throw Object.assign(new Error('Der Idempotency-Key wurde bereits fÃ¼r einen anderen Request verwendet.'), { statusCode: 409 });
+        if (concurrent.requestHash !== requestHash) throw Object.assign(new Error('Der Idempotency-Key wurde bereits für einen anderen Request verwendet.'), { statusCode: 409 });
         const existingRun = 'pending' in concurrent ? await concurrent.pending : await agentApi.center.get(concurrent.runId);
         if (existingRun) { response.json(await agentRunView(agentApi.center, existingRun)); return; }
         idempotentAgentRuns.delete(idempotencyKeyHash);
+      }
+      let durableLeaseToken: string | undefined;
+      if (agentApi.idempotency && idempotencyKey) {
+        let claim;
+        try {
+          claim = await agentApi.idempotency.claim({
+            namespace: 'agent-run', key: idempotencyKey, requestFingerprint: requestHash,
+            ttlMs: 24 * 60 * 60_000,
+          });
+        } catch (error) {
+          if (error instanceof Error && error.message === 'idempotency_key_conflict') {
+            throw Object.assign(new Error('Der Idempotency-Key wurde bereits für einen anderen Request verwendet.'), { statusCode: 409 });
+          }
+          throw error;
+        }
+        if (claim.status === 'replay') {
+          const replay = await agentApi.center.get(claim.result.resourceId);
+          if (!replay) throw Object.assign(new Error('Der idempotente Ergebnisverweis ist nicht mehr verfügbar.'), { statusCode: 409 });
+          response.json(await agentRunView(agentApi.center, replay)); return;
+        }
+        if (claim.status === 'in_progress') {
+          const concurrent = idempotentAgentRuns.get(idempotencyKeyHash);
+          const pending = concurrent && 'pending' in concurrent ? await concurrent.pending : undefined;
+          if (pending) { response.json(await agentRunView(agentApi.center, pending)); return; }
+          throw Object.assign(new Error('Ein identischer Agentenlauf wird bereits in einem anderen Prozess angelegt.'), { statusCode: 409 });
+        }
+        durableLeaseToken = claim.leaseToken;
       }
       const promise = agentApi.center.enqueue(enqueueRequest);
       idempotentAgentRuns.set(idempotencyKeyHash, { requestHash, pending: promise, expiresAt: Date.now() + 60_000 });
       try {
         run = await promise;
         idempotentAgentRuns.set(idempotencyKeyHash, { requestHash, runId: run.id, expiresAt: Date.now() + 60_000 });
+        if (agentApi.idempotency && idempotencyKey && durableLeaseToken) {
+          await agentApi.idempotency.complete({
+            namespace: 'agent-run', key: idempotencyKey, requestFingerprint: requestHash,
+            leaseToken: durableLeaseToken, result: { resourceType: 'agent-run', resourceId: run.id },
+          });
+        }
       }
-      catch (error) { idempotentAgentRuns.delete(idempotencyKeyHash); throw error; }
+      catch (error) {
+        idempotentAgentRuns.delete(idempotencyKeyHash);
+        if (agentApi.idempotency && idempotencyKey && durableLeaseToken) {
+          await agentApi.idempotency.abandon({
+            namespace: 'agent-run', key: idempotencyKey, requestFingerprint: requestHash, leaseToken: durableLeaseToken,
+          }).catch(() => undefined);
+        }
+        throw error;
+      }
     } else run = await agentApi.center.enqueue(enqueueRequest);
     response.status(201).json(await agentRunView(agentApi.center, run));
   }));
 
   app.post('/api/agent-runs/retention/preview', asyncRoute(async (request, response) => {
     const payload = z.object({ before: z.string().datetime() }).parse(request.body);
-    response.json(await agentApi.store.prune({ before: payload.before, dryRun: true }));
+    if (!agentApi.retention) { response.json(await agentApi.store.prune({ before: payload.before, dryRun: true })); return; }
+    const cutoff = Date.parse(payload.before);
+    const matched = (await agentApi.store.list())
+      .filter((run) => ['succeeded', 'failed', 'timed_out', 'cancelled'].includes(run.state)
+        && Date.parse(run.finishedAt ?? run.updatedAt) < cutoff)
+      .map((run) => run.id).sort();
+    const preview = matched.length ? await agentApi.retention.preview(matched, 'local-user') : undefined;
+    response.setHeader('cache-control', 'no-store');
+    response.json({ matched, removed: [], preview });
   }));
 
   app.post('/api/agent-runs/retention/apply', asyncRoute(async (request, response) => {
-    const payload = z.object({ before: z.string().datetime(), confirmation: z.string() }).parse(request.body);
+    const payload = z.object({
+      before: z.string().datetime(), confirmation: z.string(),
+      previewDigest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+    }).strict().parse(request.body);
     if (payload.confirmation !== `DELETE agent-runs before ${payload.before}`) throw Object.assign(new Error(`Bestätigung muss exakt DELETE agent-runs before ${payload.before} lauten.`), { statusCode: 409 });
-    const result = await agentApi.store.prune({ before: payload.before });
+    let result: { matched: string[]; removed: string[] };
+    if (agentApi.retention) {
+      if (!payload.previewDigest) {
+        throw Object.assign(new Error('Die Ausfuehrung benoetigt den Digest der zuvor angezeigten Loeschvorschau.'), { statusCode: 409 });
+      }
+      const cutoff = Date.parse(payload.before);
+      const matched = (await agentApi.store.list())
+        .filter((run) => ['succeeded', 'failed', 'timed_out', 'cancelled'].includes(run.state)
+          && Date.parse(run.finishedAt ?? run.updatedAt) < cutoff)
+        .map((run) => run.id).sort();
+      if (matched.length) {
+        const preview = await agentApi.retention.preview(matched, 'local-user');
+        try { await agentApi.retention.execute(preview, payload.previewDigest, 'local-user'); }
+        catch (error) { throw Object.assign(error as Error, { statusCode: 409 }); }
+      }
+      result = { matched, removed: matched };
+    } else result = await agentApi.store.prune({ before: payload.before });
     const removed = new Set(result.removed);
     for (const [key, entry] of idempotentAgentRuns) if ('runId' in entry && removed.has(entry.runId)) idempotentAgentRuns.delete(key);
+    if (agentApi.idempotency && result.removed.length) await agentApi.idempotency.deleteCompletedResults('agent-run', result.removed);
     response.json(result);
+  }));
+
+  app.get('/api/agent-retention/legal-holds', asyncRoute(async (_request, response) => {
+    if (!agentApi.retentionJournal) throw Object.assign(new Error('Legal-Hold-Journal ist nicht persistent konfiguriert.'), { statusCode: 503 });
+    response.setHeader('cache-control', 'no-store');
+    response.json({ holds: await agentApi.retentionJournal.holds() });
+  }));
+
+  app.post('/api/agent-retention/legal-holds', asyncRoute(async (request, response) => {
+    if (!agentApi.retentionJournal) throw Object.assign(new Error('Legal-Hold-Journal ist nicht persistent konfiguriert.'), { statusCode: 503 });
+    const payload = z.object({
+      scope: z.enum(['run', 'artifact', 'application_case']),
+      referenceId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/),
+      reasonCode: z.string().regex(/^[a-z][a-z0-9_.:-]{0,127}$/), confirmed: z.literal(true),
+    }).strict().parse(request.body);
+    response.status(201).json(await agentApi.retentionJournal.createHold({ ...payload, actor: 'local-user' }));
+  }));
+
+  app.post('/api/agent-retention/legal-holds/:holdId/release', asyncRoute(async (request, response) => {
+    if (!agentApi.retentionJournal) throw Object.assign(new Error('Legal-Hold-Journal ist nicht persistent konfiguriert.'), { statusCode: 503 });
+    z.object({ confirmed: z.literal(true) }).strict().parse(request.body);
+    const holdId = z.string().uuid().parse(request.params.holdId);
+    response.json(await agentApi.retentionJournal.releaseHold(holdId, 'local-user'));
+  }));
+
+  app.get('/api/agents/usage/trends', asyncRoute(async (request, response) => {
+    const groupBy = z.enum(['provider', 'template', 'workflow']).default('provider').parse(request.query.groupBy);
+    response.setHeader('cache-control', 'no-store');
+    response.json({
+      contract: 'agent-usage-trend', contractVersion: '1.0', capturedAt: new Date().toISOString(),
+      ...agentApi.telemetry.usageTrend(groupBy),
+    });
+  }));
+
+  app.get('/api/agent-runs/:runId/usage', asyncRoute(async (request, response) => {
+    const runId = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/).parse(request.params.runId);
+    if (!(await agentApi.center.get(runId))) { response.status(404).json({ error: 'Agentenlauf nicht gefunden.' }); return; }
+    const profile = agentApi.configProfiles ? (await loadAgentConfigProfile()).profile : safeDefaultAgentConfigProfile();
+    response.setHeader('cache-control', 'no-store');
+    response.json({
+      contract: 'agent-run-usage', contractVersion: '1.0', capturedAt: new Date().toISOString(), runId,
+      measurement: agentApi.telemetry.usageFor(runId) ?? null,
+      points: agentApi.telemetry.metricPointsFor(runId),
+      budget: agentApi.telemetry.evaluateBudget(runId, profile.budgets),
+    });
   }));
 
   app.get('/api/agent-runs/:runId', asyncRoute(async (request, response) => {
@@ -1090,6 +1803,17 @@ export function createApp(
     response.json(await agentApi.artifacts.review(artifact.id, payload.decision, payload.expectedRevision, 'local-user'));
   }));
 
+  app.post('/api/agent-runs/:runId/artifacts/:artifactId/adopt', asyncRoute(async (request, response) => {
+    const run = await artifactRun(request.params.runId);
+    const artifact = await artifactForRun(run.id, request.params.artifactId);
+    const payload = z.object({ expectedRevision: z.number().int().min(0), confirmed: z.literal(true) }).strict().parse(request.body);
+    const used = await adoptApprovedAgentArtifact(agentApi, artifact.id, payload.expectedRevision);
+    const sourceReference = used.adoption?.sourceReference;
+    if (!sourceReference?.startsWith('application-revision:')) throw new Error('artifact_adoption_result_mismatch');
+    response.setHeader('cache-control', 'no-store');
+    response.json({ artifact: used, documentRevisionId: sourceReference.slice('application-revision:'.length) });
+  }));
+
   app.post('/api/agent-runs/:runId/realtime-ticket', asyncRoute(async (request, response) => {
     if (!agentApi.realtimeTickets) throw Object.assign(new Error('Der optionale bidirektionale Kanal ist nicht aktiviert; SSE plus REST bleibt verfuegbar.'), { statusCode: 503 });
     const runId = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/).parse(request.params.runId);
@@ -1137,6 +1861,8 @@ export function createApp(
           if (response.writableLength > 256 * 1024) { response.end(); close(); return; }
           const events = await agentApi.center.events(runId, cursor);
           for (const event of events) {
+            const occurredAt = Date.parse(event.timestamp);
+            if (Number.isFinite(occurredAt)) agentApi.telemetry.observeStreamLag(Math.max(0, Date.now() - occurredAt));
             response.write(`id: ${event.sequence}\nevent: agent-event\ndata: ${JSON.stringify({ sequence: event.sequence, type: event.kind, timestamp: event.timestamp, correlationId: event.correlationId, message: agentEventMessage(event), level: agentEventLevel(event), data: agentEventDataView(event) })}\n\n`);
             cursor = event.sequence; lastWrite = Date.now();
           }
@@ -1248,6 +1974,7 @@ export function createApp(
     if (!run) { response.status(404).json({ error: 'Agentenlauf nicht gefunden.' }); return; }
     if (run.currentSequence !== payload.expectedRevision) throw Object.assign(new Error('Der Recovery-Zustand wurde zwischenzeitlich verändert.'), { statusCode: 409 });
     const result = await agentApi.center.resolveRecovery(runId, payload.leaseId, 'local-user', payload.decision, payload.input);
+    agentApi.telemetry.recovered();
     response.json({
       resolved: await agentRunView(agentApi.center, result.resolved),
       ...(result.replacement ? { replacement: await agentRunView(agentApi.center, result.replacement) } : {})
@@ -1272,51 +1999,63 @@ export function createApp(
   app.get('/api/agent-runs/:runId/export', asyncRoute(async (request, response) => {
     const runId = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/).parse(request.params.runId);
     if (!(await agentApi.center.get(runId))) { response.status(404).json({ error: 'Agentenlauf nicht gefunden.' }); return; }
-    response.json({ contract: 'agent-run-export', contractVersion: '1.0', exportedAt: new Date().toISOString(), redacted: true, ...(await agentApi.store.export(runId)) });
+    const bundle = { contract: 'agent-run-export', contractVersion: '1.0', exportedAt: new Date().toISOString(), redacted: true, ...(await agentApi.store.export(runId)) };
+    await agentApi.retention?.auditExport({
+      actor: 'local-user', manifestSha256: createHash('sha256').update(JSON.stringify(bundle)).digest('hex'), runIds: [runId],
+    });
+    response.setHeader('cache-control', 'no-store');
+    response.json(bundle);
   }));
 
   app.get('/api/config', asyncRoute(async (_request, response) => {
-    const config = await store.load();
+    const snapshot = await store.loadSnapshot();
     response.setHeader('cache-control', 'no-store');
-    response.json(publicConfigView(config));
+    response.json(publicConfigView(snapshot.config, snapshot.revision));
   }));
 
   app.put('/api/config', asyncRoute(async (request, response) => {
-    const submitted = configSchema.parse(request.body);
-    const current = await store.load();
-    const saved = await store.save(withServerOwnedIntegrationSettings(submitted, current));
+    const { revision, ...submitted } = configSchema.parse(request.body);
+    const saved = await store.compareAndSave(
+      revision,
+      (current) => withServerOwnedIntegrationSettings(submitted, current)
+    );
     response.setHeader('cache-control', 'no-store');
-    response.json(publicConfigView(saved));
+    response.json(publicConfigView(saved.config, saved.revision));
   }));
 
   app.put('/api/config/mcp/portal-access', asyncRoute(async (request, response) => {
-    const input = z.object({ enabled: z.boolean(), confirmed: z.literal(true) }).strict().parse(request.body);
-    const config = await store.load();
-    if (input.enabled) {
-      if (config.mcp.mode !== 'stdio') {
-        throw Object.assign(new Error('Portalzugriff setzt einen validierten Trusted-Host-MCP-Startpfad voraus.'), { statusCode: 409 });
+    const input = z.object({
+      enabled: z.boolean(), confirmed: z.literal(true), expectedRevision: z.number().int().nonnegative()
+    }).strict().parse(request.body);
+    const saved = await store.compareAndSave(input.expectedRevision, async (config) => {
+      if (input.enabled) {
+        if (config.mcp.mode !== 'stdio') {
+          throw Object.assign(new Error('Portalzugriff setzt einen validierten Trusted-Host-MCP-Startpfad voraus.'), { statusCode: 409 });
+        }
+        const runtime = await inspectTrustedHostMcpRuntime(config.mcp);
+        if (runtime.state === 'invalid') {
+          throw Object.assign(new Error('Portalzugriff bleibt gesperrt, weil der Trusted-Host-MCP-Startpfad ungültig ist.'), { statusCode: 409 });
+        }
       }
-      const runtime = await inspectTrustedHostMcpRuntime(config.mcp);
-      if (runtime.state === 'invalid') {
-        throw Object.assign(new Error('Portalzugriff bleibt gesperrt, weil der Trusted-Host-MCP-Startpfad ungÃ¼ltig ist.'), { statusCode: 409 });
-      }
-    }
-    config.mcp.env = { ...config.mcp.env, ALLOW_EXTERNAL_PORTALS: input.enabled ? '1' : '0' };
-    const saved = await store.save(config);
+      config.mcp.env = { ...config.mcp.env, ALLOW_EXTERNAL_PORTALS: input.enabled ? '1' : '0' };
+      return config;
+    });
     response.setHeader('cache-control', 'no-store');
-    response.json(publicConfigView(saved));
+    response.json(publicConfigView(saved.config, saved.revision));
   }));
 
   app.post('/api/identities/incognito', asyncRoute(async (request, response) => {
-    const config = await store.load();
     const template = z.object({
       location: z.string().max(120).optional(), firstName: z.string().max(80).optional(),
       lastName: z.string().max(80).optional(), label: z.string().max(80).optional()
-    }).parse(request.body);
-    const identity = createIncognitoIdentity(template.location || config.searchProfile.regions[0] || 'Deutschland', template);
-    config.identities.push(identity);
-    config.activeIdentityId = identity.id;
-    await store.save(config);
+    }).strict().parse(request.body);
+    const saved = await store.update((config) => {
+      const identity = createIncognitoIdentity(template.location || config.searchProfile.regions[0] || 'Deutschland', template);
+      config.identities.push(identity);
+      config.activeIdentityId = identity.id;
+      return config;
+    });
+    const identity = saved.config.identities.find((item) => item.id === saved.config.activeIdentityId)!;
     response.status(201).json(identity);
   }));
 
@@ -1345,16 +2084,17 @@ export function createApp(
 
   app.delete('/api/identities/:identityId', asyncRoute(async (request, response) => {
     const identityId = z.string().min(1).max(120).parse(request.params.identityId);
-    const confirmation = z.object({ confirmation: z.string() }).parse(request.body).confirmation;
-    if (confirmation !== `DELETE identity ${identityId}`) throw Object.assign(new Error(`BestÃ¤tigung muss exakt DELETE identity ${identityId} lauten.`), { statusCode: 409 });
-    const config = await store.load();
-    if (config.identities.length <= 1) throw Object.assign(new Error('Die letzte IdentitÃ¤t kann nicht gelÃ¶scht werden.'), { statusCode: 409 });
-    const before = config.identities.length;
-    config.identities = config.identities.filter((item) => item.id !== identityId);
-    if (config.identities.length === before) { response.status(404).json({ error: 'IdentitÃ¤t nicht gefunden.' }); return; }
-    if (config.activeIdentityId === identityId) config.activeIdentityId = config.identities[0]!.id;
-    await store.save(config);
-    response.json({ scope: `identity:${identityId}`, removed: 1, remainingActiveIdentityId: config.activeIdentityId });
+    const confirmation = z.object({ confirmation: z.string() }).strict().parse(request.body).confirmation;
+    if (confirmation !== `DELETE identity ${identityId}`) throw Object.assign(new Error(`Bestätigung muss exakt DELETE identity ${identityId} lauten.`), { statusCode: 409 });
+    const saved = await store.update((config) => {
+      if (config.identities.length <= 1) throw Object.assign(new Error('Die letzte Identität kann nicht gelöscht werden.'), { statusCode: 409 });
+      const before = config.identities.length;
+      config.identities = config.identities.filter((item) => item.id !== identityId);
+      if (config.identities.length === before) throw Object.assign(new Error('Identität nicht gefunden.'), { statusCode: 404 });
+      if (config.activeIdentityId === identityId) config.activeIdentityId = config.identities[0]!.id;
+      return config;
+    });
+    response.json({ scope: `identity:${identityId}`, removed: 1, remainingActiveIdentityId: saved.config.activeIdentityId });
   }));
 
   app.get('/api/capabilities', asyncRoute(async (_request, response) => {
@@ -1441,7 +2181,7 @@ export function createApp(
   app.delete('/api/comparison-notes/:noteId', asyncRoute(async (request, response) => {
     const noteId = z.string().uuid().parse(request.params.noteId);
     const confirmation = z.object({ confirmation: z.string() }).parse(request.body).confirmation;
-    if (confirmation !== `DELETE comparison-note ${noteId}`) throw Object.assign(new Error(`BestÃ¤tigung muss exakt DELETE comparison-note ${noteId} lauten.`), { statusCode: 409 });
+    if (confirmation !== `DELETE comparison-note ${noteId}`) throw Object.assign(new Error(`Bestätigung muss exakt DELETE comparison-note ${noteId} lauten.`), { statusCode: 409 });
     const removed = await workspace.deleteComparisonNote(noteId);
     if (!removed) { response.status(404).json({ error: 'Vergleichsnotiz nicht gefunden.' }); return; }
     response.json({ removed: 1, id: noteId });
@@ -1547,14 +2287,76 @@ export function createApp(
   app.post('/api/application-cases/:caseId/artifacts', asyncRoute(async (request, response) => {
     const caseId = z.string().uuid().parse(request.params.caseId); const application = await workspace.getApplicationCase(caseId);
     if (!application) { response.status(404).json({ error: 'Bewerbungsfall nicht gefunden.' }); return; }
-    const payload = z.object({ type: z.enum(['cv', 'cover_letter', 'application_email']), content: z.string().min(1).max(2_000_000), pipelineContractVersion: z.string().regex(/^1\./) }).parse(request.body);
-    response.status(201).json(await createArtifactRevision(workspace, application, payload));
+    const payload = z.object({
+      type: z.enum(['cv', 'cover_letter', 'application_email']),
+      content: z.string().min(1).max(2_000_000)
+    }).strict().parse(request.body);
+    response.status(201).json(await createArtifactRevision(workspace, application, payload, applicationPipeline.workRoot));
+  }));
+  app.post('/api/application-cases/:caseId/artifacts/:revisionId/review', asyncRoute(async (request, response) => {
+    const caseId = z.string().uuid().parse(request.params.caseId);
+    const revisionId = z.string().uuid().parse(request.params.revisionId);
+    const payload = z.object({
+      decision: z.enum(['approved', 'rejected']),
+      expectedSha256: z.string().regex(/^[a-f0-9]{64}$/),
+      acknowledgedLanguageIssueCount: z.number().int().nonnegative().max(10_000),
+      confirmed: z.literal(true)
+    }).strict().parse(request.body);
+    const application = await workspace.getApplicationCase(caseId);
+    if (!application) { response.status(404).json({ error: 'Bewerbungsfall nicht gefunden.' }); return; }
+    response.json(await reviewArtifactRevision(
+      workspace, application, revisionId, payload, applicationPipeline.proofAuthority, applicationPipeline.workRoot
+    ));
   }));
   app.post('/api/application-cases/:caseId/artifacts/:revisionId/use', asyncRoute(async (request, response) => {
     const caseId = z.string().uuid().parse(request.params.caseId); const revisionId = z.string().uuid().parse(request.params.revisionId);
     const payload = z.object({ confirmed: z.literal(true) }).parse(request.body); void payload;
     const application = await workspace.getApplicationCase(caseId); if (!application) { response.status(404).json({ error: 'Bewerbungsfall nicht gefunden.' }); return; }
-    response.json(await markArtifactUsed(workspace, application, revisionId));
+    response.json(await markArtifactUsed(
+      workspace, application, revisionId, applicationPipeline.proofAuthority, applicationPipeline.workRoot
+    ));
+  }));
+
+  app.post('/api/application-cases/:caseId/pipeline/finalize', asyncRoute(async (request, response) => {
+    const caseId = z.string().uuid().parse(request.params.caseId);
+    const payload = z.object({
+      annotatedContent: z.string().min(1).max(200_000),
+      iterationManifest: z.string().min(1).max(200_000)
+    }).strict().parse(request.body);
+    const application = await workspace.getApplicationCase(caseId);
+    if (!application) { response.status(404).json({ error: 'Bewerbungsfall nicht gefunden.' }); return; }
+    if (application.state !== 'review') {
+      throw Object.assign(new Error('Serverseitige Finalisierung ist nur im Review-Status zul\u00e4ssig.'), { statusCode: 409 });
+    }
+    const config = await store.load();
+    const identity = config.identities.find((candidate) => candidate.id === application.identityId);
+    if (!identity || identity.mode !== application.identityMode) {
+      throw Object.assign(new Error('Die serverseitig gebundene Identit\u00e4t ist nicht verf\u00fcgbar.'), { statusCode: 409 });
+    }
+    const draft = await new LocalApplicationAssistantAdapter(config.assistant, applicationPipeline.workRoot).finalize({
+      job: application.job,
+      identity,
+      documentType: application.documentType,
+      annotatedContent: payload.annotatedContent,
+      iterationManifest: payload.iterationManifest
+    });
+    if (!draft.pipelineEvidence || draft.lifecycle !== 'final') {
+      throw Object.assign(new Error('Die Pipeline hat keinen serverseitig pr\u00fcfbaren Nachweis erzeugt.'), { statusCode: 409 });
+    }
+    const artifactType = application.documentType === 'email' ? 'application_email' : application.documentType;
+    const pipelineProof = await applicationPipeline.proofAuthority.issue({
+      applicationCaseId: application.id,
+      jobId: application.job.id,
+      identityId: application.identityId,
+      documentType: artifactType,
+      evidence: draft.pipelineEvidence
+    });
+    const revision = await createArtifactRevision(workspace, application, {
+      type: artifactType,
+      content: draft.content,
+      pipelineProof
+    }, applicationPipeline.workRoot, applicationPipeline.proofAuthority);
+    response.status(201).json({ draft, revision });
   }));
 
   app.post('/api/application-cases', asyncRoute(async (request, response) => {
@@ -1578,10 +2380,35 @@ export function createApp(
 
   app.post('/api/application-cases/:caseId/transition', asyncRoute(async (request, response) => {
     const caseId = z.string().uuid().parse(request.params.caseId);
-    const target = z.object({ state: z.enum(['selected', 'analysis', 'questions', 'draft', 'review', 'approved', 'exported', 'dry_run', 'submitted', 'closed']) }).parse(request.body).state as ApplicationCaseState;
+    const payload = z.discriminatedUnion('state', [
+      z.object({
+        state: z.literal('approved'), revisionId: z.string().uuid(),
+        expectedSha256: z.string().regex(/^[a-f0-9]{64}$/), confirmed: z.literal(true),
+      }).strict(),
+      z.object({
+        state: z.enum(['selected', 'analysis', 'questions', 'draft', 'review', 'exported', 'dry_run', 'submitted', 'closed'])
+      }).strict(),
+    ]).parse(request.body);
+    const target = payload.state as ApplicationCaseState;
     const current = await workspace.getApplicationCase(caseId);
     if (!current) { response.status(404).json({ error: 'Bewerbungsfall nicht gefunden.' }); return; }
-    const updated = transitionApplicationCase(current, target, new Date().toISOString());
+    let approvalBinding: { approvedArtifactRevisionId: string; approvedArtifactSha256: string; approvedAt: string } | undefined;
+    if (payload.state === 'approved') {
+      if (current.identityMode === 'incognito') {
+        throw Object.assign(new Error('Inkognito-Bewerbungsfaelle duerfen Vorschau und Review nicht verlassen.'), { statusCode: 409 });
+      }
+      const revision = await assertApplicationApprovalReady(
+        workspace, current, payload.revisionId, payload.expectedSha256,
+        applicationPipeline.proofAuthority, applicationPipeline.workRoot,
+      );
+      approvalBinding = {
+        approvedArtifactRevisionId: revision.id,
+        approvedArtifactSha256: revision.sha256,
+        approvedAt: new Date().toISOString(),
+      };
+    }
+    const transitioned = transitionApplicationCase(current, target, new Date().toISOString());
+    const updated = approvalBinding ? { ...transitioned, ...approvalBinding } : transitioned;
     await workspace.saveApplicationCase(updated);
     await workspace.appendApplicationEvent({
       id: randomUUID(), applicationCaseId: updated.id, from: current.state, to: updated.state,
@@ -1617,9 +2444,9 @@ export function createApp(
       status: z.enum(['planned', 'approved', 'manually_submitted', 'confirmed', 'interview', 'rejected', 'withdrawn', 'completed']),
       source: z.enum(['user', 'portal']).default('user'), sourceReference: z.string().url().max(1000).optional(),
       correctionOf: z.string().uuid().optional(), note: z.string().max(1000).optional()
-    }).refine((value) => value.source !== 'portal' || Boolean(value.sourceReference), { message: 'Portalstatus benÃ¶tigt eine eindeutige Quellenreferenz.', path: ['sourceReference'] }).parse(request.body);
+    }).refine((value) => value.source !== 'portal' || Boolean(value.sourceReference), { message: 'Portalstatus benötigt eine eindeutige Quellenreferenz.', path: ['sourceReference'] }).parse(request.body);
     const previous = await workspace.listTrackingEvents(caseId);
-    if (payload.correctionOf && !previous.some((item) => item.id === payload.correctionOf)) throw Object.assign(new Error('Korrekturreferenz gehÃ¶rt nicht zu diesem Bewerbungsfall.'), { statusCode: 409 });
+    if (payload.correctionOf && !previous.some((item) => item.id === payload.correctionOf)) throw Object.assign(new Error('Korrekturreferenz gehört nicht zu diesem Bewerbungsfall.'), { statusCode: 409 });
     const event = { ...payload, id: randomUUID(), applicationCaseId: caseId, occurredAt: new Date().toISOString() };
     await workspace.appendTrackingEvent(event);
     response.status(201).json(event);
@@ -1647,43 +2474,74 @@ export function createApp(
   app.post('/api/application-cases/:caseId/package', asyncRoute(async (request, response) => {
     const caseId = z.string().uuid().parse(request.params.caseId);
     const payload = z.object({
-      files: z.array(z.object({ name: z.string().min(1).max(180), content: z.string().max(2_000_000) })).min(1).max(20),
-      warnings: z.array(z.string().max(500)).max(100).default([])
-    }).parse(request.body);
+      revisionIds: z.array(z.string().uuid()).min(1).max(20),
+      confirmed: z.literal(true)
+    }).strict().parse(request.body);
     const application = await workspace.getApplicationCase(caseId);
     if (!application) { response.status(404).json({ error: 'Bewerbungsfall nicht gefunden.' }); return; }
-    response.json(createApplicationPackage(application, payload.files, payload.warnings, new Date().toISOString()));
+    const verified = await Promise.all(payload.revisionIds.map((revisionId) =>
+      readVerifiedArtifactRevision(workspace, application, revisionId, applicationPipeline.proofAuthority, applicationPipeline.workRoot)
+    ));
+    if (verified.some(({ revision }) => !['approved', 'used'].includes(revision.lifecycle) || revision.review?.decision !== 'approved')) {
+      throw Object.assign(new Error('Das Paket darf nur menschlich freigegebene Pipeline-Revisionen enthalten.'), { statusCode: 409 });
+    }
+    response.json(createApplicationPackage(application, verified.map(({ revision, content }) => ({
+      name: `${revision.type}-${revision.id}.md`, content
+    })), [], new Date().toISOString()));
   }));
 
   app.post('/api/application-cases/:caseId/submission-dry-run', asyncRoute(async (request, response) => {
     const caseId = z.string().uuid().parse(request.params.caseId);
-    const manifest = z.object({
-      applicationCaseId: z.string(), jobId: z.string(), identityId: z.string(), approvedRevision: z.number().int(), createdAt: z.string(),
-      files: z.array(z.object({ name: z.string(), sha256: z.string().length(64), bytes: z.number().int().nonnegative() })),
-      warnings: z.array(z.string()), approved: z.boolean()
-    }).parse(request.body);
+    const payload = z.object({ revisionIds: z.array(z.string().uuid()).min(1).max(20), confirmed: z.literal(true) }).strict().parse(request.body);
     const application = await workspace.getApplicationCase(caseId);
     if (!application) { response.status(404).json({ error: 'Bewerbungsfall nicht gefunden.' }); return; }
+    const verified = await Promise.all(payload.revisionIds.map((revisionId) =>
+      readVerifiedArtifactRevision(workspace, application, revisionId, applicationPipeline.proofAuthority, applicationPipeline.workRoot)
+    ));
+    if (verified.some(({ revision }) => revision.lifecycle !== 'used' || revision.usedForApplicationCaseId !== caseId)) {
+      throw Object.assign(new Error('Dry Run ben\u00f6tigt exakt die beim Export verwendeten Dokumentrevisionen.'), { statusCode: 409 });
+    }
+    const manifest = createApplicationPackage(application, verified.map(({ revision, content }) => ({
+      name: `${revision.type}-${revision.id}.md`, content
+    })), [], new Date().toISOString());
     response.json(createSubmissionDryRun(application, manifest));
   }));
 
   app.post('/api/application-cases/:caseId/export', asyncRoute(async (request, response) => {
     const caseId = z.string().uuid().parse(request.params.caseId);
-    const payload = z.object({ content: z.string().min(1).max(2_000_000), format: z.enum(['docx', 'pdf']) }).parse(request.body);
+    const payload = z.object({
+      revisionId: z.string().uuid(),
+      format: z.enum(['docx', 'pdf']),
+      confirmed: z.literal(true)
+    }).strict().parse(request.body);
     const application = await workspace.getApplicationCase(caseId);
     if (!application) { response.status(404).json({ error: 'Bewerbungsfall nicht gefunden.' }); return; }
     if (application.identityMode !== 'real' || application.state !== 'approved') {
       throw Object.assign(new Error('Export benötigt einen freigegebenen Bewerbungsfall mit realer Identität.'), { statusCode: 409 });
     }
-    const exported = await exportDocument(payload.content, payload.format);
+    const verified = await readVerifiedArtifactRevision(
+      workspace, application, payload.revisionId, applicationPipeline.proofAuthority, applicationPipeline.workRoot
+    );
+    if (application.approvedArtifactRevisionId !== verified.revision.id
+      || application.approvedArtifactSha256 !== verified.revision.sha256) {
+      throw Object.assign(new Error('Export ist nur fuer die exakt am Bewerbungsfall freigegebene Dokumentrevision erlaubt.'), { statusCode: 409 });
+    }
+    if (verified.revision.lifecycle !== 'approved' || verified.revision.review?.decision !== 'approved') {
+      throw Object.assign(new Error('Export ben\u00f6tigt die exakt menschlich freigegebene Dokumentrevision.'), { statusCode: 409 });
+    }
+    const exported = await exportDocument(verified.content, payload.format);
     const quality = await validateExport(exported.data, payload.format);
-    if (!quality.valid) throw Object.assign(new Error(`Export-QualitÃ¤tsprÃ¼fung fehlgeschlagen: ${quality.warnings.join(' ')}`), { statusCode: 409 });
+    if (!quality.valid) throw Object.assign(new Error(`Export-Qualitätsprüfung fehlgeschlagen: ${quality.warnings.join(' ')}`), { statusCode: 409 });
+    await markArtifactUsed(
+      workspace, application, verified.revision.id, applicationPipeline.proofAuthority, applicationPipeline.workRoot
+    );
     const updated = transitionApplicationCase(application, 'exported', new Date().toISOString());
     await workspace.saveApplicationCase(updated);
     await workspace.appendApplicationEvent({ id: randomUUID(), applicationCaseId: caseId, from: application.state, to: 'exported', occurredAt: updated.updatedAt, source: 'user' });
     response.json({
       fileName: `bewerbung-${application.job.id}.${exported.extension}`, mimeType: exported.mimeType,
-      bytes: exported.data.length, base64: exported.data.toString('base64'), revision: updated.revision, quality
+      bytes: exported.data.length, base64: exported.data.toString('base64'), revision: updated.revision,
+      artifactRevisionId: verified.revision.id, artifactSha256: verified.revision.sha256, quality
     });
   }));
 
@@ -1730,6 +2588,40 @@ export function createApp(
   app.get('/api/assistant/status', asyncRoute(async (_request, response) => {
     const config = await store.load();
     response.json(await new LocalApplicationAssistantAdapter(config.assistant).status());
+  }));
+
+  app.get('/api/application-pipeline/setup', asyncRoute(async (_request, response) => {
+    const config = await store.load();
+    let containsCandidateFacts = false;
+    try {
+      const summary = await new LocalCandidateProfileAdapter(config.assistant).summary();
+      containsCandidateFacts = summary.valid && summary.claims.some((claim) =>
+        (claim.status === 'verified' || claim.status === 'user_confirmed') && claim.evidenceRefs.length > 0
+      );
+    } catch { /* Missing templates are represented by the setup status below. */ }
+    response.setHeader('Cache-Control', 'no-store');
+    response.json(await new ApplicationProfileOnboardingService(config.assistant).status(containsCandidateFacts));
+  }));
+
+  app.post('/api/application-pipeline/setup/profiles', asyncRoute(async (request, response) => {
+    z.object({ confirmed: z.literal(true) }).strict().parse(request.body);
+    const config = await store.load();
+    response.setHeader('Cache-Control', 'no-store');
+    response.status(201).json(await new ApplicationProfileOnboardingService(config.assistant).initialize(true));
+  }));
+
+  app.get('/api/application-pipeline/style-profile', asyncRoute(async (_request, response) => {
+    response.setHeader('cache-control', 'no-store');
+    response.json(await (await styleProfiles()).get());
+  }));
+
+  app.put('/api/application-pipeline/style-profile', asyncRoute(async (request, response) => {
+    const payload = z.object({
+      expectedRevision: z.number().int().min(0), expectedSha256: z.string().regex(/^[a-f0-9]{64}$/),
+      confirmed: z.literal(true), profile: editableStyleProfileSchema,
+    }).strict().parse(request.body);
+    response.setHeader('cache-control', 'no-store');
+    response.json(await (await styleProfiles()).update(payload));
   }));
 
   app.get('/api/assistant/capabilities', asyncRoute(async (_request, response) => {
@@ -1830,6 +2722,9 @@ export function createApp(
     if (!identity) {
       response.status(404).json({ error: 'Identität nicht gefunden.' });
       return;
+    }
+    if (identity.mode !== 'incognito') {
+      throw Object.assign(new Error('Finalisierung ist nur fallgebunden ueber /api/application-cases/:caseId/pipeline/finalize erlaubt.'), { statusCode: 409 });
     }
     const assistant = new LocalApplicationAssistantAdapter(config.assistant);
     response.json(await assistant.finalize({

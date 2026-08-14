@@ -10,9 +10,17 @@ import {
   type AgentRunState,
   type AgentRunStore
 } from '../ports/agent-runner.js';
+import {
+  AgentPersistenceMigrationError,
+  decodeAgentEventSnapshot,
+  decodeAgentRunSnapshot,
+  encodeAgentEventSnapshot,
+  encodeAgentRunSnapshot,
+} from './persistence-migrations.js';
 import { TERMINAL_AGENT_STATES, canTransition, stateAfterEvent, transitionRun } from './state-machine.js';
 
 const RUN_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+const PROVIDER_EVENT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,199}$/;
 const SENSITIVE_KEY = /(?:^|_)(?:secret|password|token|credential|authorization|cookie|prompt|task|stdin|stdout|stderr|raw|content|message|text|input|output|workspace_root|runtime_executable|executable|metadata)(?:$|_)/i;
 
 function clone<T>(value: T): T { return structuredClone(value); }
@@ -28,6 +36,14 @@ function validateEvent(run: AgentRun, event: AgentEvent): void {
   if (event.provider !== run.provider) throw new Error(`Providerwechsel in Run ${run.id} ist nicht erlaubt.`);
   if (!Number.isSafeInteger(event.sequence) || event.sequence < 1) throw new Error('Event-Sequenz muss eine positive Ganzzahl sein.');
   if (!event.correlationId || !event.timestamp || !event.kind) throw new Error('Event-Metadaten sind unvollständig.');
+  if (event.providerEventId !== undefined && !PROVIDER_EVENT_ID_PATTERN.test(event.providerEventId)) {
+    throw new Error('Provider-Event-ID ist ungültig.');
+  }
+}
+
+function sameProviderEvent(left: AgentEvent, right: AgentEvent): boolean {
+  return left.runId === right.runId && left.provider === right.provider
+    && left.kind === right.kind && same(left.data, right.data);
 }
 
 function applyEventToSnapshot(run: AgentRun, event: AgentEvent): AgentRun {
@@ -153,6 +169,13 @@ export class MemoryAgentRunStore implements AgentRunStore {
     if (!run) throw new Error(`Run ${event.runId} wurde nicht gefunden.`);
     validateEvent(run, event);
     const events = this.eventLog.get(event.runId) ?? [];
+    if (event.providerEventId) {
+      const providerDuplicate = events.find((candidate) => candidate.providerEventId === event.providerEventId);
+      if (providerDuplicate) {
+        if (sameProviderEvent(providerDuplicate, event)) return 'duplicate';
+        throw new Error(`Widersprüchliche Provider-Event-ID ${event.providerEventId}.`);
+      }
+    }
     const previous = events.find((candidate) => candidate.sequence === event.sequence);
     if (previous) {
       if (same(previous, event)) return 'duplicate';
@@ -193,6 +216,19 @@ export class MemoryAgentRunStore implements AgentRunStore {
     return { matched, removed: options.dryRun ? [] : matched };
   }
 
+  async deleteRuns(runIds: readonly string[], options: { dryRun?: boolean } = {}): Promise<Array<{ runId: string; events: number }>> {
+    const ids = [...new Set(runIds)].sort();
+    if (ids.length !== runIds.length || ids.some((id) => !RUN_ID_PATTERN.test(id))) throw new Error('run_deletion_selection_invalid');
+    const effects = ids.map((runId) => {
+      const run = this.runs.get(runId);
+      if (!run) throw new Error(`Run ${runId} wurde nicht gefunden.`);
+      if (!TERMINAL_AGENT_STATES.has(run.state)) throw new Error(`run_deletion_non_terminal:${runId}`);
+      return { runId, events: this.eventLog.get(runId)?.length ?? 0 };
+    });
+    if (!options.dryRun) for (const id of ids) { this.runs.delete(id); this.eventLog.delete(id); }
+    return effects;
+  }
+
   async export(runId: string, options: { includeSensitive?: boolean } = {}): Promise<{ run: AgentRun; events: AgentEvent[] }> {
     const run = await this.get(runId);
     if (!run) throw new Error(`Run ${runId} wurde nicht gefunden.`);
@@ -220,45 +256,50 @@ export class JsonAgentRunStore implements AgentRunStore {
     return { directory, run: resolve(directory, 'run.json'), events: resolve(directory, 'events.jsonl') };
   }
 
-  private async atomicWrite(path: string, value: unknown): Promise<void> {
+  private async atomicWrite(path: string, value: AgentRun): Promise<void> {
     await mkdir(dirname(path), { recursive: true });
     const temporary = `${path}.${randomUUID()}.tmp`;
-    await writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
+    await writeFile(temporary, `${JSON.stringify(encodeAgentRunSnapshot(value), null, 2)}\n`, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
     await rename(temporary, path);
   }
 
   private async readRun(runId: string): Promise<AgentRun | undefined> {
     try {
-      const run = JSON.parse(await readFile(this.paths(runId).run, 'utf8')) as AgentRun;
-      assertCompatibleAgentContract(run.schemaVersion);
-      return run;
+      return decodeAgentRunSnapshot(JSON.parse(await readFile(this.paths(runId).run, 'utf8'))).value;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
       throw error;
     }
   }
 
-  private async readEvents(runId: string): Promise<{ events: AgentEvent[]; truncated: boolean }> {
+  private async readEvents(runId: string): Promise<{ events: AgentEvent[]; truncated: boolean; migrated: boolean }> {
     let text: string;
     try { text = await readFile(this.paths(runId).events, 'utf8'); }
     catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { events: [], truncated: false };
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { events: [], truncated: false, migrated: false };
       throw error;
     }
     const hasPartialTail = text.length > 0 && !text.endsWith('\n');
     const pieces = text.split('\n');
     if (pieces.at(-1) === '') pieces.pop();
     const events: AgentEvent[] = [];
+    let migrated = false;
     for (let index = 0; index < pieces.length; index += 1) {
       const line = pieces[index];
       if (!line) continue;
-      try { events.push(JSON.parse(line) as AgentEvent); }
+      try {
+        const decoded = decodeAgentEventSnapshot(JSON.parse(line));
+        events.push(decoded.value);
+        migrated ||= decoded.migrated;
+      }
       catch (error) {
-        if (hasPartialTail && index === pieces.length - 1) return { events, truncated: true };
+        if (hasPartialTail && index === pieces.length - 1 && error instanceof SyntaxError) {
+          return { events, truncated: true, migrated };
+        }
         throw new Error(`Beschädigtes Event-Log ${runId}, Zeile ${index + 1}: ${(error as Error).message}`);
       }
     }
-    return { events, truncated: false };
+    return { events, truncated: false, migrated };
   }
 
   async create(run: AgentRun): Promise<AgentRun> {
@@ -313,6 +354,13 @@ export class JsonAgentRunStore implements AgentRunStore {
       if (!run) throw new Error(`Run ${event.runId} wurde nicht gefunden.`);
       validateEvent(run, event);
       const { events } = await this.readEvents(event.runId);
+      if (event.providerEventId) {
+        const providerDuplicate = events.find((candidate) => candidate.providerEventId === event.providerEventId);
+        if (providerDuplicate) {
+          if (sameProviderEvent(providerDuplicate, event)) return 'duplicate';
+          throw new Error(`Widersprüchliche Provider-Event-ID ${event.providerEventId}.`);
+        }
+      }
       const previous = events.find((candidate) => candidate.sequence === event.sequence);
       if (previous) {
         if (same(previous, event)) {
@@ -325,7 +373,7 @@ export class JsonAgentRunStore implements AgentRunStore {
       }
       if (event.sequence !== run.currentSequence + 1) throw new Error(`Event-Lücke: erwartet ${run.currentSequence + 1}, erhalten ${event.sequence}.`);
       const file = await open(this.paths(event.runId).events, 'a', 0o600);
-      try { await file.appendFile(`${JSON.stringify(event)}\n`, 'utf8'); await file.sync(); }
+      try { await file.appendFile(`${JSON.stringify(encodeAgentEventSnapshot(event))}\n`, 'utf8'); await file.sync(); }
       finally { await file.close(); }
       await this.atomicWrite(this.paths(run.id).run, applyEventToSnapshot(run, event));
       return 'appended';
@@ -349,13 +397,50 @@ export class JsonAgentRunStore implements AgentRunStore {
       catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { recovered, truncatedTails, errors }; throw error; }
       for (const runId of entries.filter((name) => RUN_ID_PATTERN.test(name))) {
         try {
-          const run = await this.readRun(runId);
-          if (!run) continue;
+          let run: AgentRun | undefined;
+          let runReadError: Error | undefined;
+          try { run = await this.readRun(runId); }
+          catch (error) {
+            // Readable newer/unknown contracts must not be silently replaced
+            // from the event stream, which would amount to a downgrade.
+            if (error instanceof AgentPersistenceMigrationError) throw error;
+            runReadError = error as Error;
+          }
           const read = await this.readEvents(runId);
+          if (read.truncated || read.migrated) {
+            await writeFile(this.paths(runId).events, read.events.map((event) => `${JSON.stringify(encodeAgentEventSnapshot(event))}\n`).join(''), { encoding: 'utf8', mode: 0o600 });
+          }
           if (read.truncated) {
-            await writeFile(this.paths(runId).events, read.events.map((event) => `${JSON.stringify(event)}\n`).join(''), { encoding: 'utf8', mode: 0o600 });
             truncatedTails.push(runId);
           }
+          let replayed: AgentRun | undefined;
+          let replayError: Error | undefined;
+          if (read.events.length > 0) {
+            try { replayed = replayAgentRunFromEvents(read.events); }
+            catch (error) { replayError = error as Error; }
+          }
+          if (replayed) {
+            const lastSequence = read.events.at(-1)!.sequence;
+            if (run?.currentSequence !== undefined && run.currentSequence > lastSequence) {
+              throw new Error(`Snapshot-Sequenz ${run.currentSequence} liegt vor dem Event-Log ${lastSequence}.`);
+            }
+            if (run && (run.id !== replayed.id || run.provider !== replayed.provider
+              || run.requestedAt !== replayed.requestedAt || !same(run.request, replayed.request))) {
+              throw new Error('run_snapshot_event_identity_mismatch');
+            }
+            let snapshot = replayed;
+            if (!TERMINAL_AGENT_STATES.has(snapshot.state) && snapshot.state !== 'queued' && snapshot.state !== 'orphaned') {
+              snapshot = transitionRun(snapshot, 'orphaned', 'process ownership lost during startup recovery');
+              recovered.push(runId);
+            } else if (snapshot.state === 'queued') {
+              snapshot = { ...snapshot, state: 'orphaned', updatedAt: new Date().toISOString() };
+              recovered.push(runId);
+            } else if (!run) recovered.push(runId);
+            await this.atomicWrite(this.paths(runId).run, snapshot);
+            continue;
+          }
+          if (!run) throw runReadError ?? replayError ?? new Error('run_recovery_event_source_missing');
+          if (replayError && replayError.message !== 'run_replay_creation_payload_invalid') throw replayError;
           let expectedSequence = 1;
           let derivedState: AgentRunState = 'queued';
           let derivedStartedAt: string | undefined;
@@ -434,6 +519,29 @@ export class JsonAgentRunStore implements AgentRunStore {
         }
       }
       return { matched, removed: options.dryRun ? [] : matched };
+    });
+  }
+
+  async deleteRuns(runIds: readonly string[], options: { dryRun?: boolean } = {}): Promise<Array<{ runId: string; events: number }>> {
+    return this.serialize(async () => {
+      const ids = [...new Set(runIds)].sort();
+      if (ids.length !== runIds.length || ids.some((id) => !RUN_ID_PATTERN.test(id))) throw new Error('run_deletion_selection_invalid');
+      const effects: Array<{ runId: string; events: number }> = [];
+      for (const runId of ids) {
+        const run = await this.readRun(runId);
+        if (!run) throw new Error(`Run ${runId} wurde nicht gefunden.`);
+        if (!TERMINAL_AGENT_STATES.has(run.state)) throw new Error(`run_deletion_non_terminal:${runId}`);
+        effects.push({ runId, events: (await this.readEvents(runId)).events.length });
+      }
+      if (!options.dryRun) {
+        const root = resolve(this.rootDirectory);
+        for (const runId of ids) {
+          const directory = this.paths(runId).directory;
+          if (!directory.startsWith(`${root}${sep}`)) throw new Error('run_deletion_store_escape');
+          await rm(directory, { recursive: true, force: false });
+        }
+      }
+      return effects;
     });
   }
 

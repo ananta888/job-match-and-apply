@@ -36,6 +36,18 @@ describe.each([
     expect((await store.get(run.id))?.currentSequence).toBe(1);
   });
 
+  it('deduplicates stable provider event ids independently of server sequence numbers', async () => {
+    const store = await makeStore();
+    const run = fixtureRun('provider-dedupe');
+    await store.create(run);
+    const first = { ...fixtureEvent(run, 1, 'heartbeat', { phase: 'provider' }), providerEventId: 'event-42:0' };
+    expect(await store.append(first)).toBe('appended');
+    expect(await store.append({ ...first, sequence: 2, timestamp: '2026-01-01T00:00:02.000Z' })).toBe('duplicate');
+    await expect(store.append({ ...first, sequence: 2, data: { phase: 'changed' } }))
+      .rejects.toThrow('Provider-Event-ID');
+    expect((await store.get(run.id))?.currentSequence).toBe(1);
+  });
+
   it('returns defensive copies and redacts sensitive export fields by default', async () => {
     const store = await makeStore();
     const run = fixtureRun();

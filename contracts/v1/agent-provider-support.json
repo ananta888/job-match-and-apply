@@ -1,7 +1,7 @@
 {
   "contract": "agent-provider-support",
   "contractVersion": "1.0",
-  "policyVersion": "2026-08-13",
+  "policyVersion": "2026-08-14",
   "unknownVersionPolicy": "block",
   "securityDefaultChangePolicy": "explicit_contract_major_and_user_migration",
   "deprecation": {
@@ -21,45 +21,79 @@
       "adapterVersion": "1.0.0",
       "protocolVersion": "1.0",
       "status": "supported",
-      "testedVersionPatterns": ["^(?:codex-cli|codex)\\s+0\\.147\\."],
+      "testedVersionPatterns": ["^(?:codex-cli|codex)\\s+0\\.147\\.0$"],
       "fixture": "contracts/fixtures/v1/codex-exec-events.json",
       "runtimeTargets": ["windows", "wsl", "linux", "darwin"],
-      "experimental": false
+      "experimental": false,
+      "supportedProfiles": ["read_only_or_workspace_write_offline"],
+      "promptTransport": "stdin",
+      "networkControl": true,
+      "offlineConfigOverrides": [
+        "sandbox_workspace_write.network_access=false",
+        "web_search=\"disabled\""
+      ],
+      "networkEnforcement": "codex-cli-0.147.0-fixed-offline-config-v1",
+      "networkMechanism": "server-owned-config-plus-codex-sandbox-policy",
+      "networkAccessClaim": "provider-control-plane-only"
     },
     {
       "id": "codex-app-server",
-      "adapterVersion": "1.0.0",
+      "adapterVersion": "0.1.0",
       "protocolVersion": "1.0",
       "status": "experimental",
-      "testedVersionPatterns": ["^(?:codex-cli|codex)\\s+0\\.147\\."],
+      "testedVersionPatterns": ["^(?:codex-cli|codex)\\s+0\\.147\\.0$"],
       "fixture": "contracts/fixtures/v1/codex-app-server-events.json",
       "runtimeTargets": ["windows", "wsl", "linux", "darwin"],
       "experimental": true,
       "featureFlag": "CODEX_APP_SERVER_EXPERIMENTAL",
-      "productionSelection": "fallback_until_user_config_isolation_verified",
+      "productionSelection": "native_run_local_codex_home_with_pre_turn_fallback",
+      "userConfigIsolation": "ephemeral-codex-home-auth-only",
+      "dynamicToolsContract": "codex-app-server-item-tool-call-v1",
+      "networkControl": true,
+      "offlineConfigOverrides": [
+        "sandbox_workspace_write.network_access=false",
+        "web_search=\"disabled\""
+      ],
+      "networkEnforcement": "codex-cli-0.147.0-fixed-offline-config-v1",
+      "networkMechanism": "server-owned-config-plus-codex-sandbox-policy",
+      "networkAccessClaim": "provider-control-plane-only",
       "fallback": "codex-exec-before-first-turn-only"
     },
     {
       "id": "opencode",
-      "adapterVersion": "1.0.0",
+      "adapterVersion": "1.1.0",
       "protocolVersion": "1.0",
-      "status": "blocked_pending_conformance",
-      "testedVersionPatterns": [],
+      "status": "supported",
+      "testedVersionPatterns": ["^1\\.14\\.41$"],
       "fixture": "contracts/fixtures/v1/opencode-events.json",
       "runtimeTargets": ["wsl"],
       "experimental": false,
-      "sandboxBoundary": "wsl-bubblewrap-v1"
+      "sandboxBoundary": "wsl-bubblewrap-v1",
+      "supportedProfiles": ["read_only_agent_tools_offline"],
+      "promptTransport": "stdin",
+      "approvalMode": "deny",
+      "resume": false,
+      "pause": false,
+      "networkEnforcement": "provider-tool-capability-policy",
+      "networkAccessClaim": "provider-control-plane-only"
     },
     {
       "id": "claude-cli",
-      "adapterVersion": "1.0.0",
+      "adapterVersion": "1.1.0",
       "protocolVersion": "1.0",
-      "status": "blocked_pending_conformance",
-      "testedVersionPatterns": [],
+      "status": "supported",
+      "testedVersionPatterns": ["^2\\.1\\.232 \\(Claude Code\\)$"],
       "fixture": "contracts/fixtures/v1/claude-cli-events.json",
       "runtimeTargets": ["wsl"],
       "experimental": false,
-      "sandboxBoundary": "wsl-bubblewrap-v1"
+      "sandboxBoundary": "wsl-bubblewrap-v1",
+      "supportedProfiles": ["read_only_agent_tools_offline"],
+      "promptTransport": "stdin",
+      "approvalMode": "deny",
+      "resume": false,
+      "pause": false,
+      "networkEnforcement": "provider-tool-capability-policy",
+      "networkAccessClaim": "provider-control-plane-only"
     }
   ],
   "upgradeChecklist": [

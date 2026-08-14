@@ -14,6 +14,7 @@ import {
   type MessageReadPort,
 } from './agents/security-mcp-facade.js';
 import { AgentPolicyEngine, type IdentityMode, type SandboxProfile, type ToolPolicyRule } from './agents/security-policy.js';
+import { JsonDomainCommandExecutionStore, type DomainCommandExecutionStore } from './agents/domain-command-execution-store.js';
 import { createAgentMcpServer, type AgentMcpServer, type AgentMcpToolExecutor } from './agent-mcp-server.js';
 
 export interface RunBoundAgentMcpPorts {
@@ -67,6 +68,7 @@ export interface RunBoundAgentMcpFactoryOptions {
   ports: RunBoundAgentMcpPorts;
   capabilityAuthority: RunCapabilityAuthority;
   approvalQueue: ApprovalQueue;
+  commandExecutionStore?: DomainCommandExecutionStore;
   auditSink?: AgentMcpAuditSink;
   now?: () => Date;
 }
@@ -74,6 +76,7 @@ export interface RunBoundAgentMcpFactoryOptions {
 export interface RunBoundAgentMcpSession {
   server: AgentMcpServer;
   listTools(): McpToolDescriptor[];
+  execute(call: Readonly<Pick<McpToolCall, 'name' | 'arguments'>>): Promise<Awaited<ReturnType<AgentMcpToolExecutor['execute']>>>;
   requestApproval(call: Readonly<Pick<McpToolCall, 'name' | 'arguments'>>): Promise<ApprovalRequest>;
   resolveApproval(requestId: string, decision: 'approve' | 'deny', actor: string): Promise<void>;
   revokeCapability(): Promise<void>;
@@ -188,6 +191,7 @@ export function createRunBoundAgentMcpSession(options: RunBoundAgentMcpFactoryOp
     options.ports.applicationPipeline,
     options.ports.jobSearch,
     options.approvalQueue,
+    options.commandExecutionStore ?? new JsonDomainCommandExecutionStore(),
   );
   const audit: AgentMcpAuditEvent[] = [];
   const pendingApprovals = new Map<string, PendingApprovalContext>();
@@ -255,6 +259,7 @@ export function createRunBoundAgentMcpSession(options: RunBoundAgentMcpFactoryOp
   return {
     server,
     listTools() { return facade.listTools(verifiedScope()); },
+    execute(call) { return executor.execute(call); },
     async requestApproval(call) {
       await auditReady;
       const args = asArguments(call.arguments);

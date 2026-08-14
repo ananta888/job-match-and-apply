@@ -26,6 +26,60 @@
       "items": { "type": "string", "pattern": "^[0-9x*<>=~^., -]+$" }
     },
     "fixtureSet": { "type": "string", "pattern": "^[A-Za-z0-9._/-]+$" },
+    "productionSelection": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{0,127}$" },
+    "userConfigIsolation": { "enum": ["ephemeral-codex-home-auth-only"] },
+    "dynamicToolsContract": { "enum": ["codex-app-server-item-tool-call-v1"] },
+    "networkControl": { "type": "boolean" },
+    "offlineConfigOverrides": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "uniqueItems": true,
+      "prefixItems": [
+        { "const": "sandbox_workspace_write.network_access=false" },
+        { "const": "web_search=\"disabled\"" }
+      ]
+    },
+    "webSearch": { "enum": ["disabled"] },
+    "sandboxNetworkAccess": { "const": false },
+    "networkEnforcement": { "enum": ["codex-cli-0.147.0-fixed-offline-config-v1"] },
+    "networkMechanism": { "enum": ["server-owned-config-plus-codex-sandbox-policy"] },
+    "networkAccessClaim": { "enum": ["provider-control-plane-only"] },
     "signature": { "type": "string" }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "adapter": { "const": "codex-app-server" } },
+        "required": ["adapter"]
+      },
+      "then": {
+        "required": [
+          "networkControl",
+          "offlineConfigOverrides",
+          "webSearch",
+          "sandboxNetworkAccess",
+          "networkEnforcement",
+          "networkMechanism",
+          "networkAccessClaim"
+        ],
+        "properties": {
+          "testedVersionRanges": { "const": ["=0.147.0"] },
+          "argumentTemplate": {
+            "const": [
+              "app-server",
+              "--strict-config",
+              "-c",
+              "sandbox_workspace_write.network_access=false",
+              "-c",
+              "web_search=\"disabled\"",
+              "--listen",
+              "stdio://"
+            ]
+          },
+          "networkControl": { "const": true }
+        }
+      }
+    }
+  ]
 }

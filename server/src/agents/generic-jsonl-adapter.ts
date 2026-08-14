@@ -16,6 +16,11 @@ import { IncrementalJsonlParser, type JsonlBatch } from './jsonl-parser.js';
 import { DEFAULT_PROCESS_LIMITS, ProcessSupervisor, type ProcessResult, type SupervisedProcess } from './process-supervisor.js';
 import { assertTrustedHostJobMcpNotNestedInAgentSandbox, WslBubblewrapSandboxBoundary, type ExternalSandboxBoundary } from './provider-sandbox.js';
 import { AgentRuntimeDiscovery, type ProviderDiscoveryDefinition } from './runtime-discovery.js';
+import {
+  CODEX_OFFLINE_NETWORK_CONTRACT,
+  hasFixedCodexOfflineConfig,
+  isConformedCodexVersion,
+} from './codex-offline-policy.js';
 
 export interface AgentAdapterManifest {
   schemaVersion: string;
@@ -40,6 +45,12 @@ export interface AgentAdapterManifest {
 
 export type ProviderEventMapper = (value: unknown) => AgentEventDraft[];
 export type ProviderEnvironmentBuilder = (provider: string, installation: AgentProviderInstallation) => NodeJS.ProcessEnv;
+
+/** Browser/run input may tighten these ceilings, but can never raise them. */
+export const PROVIDER_RESOURCE_CEILINGS = {
+  maxResidentMemoryBytes: 8 * 1024 * 1024 * 1024,
+  maxChildProcesses: 64,
+} as const;
 
 const SAFE_ENVIRONMENT_KEYS = [
   'PATH', 'Path', 'SystemRoot', 'WINDIR', 'TEMP', 'TMP', 'HOME', 'USERPROFILE',
@@ -73,7 +84,7 @@ export function validateAgentManifest(manifest: AgentAdapterManifest, trustedFin
     throw new Error(`Lokales Adaptermanifest ${manifest.id} wurde nicht explizit freigegeben.`);
   }
   const placeholders = [...manifest.command.args, ...(manifest.command.modelArgs ?? []), ...(manifest.command.profileArgs ?? [])]
-    .flatMap((argument) => [...argument.matchAll(/\{([^}]+)\}/g)].map((match) => match[1]));
+    .flatMap((argument) => [...argument.matchAll(/\{([A-Za-z][A-Za-z0-9_]*)\}/g)].map((match) => match[1]));
   const allowed = new Set(['workspace', 'sandbox', 'model', 'profile', 'prompt']);
   const unknown = placeholders.find((placeholder) => !allowed.has(placeholder ?? ''));
   if (unknown) throw new Error(`Unbekannter Manifest-Platzhalter: ${unknown}`);
@@ -86,7 +97,7 @@ export function validateAgentManifest(manifest: AgentAdapterManifest, trustedFin
 }
 
 function replaceArgument(template: string, values: Record<string, string>): string {
-  return template.replace(/\{([^}]+)\}/g, (_whole, key: string) => values[key] ?? '');
+  return template.replace(/\{([A-Za-z][A-Za-z0-9_]*)\}/g, (_whole, key: string) => values[key] ?? '');
 }
 
 function redactProgress(value: string): string {
@@ -146,8 +157,21 @@ export class GenericJsonlAgentAdapter implements AgentRunnerPort {
 
   async capabilities(installation: AgentProviderInstallation): Promise<AgentCapabilities> {
     if (installation.provider !== this.provider) throw new Error('Installation gehört zu einem anderen Provider.');
+    const manifestCapabilities = structuredClone(this.manifest.capabilities);
+    if (this.provider === 'codex-exec') {
+      const offlineControlVerified = installation.support === 'supported'
+        && isConformedCodexVersion(installation.version)
+        && hasFixedCodexOfflineConfig(this.manifest.command.args);
+      manifestCapabilities.extensions = {
+        ...manifestCapabilities.extensions,
+        networkControl: offlineControlVerified,
+        networkControlProof: offlineControlVerified
+          ? 'exact-version-and-fixed-argv'
+          : 'unavailable-for-installation',
+      };
+    }
     return {
-      ...structuredClone(this.manifest.capabilities), schemaVersion: AGENT_CONTRACT_VERSION,
+      ...manifestCapabilities, schemaVersion: AGENT_CONTRACT_VERSION,
       provider: this.provider, providerVersion: installation.version, adapterVersion: this.manifest.adapterVersion
     };
   }
@@ -155,8 +179,14 @@ export class GenericJsonlAgentAdapter implements AgentRunnerPort {
   private async launch(context: ProviderRunContext, overrideArgs?: readonly string[]): Promise<AgentRunHandle> {
     const { installation, request } = context;
     if (installation.provider !== this.provider) throw new Error('Installation gehört zu einem anderen Provider.');
+    if (request.provider !== this.provider) throw new Error('Run-Anfrage gehört zu einem anderen Provider.');
     if (installation.support === 'unsupported' || installation.support === 'unavailable') throw new Error(installation.reason ?? 'Providerinstallation ist nicht nutzbar.');
-    if (installation.support === 'untested' && !this.allowUntestedVersions) throw new Error('Provider-Version ist nicht durch Contract-Fixtures freigegeben.');
+    const version = installation.version;
+    const exactVersionSupported = version !== undefined && version === version.trim() && !/[\r\n\0]/.test(version)
+      && this.manifest.testedVersionPatterns.some((pattern) => new RegExp(pattern, 'i').test(version));
+    if (!this.allowUntestedVersions && (installation.support === 'untested' || !exactVersionSupported)) {
+      throw new Error('Provider-Version ist nicht durch Contract-Fixtures freigegeben.');
+    }
     if (!isAbsolute(request.workspaceRoot)) throw new Error('Workspace muss vor dem Providerstart absolut validiert sein.');
     if (typeof request.task !== 'string' || !request.task.trim() || request.task.includes('\0')) throw new Error('Agentenaufgabe ist leer oder ungültig.');
     const promptBytes = Buffer.byteLength(request.task);
@@ -172,8 +202,17 @@ export class GenericJsonlAgentAdapter implements AgentRunnerPort {
       throw new Error('Profil enthält unzulässige Zeichen.');
     }
     const capabilities = await this.capabilities(installation);
+    if (request.runtimeTarget !== installation.runtimeTarget) throw new Error('Run- und Installations-Runtime stimmen nicht überein.');
+    if (!capabilities.supportedRuntimeTargets.includes(installation.runtimeTarget)) {
+      throw new Error(`Runtime ${installation.runtimeTarget} wird von ${this.provider} nicht angeboten.`);
+    }
     if (!capabilities.sandboxPolicies.includes(request.sandbox)) throw new Error(`Sandbox ${request.sandbox} wird von ${this.provider} nicht angeboten.`);
-    if (request.network !== 'disabled' && capabilities.extensions?.networkControl !== true) {
+    const supportedNetworkModes = capabilities.extensions?.supportedNetworkModes;
+    if (Array.isArray(supportedNetworkModes) && !supportedNetworkModes.includes(request.network)) {
+      throw new Error(`Netzwerkmodus ${request.network} ist fuer ${this.provider} nicht freigegeben.`);
+    }
+    if ((this.provider === 'codex-exec' || request.network !== 'disabled')
+      && capabilities.extensions?.networkControl !== true) {
       throw new Error(`Netzwerkmodus ${request.network} kann von ${this.provider} nicht sicher erzwungen werden.`);
     }
     if (request.approvalMode === 'explicit' && !capabilities.approvals) throw new Error(`${this.provider} besitzt keine interaktive Approval-Brücke.`);
@@ -195,8 +234,12 @@ export class GenericJsonlAgentAdapter implements AgentRunnerPort {
     if (request.profile && this.manifest.command.profileArgs) args.push(...this.manifest.command.profileArgs.map((argument) => replaceArgument(argument, values)));
     let executable = installation.executable;
     let sandboxEnforcement: string | undefined;
+    let networkEnforcement: string | undefined;
+    let networkMechanism: string | undefined;
+    let networkAccessClaim: string | undefined;
     if (this.manifest.capabilities.extensions?.externalSandbox === 'wsl-bubblewrap-v1') {
       const plan = await this.externalSandbox.plan({
+        provider: this.provider as 'opencode' | 'claude-cli',
         installation,
         providerExecutable: installation.runtimeExecutable ?? '',
         providerArgs: args,
@@ -207,8 +250,17 @@ export class GenericJsonlAgentAdapter implements AgentRunnerPort {
       executable = plan.executable;
       args = plan.args;
       sandboxEnforcement = plan.enforcedBy;
+      networkEnforcement = plan.networkEnforcement;
+      networkMechanism = plan.networkMechanism;
+      networkAccessClaim = plan.networkAccessClaim;
     } else if (installation.runtimeTarget === 'wsl') {
       args = ['-d', installation.distribution!, '--', installation.runtimeExecutable!, ...args];
+    }
+    if (this.provider === 'codex-exec') {
+      sandboxEnforcement = 'codex-cli-sandbox-policy-0.147.0';
+      networkEnforcement = CODEX_OFFLINE_NETWORK_CONTRACT.networkEnforcement;
+      networkMechanism = CODEX_OFFLINE_NETWORK_CONTRACT.networkMechanism;
+      networkAccessClaim = CODEX_OFFLINE_NETWORK_CONTRACT.networkAccessClaim;
     }
 
     const parser = new IncrementalJsonlParser(this.manifest.maxJsonLineBytes);
@@ -219,18 +271,38 @@ export class GenericJsonlAgentAdapter implements AgentRunnerPort {
       emitQueue = emitQueue.then(() => context.emit(draft));
     };
     const consume = (batch: JsonlBatch): void => {
-      for (const value of batch.values) for (const draft of this.mapper(value)) queue(draft);
+      for (const value of batch.values) {
+        const providerEventId = value && typeof value === 'object' && !Array.isArray(value)
+          ? [Reflect.get(value, 'eventId'), Reflect.get(value, 'event_id')]
+            .find((candidate): candidate is string => typeof candidate === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,180}$/.test(candidate))
+          : undefined;
+        const drafts = this.mapper(value);
+        drafts.forEach((draft, index) => queue(providerEventId
+          ? { ...draft, providerEventId: `${providerEventId}:${index}` }
+          : draft));
+      }
       for (const diagnostic of batch.diagnostics) queue({ kind: 'warning', data: { code: `jsonl_${diagnostic.code}`, line: diagnostic.line, message: diagnostic.message } });
     };
     const processHandle = this.supervisor.start({
       executable, args, cwd: request.workspaceRoot,
       env: this.environmentBuilder(this.provider, installation),
       stdin: this.manifest.command.promptTransport === 'stdin' ? request.task : undefined,
-      limits: { ...DEFAULT_PROCESS_LIMITS, ...request.limits }
+      limits: {
+        ...DEFAULT_PROCESS_LIMITS,
+        ...request.limits,
+        maxResidentMemoryBytes: Math.min(
+          request.limits?.maxResidentMemoryBytes ?? PROVIDER_RESOURCE_CEILINGS.maxResidentMemoryBytes,
+          PROVIDER_RESOURCE_CEILINGS.maxResidentMemoryBytes,
+        ),
+        maxChildProcesses: Math.min(
+          request.limits?.maxChildProcesses ?? PROVIDER_RESOURCE_CEILINGS.maxChildProcesses,
+          PROVIDER_RESOURCE_CEILINGS.maxChildProcesses,
+        ),
+      }
     }, {
       onStart: (pid) => queue({ kind: 'process_started', data: {
         pid, runtimeTarget: installation.runtimeTarget,
-        ...(sandboxEnforcement ? { sandboxEnforcement, networkEnforcement: 'namespace-none' } : {})
+        ...(sandboxEnforcement ? { sandboxEnforcement, networkEnforcement, networkMechanism, networkAccessClaim } : {})
       } }),
       onStdout: (chunk) => consume(parser.feed(chunk)),
       onStderr: (chunk) => queue({ kind: 'warning', data: { code: 'provider_stderr', message: redactProgress(chunk) } }),

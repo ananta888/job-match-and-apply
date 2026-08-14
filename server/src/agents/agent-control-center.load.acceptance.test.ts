@@ -91,10 +91,19 @@ describe('Agent Control Center deterministic load acceptance', () => {
   it('cancels a deterministic queued subset without starting it or starving survivors', async () => {
     const root = await makeWorkspace();
     const startedTasks: number[] = [];
+    let releaseFirstRun!: () => void;
+    let markFirstRunStarted!: () => void;
+    const firstRunGate = new Promise<void>((resolve) => { releaseFirstRun = resolve; });
+    const firstRunStarted = new Promise<void>((resolve) => { markFirstRunStarted = resolve; });
 
     class TrackingProvider extends FakeAgentProvider {
       override async start(context: ProviderRunContext): Promise<AgentRunHandle> {
-        startedTasks.push(context.request.metadata?.index as number);
+        const index = context.request.metadata?.index as number;
+        startedTasks.push(index);
+        if (index === 0) {
+          markFirstRunStarted();
+          await firstRunGate;
+        }
         return super.start(context);
       }
     }
@@ -104,9 +113,14 @@ describe('Agent Control Center deterministic load acceptance', () => {
       [new TrackingProvider({ steps: [{ delayMs: 25, kind: 'heartbeat', data: {} }] })],
       { maxParallel: 1, maxParallelPerProvider: 1, allowedWorkspaceRoots: [root] },
     );
-    const runs = await Promise.all(Array.from({ length: 20 }, (_, index) => center.enqueue(makeRequest(root, index))));
+    const first = await center.enqueue(makeRequest(root, 0));
+    await firstRunStarted;
+    const runs = [first, ...await Promise.all(
+      Array.from({ length: 19 }, (_, offset) => center.enqueue(makeRequest(root, offset + 1))),
+    )];
     const cancelled = runs.filter((_run, index) => index > 0 && index % 2 === 0);
     await Promise.all(cancelled.map((run) => center.cancel(run.id, 'load-test queued cancellation')));
+    releaseFirstRun();
     await waitForTerminal(center, runs.map((run) => run.id));
 
     const cancelledIds = new Set(cancelled.map((run) => run.id));

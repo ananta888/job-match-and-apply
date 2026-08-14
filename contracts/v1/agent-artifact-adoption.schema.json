@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/job-match-and-apply/contracts/v1/agent-artifact-adoption.schema.json",
+  "title": "Approved agent artifact adoption response v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["artifact", "documentRevisionId"],
+  "properties": {
+    "artifact": { "$ref": "agent-artifact.schema.json" },
+    "documentRevisionId": { "type": "string", "format": "uuid" }
+  }
+}

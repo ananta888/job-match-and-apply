@@ -39,14 +39,14 @@ export const APPLICATION_AGENT_WORKFLOWS: readonly ApplicationAgentWorkflowTempl
     requiredScope: 'application_case', producesSuggestionsOnly: true,
     prohibitedActions: ['invent_claim', 'publish_unverified_claim', 'finalize_incognito', 'send_application'],
     plan: (providerId) => ({
-      id: 'evidence-application-package', version: '1.0.0', allowedProviders: [providerId], inputRefs: ['job', 'candidate_evidence', 'application_case'],
+      id: 'evidence-application-package', version: '1.0.0', allowedProviders: [providerId], inputRefs: ['job', 'candidate_evidence', 'application_case', 'application_pipeline_analysis'],
       totalBudget: { wallTimeMs: 30 * 60_000, tokens: 50_000, costMicros: 15_000_000, toolCalls: 25, iterations: 10 },
       nodes: [
-        { id: 'evidence', role: 'evidence_reviewer', providerId, dependsOn: [], inputRefs: ['job', 'candidate_evidence'], outputRefs: ['evidence_matrix'], gates: ['evidence_complete'], contextIsolationKey: 'evidence', declaredIndependentAgent: true, sideEffect: 'none', budget: budget(8_000), retry: safeRetry, failureStrategy: 'fail_fast' },
+        { id: 'evidence', role: 'evidence_reviewer', providerId, dependsOn: [], inputRefs: ['job', 'candidate_evidence', 'application_pipeline_analysis'], outputRefs: ['evidence_matrix'], gates: ['evidence_complete'], contextIsolationKey: 'evidence', declaredIndependentAgent: true, sideEffect: 'none', budget: budget(8_000), retry: safeRetry, failureStrategy: 'fail_fast' },
         { id: 'author', role: 'author', providerId, dependsOn: ['evidence'], inputRefs: ['job', 'application_case', 'evidence_matrix'], outputRefs: ['annotated_draft'], gates: [], contextIsolationKey: 'author', declaredIndependentAgent: false, sideEffect: 'none', budget: budget(12_000), retry: safeRetry, failureStrategy: 'fail_fast' },
         { id: 'ats', role: 'ats_reviewer', providerId, dependsOn: ['author'], inputRefs: ['annotated_draft', 'evidence_matrix'], outputRefs: ['ats_review'], gates: [], contextIsolationKey: 'ats', declaredIndependentAgent: false, sideEffect: 'none', budget: budget(6_000), retry: safeRetry, failureStrategy: 'continue_unrelated' },
         { id: 'style', role: 'recruiter_style_reviewer', providerId, dependsOn: ['author'], inputRefs: ['annotated_draft', 'evidence_matrix'], outputRefs: ['style_review'], gates: [], contextIsolationKey: 'style', declaredIndependentAgent: false, sideEffect: 'none', budget: budget(6_000), retry: safeRetry, failureStrategy: 'continue_unrelated' },
-        { id: 'finalizer', role: 'finalizer', providerId, dependsOn: ['ats', 'style'], inputRefs: ['annotated_draft', 'ats_review', 'style_review', 'evidence_matrix'], outputRefs: ['package_proposal'], gates: ['review_complete', 'user_input'], contextIsolationKey: 'final', declaredIndependentAgent: false, sideEffect: 'idempotent_local', idempotencyKey: 'assigned-per-run', budget: budget(10_000), retry: noRetrySideEffect, failureStrategy: 'fail_fast' }
+        { id: 'finalizer', role: 'finalizer', providerId, dependsOn: ['ats', 'style'], inputRefs: ['annotated_draft', 'ats_review', 'style_review', 'evidence_matrix'], outputRefs: ['package_proposal'], gates: ['user_input'], contextIsolationKey: 'final', declaredIndependentAgent: false, sideEffect: 'idempotent_local', idempotencyKey: 'assigned-per-run', budget: budget(10_000), retry: noRetrySideEffect, failureStrategy: 'fail_fast' }
       ]
     })
   },
@@ -61,7 +61,7 @@ export const APPLICATION_AGENT_WORKFLOWS: readonly ApplicationAgentWorkflowTempl
       nodes: [
         { id: 'classify', role: 'mail_classifier', providerId, dependsOn: [], inputRefs: ['untrusted_mail'], outputRefs: ['classification'], gates: [], contextIsolationKey: 'mail', declaredIndependentAgent: true, sideEffect: 'none', budget: budget(4_000), retry: safeRetry, failureStrategy: 'continue_unrelated' },
         { id: 'correlate', role: 'case_correlator', providerId, dependsOn: ['classify'], inputRefs: ['classification', 'application_case'], outputRefs: ['correlation_proposal'], gates: [], contextIsolationKey: 'correlation', declaredIndependentAgent: false, sideEffect: 'none', budget: budget(3_000), retry: safeRetry, failureStrategy: 'fail_fast' },
-        { id: 'respond', role: 'response_drafter', providerId, dependsOn: ['correlate'], inputRefs: ['classification', 'correlation_proposal'], outputRefs: ['response_and_calendar_proposal'], gates: ['user_input'], contextIsolationKey: 'response', declaredIndependentAgent: false, sideEffect: 'none', budget: budget(3_000), retry: safeRetry, failureStrategy: 'fail_fast' }
+        { id: 'respond', role: 'response_drafter', providerId, dependsOn: ['correlate'], inputRefs: ['classification', 'correlation_proposal', 'untrusted_mail', 'application_case'], outputRefs: ['response_and_calendar_proposal'], gates: ['user_input'], contextIsolationKey: 'response', declaredIndependentAgent: false, sideEffect: 'none', budget: budget(3_000), retry: safeRetry, failureStrategy: 'fail_fast' }
       ]
     })
   },

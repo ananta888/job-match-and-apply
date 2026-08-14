@@ -111,7 +111,16 @@ export class EncryptedAgentRunStore implements AgentRunStore {
   async update(run: AgentRun): Promise<AgentRun> { const key = await this.keys.key(); await this.inner.update(protectRun(run, key)); return structuredClone(run); }
   append(event: AgentEvent): Promise<'appended' | 'duplicate'> {
     const operation = this.appendQueue.then(async () => {
-      const existing = (await this.events(event.runId, Math.max(0, event.sequence - 1))).find((candidate) => candidate.sequence === event.sequence);
+      const visibleEvents = await this.events(event.runId, event.providerEventId ? 0 : Math.max(0, event.sequence - 1));
+      if (event.providerEventId) {
+        const providerDuplicate = visibleEvents.find((candidate) => candidate.providerEventId === event.providerEventId);
+        if (providerDuplicate) {
+          if (providerDuplicate.runId === event.runId && providerDuplicate.provider === event.provider
+            && providerDuplicate.kind === event.kind && JSON.stringify(providerDuplicate.data) === JSON.stringify(event.data)) return 'duplicate' as const;
+          throw new Error(`Widersprüchliche Provider-Event-ID ${event.providerEventId}.`);
+        }
+      }
+      const existing = visibleEvents.find((candidate) => candidate.sequence === event.sequence);
       if (existing) {
         if (JSON.stringify(existing) === JSON.stringify(event)) return 'duplicate' as const;
         throw new Error(`Widersprüchliches Event für Sequenz ${event.sequence}.`);
@@ -167,6 +176,11 @@ export class EncryptedAgentRunStore implements AgentRunStore {
     return result;
   }
   prune(options: { before: string; dryRun?: boolean }): ReturnType<AgentRunStore['prune']> { return this.inner.prune(options); }
+  deleteRuns(runIds: readonly string[], options: { dryRun?: boolean } = {}): Promise<Array<{ runId: string; events: number }>> {
+    const inner = this.inner as AgentRunStore & { deleteRuns?: (ids: readonly string[], value?: { dryRun?: boolean }) => Promise<Array<{ runId: string; events: number }>> };
+    if (!inner.deleteRuns) throw new Error('run_store_deletion_not_supported');
+    return inner.deleteRuns(runIds, options);
+  }
   async export(runId: string, options: { includeSensitive?: boolean } = {}): Promise<{ run: AgentRun; events: AgentEvent[] }> {
     const encrypted = await this.inner.export(runId, { includeSensitive: true });
     const key = await this.keys.key();

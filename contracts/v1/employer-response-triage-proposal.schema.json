@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/job-match-and-apply/contracts/v1/employer-response-triage-proposal.schema.json",
+  "title": "Employer response triage suggestion-only output v1",
+  "description": "Untrusted-mail classification and draft proposals. This contract intentionally has no authority, approval, tool, send, calendar-execution, or submission field.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "classification", "confidence", "selectedMailId", "sourceReferences", "caseCandidates"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "classification": { "enum": ["interview", "rejection", "request", "info", "offer", "other"] },
+    "confidence": { "$ref": "#/$defs/confidence" },
+    "selectedMailId": { "$ref": "#/$defs/id" },
+    "sourceReferences": { "$ref": "#/$defs/sourceReferences" },
+    "caseCandidates": {
+      "type": "array",
+      "maxItems": 16,
+      "items": { "$ref": "#/$defs/caseCandidate" }
+    },
+    "appointment": { "$ref": "#/$defs/appointment" },
+    "followUp": { "$ref": "#/$defs/followUp" },
+    "replyDraft": { "$ref": "#/$defs/replyDraft" }
+  },
+  "$defs": {
+    "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$" },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "singleLine": { "type": "string", "minLength": 1, "pattern": "^[^\\u0000-\\u001f\\u007f]+$" },
+    "sourceReference": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 256,
+      "pattern": "^[A-Za-z][A-Za-z0-9+.-]{0,31}:[^\\s\\u0000-\\u001f\\u007f]{1,223}$"
+    },
+    "sourceReferences": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 16,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/sourceReference" }
+    },
+    "timeZone": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "caseCandidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["caseId", "confidence", "reason", "sourceReferences", "requiredDecision"],
+      "properties": {
+        "caseId": { "$ref": "#/$defs/id" },
+        "confidence": { "$ref": "#/$defs/confidence" },
+        "reason": { "allOf": [{ "$ref": "#/$defs/singleLine" }, { "maxLength": 800 }] },
+        "sourceReferences": { "$ref": "#/$defs/sourceReferences" },
+        "requiredDecision": { "const": "confirm_correlation_or_leave_unassigned" }
+      }
+    },
+    "appointment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start", "end", "timeZone", "location", "sourceReferences", "requiredDecision"],
+      "properties": {
+        "start": { "type": "string", "format": "date-time" },
+        "end": { "type": "string", "format": "date-time" },
+        "timeZone": { "$ref": "#/$defs/timeZone" },
+        "location": { "allOf": [{ "$ref": "#/$defs/singleLine" }, { "maxLength": 500 }] },
+        "sourceReferences": { "$ref": "#/$defs/sourceReferences" },
+        "requiredDecision": { "const": "review_only" }
+      }
+    },
+    "followUp": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dueAt", "timeZone", "reason", "sourceReferences", "requiredDecision"],
+      "properties": {
+        "dueAt": { "type": "string", "format": "date-time" },
+        "timeZone": { "$ref": "#/$defs/timeZone" },
+        "reason": { "allOf": [{ "$ref": "#/$defs/singleLine" }, { "maxLength": 800 }] },
+        "sourceReferences": { "$ref": "#/$defs/sourceReferences" },
+        "requiredDecision": { "const": "confirm_reminder_or_dismiss" }
+      }
+    },
+    "replyDraft": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["subject", "body", "language", "sourceReferences", "requiredDecision"],
+      "properties": {
+        "subject": { "allOf": [{ "$ref": "#/$defs/singleLine" }, { "maxLength": 500 }] },
+        "body": { "type": "string", "minLength": 1, "maxLength": 20000, "pattern": "^[^\\u0000-\\u0008\\u000b\\u000c\\u000e-\\u001f\\u007f]+$" },
+        "language": { "enum": ["de", "en"] },
+        "sourceReferences": { "$ref": "#/$defs/sourceReferences" },
+        "requiredDecision": { "const": "review_edit_or_dismiss" }
+      }
+    }
+  }
+}

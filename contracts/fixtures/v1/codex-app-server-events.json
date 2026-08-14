@@ -1,7 +1,7 @@
 {
   "contract": "codex-app-server-event-fixture",
   "contractVersion": "1.0",
-  "providerVersions": ["0.147.x"],
+  "providerVersions": ["0.147.0"],
   "transport": "stdio-jsonl",
   "notifications": [
     { "method": "thread/started", "params": { "thread": { "id": "thr_fixture" } } },
@@ -12,6 +12,22 @@
     { "method": "turn/completed", "params": { "turn": { "id": "turn_fixture", "status": "completed", "items": [] } } }
   ],
   "serverRequests": [
+    {
+      "id": 76,
+      "method": "item/tool/call",
+      "params": {
+        "threadId": "thr_fixture",
+        "turnId": "turn_fixture",
+        "callId": "domain_fixture",
+        "namespace": "job_match_apply",
+        "tool": "jobs__list",
+        "args": { "limit": 5 }
+      },
+      "expectedResponse": {
+        "success": true,
+        "contentItems": [{ "type": "inputText", "text": "synthetic domain result" }]
+      }
+    },
     {
       "id": 77,
       "method": "item/commandExecution/requestApproval",

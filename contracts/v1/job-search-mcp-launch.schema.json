@@ -35,8 +35,14 @@
     "env": {
       "type": "object",
       "maxProperties": 64,
+      "required": ["ALLOW_EXTERNAL_PORTALS", "JOB_MCP_STATE_DIR"],
       "propertyNames": { "pattern": "^[A-Z][A-Z0-9_]{0,63}$" },
-      "additionalProperties": { "type": "string", "maxLength": 4096 }
+      "properties": {
+        "ALLOW_EXTERNAL_PORTALS": { "enum": ["0", "1"] },
+        "JOB_MCP_STATE_DIR": { "type": "string", "minLength": 3, "maxLength": 4096 },
+        "WSLENV": { "const": "ALLOW_EXTERNAL_PORTALS:JOB_MCP_STATE_DIR" }
+      },
+      "additionalProperties": false
     }
   },
   "oneOf": [
@@ -44,7 +50,13 @@
       "properties": {
         "runtimeTarget": { "const": "windows" },
         "command": { "pattern": "[Jj][Oo][Bb]-[Ss][Ee][Aa][Rr][Cc][Hh]-[Mm][Cc][Pp]\\.[Ee][Xx][Ee]$" },
-        "args": { "maxItems": 0 }
+        "args": { "maxItems": 0 },
+        "env": {
+          "properties": {
+            "JOB_MCP_STATE_DIR": { "pattern": "^(?:[A-Za-z]:[\\\\/]|\\\\\\\\)" }
+          },
+          "not": { "required": ["WSLENV"] }
+        }
       },
       "not": { "required": ["distribution"] }
     },
@@ -55,11 +67,21 @@
         "command": { "pattern": "[Ww][Ss][Ll]\\.[Ee][Xx][Ee]$" },
         "args": {
           "minItems": 4,
+          "maxItems": 4,
           "prefixItems": [
             { "const": "-d" },
             { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$" },
-            { "const": "--" }
-          ]
+            { "const": "--" },
+            { "type": "string", "pattern": "^/.*(?:/|^)job-search-mcp$" }
+          ],
+          "items": false
+        },
+        "env": {
+          "required": ["WSLENV"],
+          "properties": {
+            "JOB_MCP_STATE_DIR": { "pattern": "^/" },
+            "WSLENV": { "const": "ALLOW_EXTERNAL_PORTALS:JOB_MCP_STATE_DIR" }
+          }
         }
       }
     }

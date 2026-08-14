@@ -7,6 +7,8 @@ import {
   type AgentEvent,
   type AgentEventDraft,
   type AgentProviderInstallation,
+  type AgentCapabilities,
+  type ProviderDomainToolBridge,
   type AgentRunnerPort,
   type AgentRun,
   type AgentRunRequest,
@@ -122,6 +124,11 @@ export interface AgentControlCenterOptions {
   now?: () => Date;
   id?: () => string;
   leaseId?: () => string;
+  domainToolFactory?: (input: {
+    run: AgentRun;
+    installation: AgentProviderInstallation;
+    capabilities: AgentCapabilities;
+  }) => ProviderDomainToolBridge | undefined | Promise<ProviderDomainToolBridge | undefined>;
 }
 
 function countBy(values: Iterable<string | undefined>): Record<string, number> {
@@ -146,6 +153,7 @@ export class AgentControlCenter {
   private readonly inFlight = new Map<string, RunReservation>();
   private readonly eventQueues = new Map<string, Promise<void>>();
   private readonly inputRedactors = new Map<string, SensitiveUserInputRedactor>();
+  private readonly activeDomainTools = new Map<string, ProviderDomainToolBridge>();
   private readonly inputInFlight = new Set<string>();
   private readonly recoveryLeases = new Map<string, AgentRecoveryLease>();
   private readonly resolvingRecoveries = new Set<string>();
@@ -155,8 +163,10 @@ export class AgentControlCenter {
   private ordinal = 0;
   private scheduling = false;
   private disposed = false;
+  private domainToolFactory: AgentControlCenterOptions['domainToolFactory'];
 
   constructor(private readonly store: AgentRunStore, providers: readonly AgentRunnerPort[], private readonly options: AgentControlCenterOptions) {
+    this.domainToolFactory = options.domainToolFactory;
     if (!Number.isSafeInteger(options.maxParallel) || options.maxParallel < 1) throw new Error('Globale Parallelität muss mindestens 1 sein.');
     if (!Number.isSafeInteger(options.maxParallelPerProvider) || options.maxParallelPerProvider < 1) throw new Error('Providerparallelität muss mindestens 1 sein.');
     assertOptionalLimit('Workspaceparallelitaet', options.maxParallelPerWorkspace);
@@ -173,6 +183,12 @@ export class AgentControlCenter {
       if (this.providers.has(provider.provider)) throw new Error(`Provider ${provider.provider} ist doppelt registriert.`);
       this.providers.set(provider.provider, provider);
     }
+  }
+
+  /** Composition-root hook. It may only change while no run is queued/active. */
+  configureDomainToolFactory(factory: NonNullable<AgentControlCenterOptions['domainToolFactory']>): void {
+    if (this.queue.length || this.inFlight.size || this.active.size) throw new Error('domain_tool_factory_change_while_runs_active');
+    this.domainToolFactory = factory;
   }
 
   async enqueue(request: AgentRunRequest): Promise<AgentRun> {
@@ -564,7 +580,16 @@ export class AgentControlCenter {
       run = { ...(await this.required(runId)), capabilities }; await this.store.update(run);
       await this.emit(runId, { kind: 'capabilities_negotiated', data: { capabilities } });
       this.active.set(runId, provider);
-      const handle = await provider.start({ runId, request: run.request, installation, emit: (draft) => this.emit(runId, draft, 'provider') });
+      const domainTools = await this.domainToolFactory?.({ run: structuredClone(run), installation: structuredClone(installation), capabilities: structuredClone(capabilities) });
+      const requiredTools = Array.isArray(run.request.metadata?.requiredRootMcpTools)
+        ? run.request.metadata.requiredRootMcpTools.filter((item): item is string => typeof item === 'string') : [];
+      if (requiredTools.length && !domainTools) throw new Error('required_root_domain_tools_unavailable');
+      if (domainTools) this.activeDomainTools.set(runId, domainTools);
+      const handle = await provider.start({
+        runId, request: run.request, installation,
+        emit: (draft) => this.emit(runId, draft, 'provider'),
+        ...(domainTools ? { domainTools } : {}),
+      });
       const outcome = await handle.completion;
       run = await this.required(runId);
       if (!['cancelled', 'succeeded', 'failed', 'timed_out'].includes(run.state)) {
@@ -585,6 +610,11 @@ export class AgentControlCenter {
         await this.emit(runId, { kind: 'run_completed', data: { state: run.state } });
       }
     } finally {
+      // Revocation is idempotent and owned by the factory/session. A provider
+      // process cannot keep using a capability after its run becomes terminal.
+      const bridge = this.activeDomainTools.get(runId);
+      if (bridge) await bridge.revoke().catch(() => undefined);
+      this.activeDomainTools.delete(runId);
       this.active.delete(runId);
       this.inFlight.delete(runId);
       // Provider output is no longer accepted once the run is terminal, so the
@@ -598,6 +628,7 @@ export class AgentControlCenter {
     const previous = this.eventQueues.get(runId) ?? Promise.resolve();
     const operation = previous.then(async () => {
       const run = await this.required(runId);
+      if (source === 'server' && draft.providerEventId) throw new Error('server_provider_event_id_forbidden');
       if (source === 'provider' && draft.kind === 'user_input_received') throw new Error('provider_user_input_receipt_forbidden');
       if (source === 'provider' && ['cancelled', 'succeeded', 'failed', 'timed_out'].includes(run.state)) {
         throw new Error('provider_event_after_terminal_forbidden');
@@ -612,6 +643,13 @@ export class AgentControlCenter {
       const sanitizedDraft = redactor && providerDraft.kind !== 'user_input_received'
         ? { ...providerDraft, data: redactor.redact(providerDraft.data) as Readonly<Record<string, unknown>> }
         : providerDraft;
+      if (source === 'provider' && sanitizedDraft.providerEventId) {
+        const existing = (await this.store.events(runId)).find((event) => event.providerEventId === sanitizedDraft.providerEventId);
+        if (existing) {
+          if (existing.kind === sanitizedDraft.kind && JSON.stringify(existing.data) === JSON.stringify(sanitizedDraft.data)) return;
+          throw new Error(`provider_event_id_conflict:${sanitizedDraft.providerEventId}`);
+        }
+      }
       const event = nextAgentEvent(run, sanitizedDraft, now);
       await this.store.append(event);
       try { await this.options.onEvent?.(structuredClone(event)); } catch { /* Observability cannot fail a run. */ }

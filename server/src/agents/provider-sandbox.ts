@@ -54,6 +54,7 @@ export async function assertTrustedHostJobMcpNotNestedInAgentSandbox(workspaceRo
 }
 
 export interface ExternalSandboxLaunchRequest {
+  provider: 'opencode' | 'claude-cli';
   installation: AgentProviderInstallation;
   providerExecutable: string;
   providerArgs: readonly string[];
@@ -67,7 +68,11 @@ export interface ExternalSandboxLaunchPlan {
   args: string[];
   enforcedBy: 'wsl-bubblewrap-v1';
   workspaceAccess: 'read_only' | 'read_write';
-  network: 'none';
+  /** The model control plane may use the network; agent-callable network,
+   * shell, MCP and subagent tools are removed by an exact provider policy. */
+  networkEnforcement: 'provider-tool-capability-policy';
+  networkMechanism: 'server-owned-read-only-tool-allowlist';
+  networkAccessClaim: 'provider-control-plane-only';
 }
 
 export interface ExternalSandboxBoundary {
@@ -75,6 +80,7 @@ export interface ExternalSandboxBoundary {
 }
 
 export type WslBubblewrapProbe = (installation: AgentProviderInstallation) => Promise<boolean>;
+export type WslUserHomeProbe = (installation: AgentProviderInstallation) => Promise<string>;
 
 function safeDistribution(value: string | undefined): value is string {
   return Boolean(value && /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(value));
@@ -94,7 +100,7 @@ export const probeWslBubblewrap: WslBubblewrapProbe = async (installation) => {
   try {
     await execFileAsync(installation.executable, [
       '-d', installation.distribution, '--', 'bwrap', '--die-with-parent', '--new-session',
-      '--unshare-net', '--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc',
+      '--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc',
       '--tmpfs', '/tmp', '--chdir', '/tmp', '--', '/bin/true'
     ], { timeout: 5_000, windowsHide: true, maxBuffer: 64 * 1024, env: buildMinimalLocalChildEnvironment() });
     return true;
@@ -103,15 +109,52 @@ export const probeWslBubblewrap: WslBubblewrapProbe = async (installation) => {
   }
 };
 
+/** Resolve the default WSL user's home with fixed, shell-free argv. */
+export const probeWslUserHome: WslUserHomeProbe = async (installation) => {
+  if (installation.runtimeTarget !== 'wsl' || !safeDistribution(installation.distribution) || !isDriveQualifiedWindowsPath(installation.executable)) {
+    throw new Error('external_sandbox_wsl_identity_invalid');
+  }
+  const options = { timeout: 5_000, windowsHide: true, maxBuffer: 64 * 1024, env: buildMinimalLocalChildEnvironment() } as const;
+  const uidResult = await execFileAsync(installation.executable, ['-d', installation.distribution, '--', '/usr/bin/id', '-u'], options);
+  const uid = uidResult.stdout.trim();
+  if (!/^\d{1,10}$/.test(uid)) throw new Error('external_sandbox_wsl_uid_invalid');
+  const passwdResult = await execFileAsync(installation.executable, ['-d', installation.distribution, '--', '/usr/bin/getent', 'passwd', uid], options);
+  const fields = passwdResult.stdout.trim().split(':');
+  const home = fields[5];
+  if (!home || !posix.isAbsolute(home) || home.includes('\0') || home === '/') throw new Error('external_sandbox_wsl_home_invalid');
+  return home;
+};
+
+const OPENCODE_READ_ONLY_CONFIG = JSON.stringify({
+  $schema: 'https://opencode.ai/config.json',
+  share: 'disabled',
+  autoupdate: false,
+  plugin: [],
+  mcp: {},
+  agent: {
+    'job-match-read-only': {
+      description: 'Server-owned read-only analysis agent.',
+      mode: 'primary',
+      permission: { '*': 'deny', read: 'allow', glob: 'allow', grep: 'allow', list: 'allow' },
+    },
+  },
+  default_agent: 'job-match-read-only',
+});
+
 /**
  * WSL isolation for CLIs without a verified native sandbox contract.
  *
- * The distribution root is mounted read-only, /tmp is ephemeral, networking is
- * removed at the namespace boundary, and only the selected workspace may be
- * rebound read-write. No value is interpreted by a shell.
+ * The distribution root is mounted read-only and /tmp is ephemeral. Provider
+ * control-plane networking remains available, while the exact provider policy
+ * removes model-callable shell, write, MCP and network tools. Only an explicitly
+ * selected workspace may be rebound read-write. No value is interpreted by a
+ * shell.
  */
 export class WslBubblewrapSandboxBoundary implements ExternalSandboxBoundary {
-  constructor(private readonly probe: WslBubblewrapProbe = probeWslBubblewrap) {}
+  constructor(
+    private readonly probe: WslBubblewrapProbe = probeWslBubblewrap,
+    private readonly homeProbe: WslUserHomeProbe = probeWslUserHome,
+  ) {}
 
   async plan(request: ExternalSandboxLaunchRequest): Promise<ExternalSandboxLaunchPlan> {
     const { installation } = request;
@@ -130,17 +173,35 @@ export class WslBubblewrapSandboxBoundary implements ExternalSandboxBoundary {
     if (request.network !== 'disabled') throw new Error('external_sandbox_network_mode_not_enforceable');
     if (request.sandbox === 'danger-full-access') throw new Error('external_sandbox_full_access_forbidden');
     if (!await this.probe(installation)) throw new Error('external_sandbox_backend_unavailable');
+    if (!['opencode', 'claude-cli'].includes(request.provider)) throw new Error('external_sandbox_provider_not_allowlisted');
+    const userHome = await this.homeProbe(installation);
 
     const workspaceAccess = request.sandbox === 'workspace-write' ? 'read_write' : 'read_only';
     const bubblewrapArgs = [
       'bwrap', '--die-with-parent', '--new-session', '--unshare-pid', '--unshare-ipc',
-      '--unshare-uts', '--unshare-net', '--ro-bind', '/', '/', '--dev', '/dev',
+      '--unshare-uts', '--ro-bind', '/', '/', '--dev', '/dev',
       '--proc', '/proc', '--tmpfs', '/tmp', '--clearenv',
       '--setenv', 'PATH', '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
       '--setenv', 'HOME', '/tmp/agent-home', '--setenv', 'XDG_CONFIG_HOME', '/tmp/agent-home/.config',
       '--setenv', 'TMPDIR', '/tmp', '--setenv', 'XDG_CACHE_HOME', '/tmp/agent-cache',
       '--dir', '/tmp/agent-home', '--dir', '/tmp/agent-home/.config', '--dir', '/tmp/agent-cache'
     ];
+    if (request.provider === 'opencode') {
+      bubblewrapArgs.push(
+        '--dir', '/tmp/agent-home/.local', '--dir', '/tmp/agent-home/.local/share',
+        '--dir', '/tmp/agent-home/.local/share/opencode',
+        '--ro-bind-try', posix.join(userHome, '.local/share/opencode/auth.json'), '/tmp/agent-home/.local/share/opencode/auth.json',
+        '--setenv', 'XDG_DATA_HOME', '/tmp/agent-home/.local/share',
+        '--setenv', 'OPENCODE_DISABLE_PROJECT_CONFIG', 'true',
+        '--setenv', 'OPENCODE_CONFIG_CONTENT', OPENCODE_READ_ONLY_CONFIG,
+      );
+    } else {
+      bubblewrapArgs.push(
+        '--dir', '/tmp/agent-home/.claude',
+        '--ro-bind-try', posix.join(userHome, '.claude/.credentials.json'), '/tmp/agent-home/.claude/.credentials.json',
+        '--setenv', 'CLAUDE_CONFIG_DIR', '/tmp/agent-home/.claude',
+      );
+    }
     if (workspaceAccess === 'read_write') bubblewrapArgs.push('--bind', request.workspaceRoot, request.workspaceRoot);
     bubblewrapArgs.push('--chdir', request.workspaceRoot, '--', request.providerExecutable, ...request.providerArgs);
 
@@ -149,7 +210,9 @@ export class WslBubblewrapSandboxBoundary implements ExternalSandboxBoundary {
       args: ['-d', installation.distribution, '--', ...bubblewrapArgs],
       enforcedBy: 'wsl-bubblewrap-v1',
       workspaceAccess,
-      network: 'none'
+      networkEnforcement: 'provider-tool-capability-policy',
+      networkMechanism: 'server-owned-read-only-tool-allowlist',
+      networkAccessClaim: 'provider-control-plane-only'
     };
   }
 }

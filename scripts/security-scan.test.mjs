@@ -38,12 +38,13 @@ test('does not treat an explicit sk-test fixture as a production OpenAI key', ()
   assert.deepEqual(scanRepository(root, { trackedFiles: [] }), []);
 });
 
-test('does not scan .git, node_modules, or dist directories', () => {
+test('does not scan .git, dependency, build, or managed Python venv directories', () => {
   const root = fixture();
   const secret = 'AKIA' + 'A'.repeat(16);
   write(root, '.git/config.json', secret);
   write(root, 'node_modules/package/index.js', secret);
   write(root, 'server/dist/index.js', secret);
+  write(root, 'integrations/job-search-mcp/.venv-wsl/lib/site-packages/crypto/parser.py', secret);
   assert.deepEqual(scanRepository(root, { trackedFiles: [] }), []);
 });
 

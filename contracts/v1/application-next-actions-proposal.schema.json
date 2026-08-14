@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/job-match-and-apply/contracts/v1/application-next-actions-proposal.schema.json",
+  "title": "Company-scoped application next-action suggestions v1",
+  "description": "Per-case suggestions only. This contract intentionally has no authority, approval, tool, execute, send, or submission field.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "companyKey", "suggestions", "conflicts"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "companyKey": { "$ref": "#/$defs/id" },
+    "suggestions": {
+      "type": "array",
+      "maxItems": 64,
+      "items": { "$ref": "#/$defs/suggestion" }
+    },
+    "conflicts": {
+      "type": "array",
+      "maxItems": 32,
+      "items": { "$ref": "#/$defs/conflict" }
+    }
+  },
+  "$defs": {
+    "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$" },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "singleLine": { "type": "string", "minLength": 1, "pattern": "^[^\\u0000-\\u001f\\u007f]+$" },
+    "sourceReference": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 256,
+      "pattern": "^[A-Za-z][A-Za-z0-9+.-]{0,31}:[^\\s\\u0000-\\u001f\\u007f]{1,223}$"
+    },
+    "sourceReferences": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 16,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/sourceReference" }
+    },
+    "suggestion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "applicationCaseId", "kind", "title", "reason", "confidence", "sourceReferences", "requiredDecision"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "applicationCaseId": { "$ref": "#/$defs/id" },
+        "kind": { "enum": ["follow_up", "status_review", "document_review", "duplicate_warning", "deadline"] },
+        "title": { "allOf": [{ "$ref": "#/$defs/singleLine" }, { "maxLength": 240 }] },
+        "reason": { "allOf": [{ "$ref": "#/$defs/singleLine" }, { "maxLength": 1200 }] },
+        "confidence": { "$ref": "#/$defs/confidence" },
+        "sourceReferences": { "$ref": "#/$defs/sourceReferences" },
+        "dueAt": { "type": "string", "format": "date-time" },
+        "requiredDecision": { "enum": ["confirm_reminder_or_dismiss", "review_status_or_dismiss", "review_document_or_dismiss", "review_cases_separately_or_dismiss"] }
+      }
+    },
+    "conflict": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "applicationCaseIds", "reason", "sourceReferences", "requiredDecision"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "kind": { "enum": ["duplicate_application", "status_disagreement", "timeline_overlap", "document_disagreement", "deadline_collision"] },
+        "applicationCaseIds": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/id" }
+        },
+        "reason": { "allOf": [{ "$ref": "#/$defs/singleLine" }, { "maxLength": 1200 }] },
+        "sourceReferences": { "$ref": "#/$defs/sourceReferences" },
+        "requiredDecision": { "const": "resolve_or_dismiss" }
+      }
+    }
+  }
+}

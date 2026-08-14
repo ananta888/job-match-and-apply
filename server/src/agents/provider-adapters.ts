@@ -1,5 +1,10 @@
 import type { AgentCapabilities, AgentEventDraft, AgentProviderInstallation, AgentRunnerPort, AgentRunHandle, ApprovalDecision, ProviderRunContext } from '../ports/agent-runner.js';
-import { CodexAppServerAgentAdapter, FeatureFlaggedCodexAgentAdapter, type CodexAppServerOptions } from './codex-app-server-adapter.js';
+import { CodexAppServerAgentAdapter, FeatureFlaggedCodexAgentAdapter, type CodexAppServerFeatureDecision, type CodexAppServerOptions } from './codex-app-server-adapter.js';
+import {
+  CODEX_CONFORMED_VERSION_PATTERN,
+  CODEX_OFFLINE_CONFIG_ARGS,
+  CODEX_OFFLINE_NETWORK_CONTRACT,
+} from './codex-offline-policy.js';
 import { GenericJsonlAgentAdapter, type AgentAdapterManifest, type ProviderEventMapper } from './generic-jsonl-adapter.js';
 import { ProcessSupervisor } from './process-supervisor.js';
 import { AgentRuntimeDiscovery } from './runtime-discovery.js';
@@ -21,46 +26,73 @@ const baseCapabilities: Omit<AgentCapabilities, 'schemaVersion' | 'provider' | '
 export const CODEX_EXEC_MANIFEST: AgentAdapterManifest = {
   schemaVersion: '1.0', id: 'codex-exec', displayName: 'Codex CLI (exec)', adapterVersion: '1.0.0',
   protocol: 'codex-jsonl', trust: 'builtin', enabled: true,
-  executableNames: ['codex'], versionArgs: ['--version'], testedVersionPatterns: ['^(?:codex-cli|codex)\\s+0\\.147\\.'],
+  executableNames: ['codex'], versionArgs: ['--version'], testedVersionPatterns: [CODEX_CONFORMED_VERSION_PATTERN],
   command: {
-    args: ['exec', '--ignore-user-config', '--json', '--color', 'never', '--sandbox', '{sandbox}', '--cd', '{workspace}', '-'],
+    args: [
+      'exec', '--ignore-user-config', ...CODEX_OFFLINE_CONFIG_ARGS,
+      '--json', '--color', 'never', '--sandbox', '{sandbox}', '--cd', '{workspace}', '-'
+    ],
     promptTransport: 'stdin', modelArgs: ['--model', '{model}'], profileArgs: ['--profile', '{profile}']
   },
   capabilities: {
     ...baseCapabilities, structuredOutput: true,
     sandboxPolicies: ['read-only', 'workspace-write'],
-    extensions: { networkControl: false, officialSemantics: 'codex exec --ignore-user-config --json', maturity: 'stable' }
+    extensions: {
+      networkControl: true,
+      ...CODEX_OFFLINE_NETWORK_CONTRACT,
+      offlineConfigOverrides: CODEX_OFFLINE_CONFIG_ARGS,
+      officialSemantics: 'codex exec --ignore-user-config --strict-config --config --json',
+      maturity: 'stable'
+    }
   }
 };
 
 export const OPENCODE_MANIFEST: AgentAdapterManifest = {
-  schemaVersion: '1.0', id: 'opencode', displayName: 'OpenCode', adapterVersion: '1.0.0',
+  schemaVersion: '1.0', id: 'opencode', displayName: 'OpenCode', adapterVersion: '1.1.0',
   protocol: 'opencode-json', trust: 'builtin', enabled: true,
-  executableNames: ['opencode'], versionArgs: ['--version'], testedVersionPatterns: [],
-  command: { args: ['run', '--format', 'json', '--dir', '{workspace}', '{prompt}'], promptTransport: 'argument' },
+  executableNames: ['opencode'], versionArgs: ['--version'], testedVersionPatterns: ['^1\\.14\\.41$'],
+  command: {
+    args: ['run', '--pure', '--agent', 'job-match-read-only', '--format', 'json', '--dir', '{workspace}'],
+    promptTransport: 'stdin', modelArgs: ['--model', '{model}']
+  },
   capabilities: {
-    ...baseCapabilities, supportedRuntimeTargets: ['wsl'],
+    ...baseCapabilities, structuredOutput: true, supportedRuntimeTargets: ['wsl'],
     extensions: {
-      networkControl: false, contractRequiresFixture: true, forbiddenArguments: ['--auto'],
-      externalSandbox: 'wsl-bubblewrap-v1', networkEnforcement: 'namespace-none'
+      networkControl: true, contractRequiresFixture: true,
+      conformanceFixture: 'contracts/fixtures/v1/opencode-events.json',
+      forbiddenArguments: ['--auto', '--dangerously-skip-permissions'],
+      approvalSemantics: 'provider-auto-reject-unapproved',
+      pause: false, pauseSemantics: 'unsupported_cancel_only',
+      externalSandbox: 'wsl-bubblewrap-v1', networkEnforcement: 'provider-tool-capability-policy',
+      networkMechanism: 'server-owned-read-only-tool-allowlist', networkAccessClaim: 'provider-control-plane-only'
     }
   }
 };
 
 export const CLAUDE_CLI_MANIFEST: AgentAdapterManifest = {
-  schemaVersion: '1.0', id: 'claude-cli', displayName: 'Claude CLI', adapterVersion: '1.0.0',
+  schemaVersion: '1.0', id: 'claude-cli', displayName: 'Claude CLI', adapterVersion: '1.1.0',
   protocol: 'claude-stream-json', trust: 'builtin', enabled: true,
-  executableNames: ['claude'], versionArgs: ['--version'], testedVersionPatterns: [],
+  executableNames: ['claude'], versionArgs: ['--version'], testedVersionPatterns: ['^2\\.1\\.232 \\(Claude Code\\)$'],
   command: {
-    args: ['-p', '--output-format', 'stream-json', '--verbose', '--permission-mode', 'plan', '--no-session-persistence', '{prompt}'],
-    promptTransport: 'argument', modelArgs: ['--model', '{model}']
+    args: [
+      '--safe-mode', '-p', '--output-format', 'stream-json', '--verbose',
+      '--permission-mode', 'plan', '--tools', 'Read', '--disallowedTools', 'mcp__*',
+      '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}',
+      '--disable-slash-commands', '--no-session-persistence'
+    ],
+    promptTransport: 'stdin', modelArgs: ['--model', '{model}']
   },
   capabilities: {
-    ...baseCapabilities, supportedRuntimeTargets: ['wsl'],
+    ...baseCapabilities, structuredOutput: true, supportedRuntimeTargets: ['wsl'],
     extensions: {
-      networkControl: false, contractRequiresFixture: true,
+      networkControl: true, contractRequiresFixture: true,
+      conformanceFixture: 'contracts/fixtures/v1/claude-cli-events.json',
       forbiddenArguments: ['--permission-mode=bypassPermissions', '--dangerously-skip-permissions'],
-      externalSandbox: 'wsl-bubblewrap-v1', networkEnforcement: 'namespace-none'
+      permissionMode: 'plan', builtinToolAllowlist: ['Read'],
+      customizations: 'safe-mode-strict-empty-mcp-and-slash-commands-disabled',
+      pause: false, pauseSemantics: 'unsupported_cancel_only',
+      externalSandbox: 'wsl-bubblewrap-v1', networkEnforcement: 'provider-tool-capability-policy',
+      networkMechanism: 'server-owned-read-only-tool-allowlist', networkAccessClaim: 'provider-control-plane-only'
     }
   }
 };
@@ -142,11 +174,47 @@ export const mapOpenCodeJsonEvent: ProviderEventMapper = (value): AgentEventDraf
   if (!event || !type) return [{ kind: 'warning', data: { code: 'invalid_opencode_event' } }];
   const part = object(event.part ?? event.message ?? event.data);
   const text = textFromContent(part?.text ?? event.text ?? part?.content);
-  if (type.includes('text') || type.includes('message')) {
+  if (type === 'text' || type.includes('message')) {
     return text ? [{ kind: type.includes('delta') ? 'agent_message_delta' : 'agent_message_completed', data: { text } }] : [];
   }
-  if (type.includes('tool')) return [{ kind: type.includes('completed') ? 'tool_completed' : 'tool_started', data: { providerEventType: type, id: part?.id, name: part?.name } }];
-  if (type.includes('error')) return [{ kind: 'error', data: { code: type, message: String(event.message ?? part?.message ?? 'OpenCode-Fehler'), retryable: false } }];
+  if (type === 'step_start') return [{ kind: 'heartbeat', data: { phase: 'step_started', sessionId: event.sessionID, itemId: part?.id } }];
+  if (type === 'step_finish') {
+    const tokens = object(part?.tokens);
+    const cache = object(tokens?.cache);
+    const inputTokens = typeof tokens?.input === 'number' && Number.isFinite(tokens.input) ? tokens.input : undefined;
+    const outputTokens = typeof tokens?.output === 'number' && Number.isFinite(tokens.output) ? tokens.output : undefined;
+    const usage = {
+      inputTokens,
+      cachedInputTokens: typeof cache?.read === 'number' && Number.isFinite(cache.read) ? cache.read : undefined,
+      outputTokens,
+      reasoningTokens: typeof tokens?.reasoning === 'number' && Number.isFinite(tokens.reasoning) ? tokens.reasoning : undefined
+    };
+    const data = Object.fromEntries(Object.entries(usage).filter(([, candidate]) => candidate !== undefined)) as Record<string, number>;
+    return Object.keys(data).length > 0
+      ? [{ kind: 'usage_updated', data }]
+      : [{ kind: 'heartbeat', data: { phase: 'step_finished' } }];
+  }
+  if (type === 'tool_use' || type.includes('tool')) {
+    const state = object(part?.state);
+    const status = typeof state?.status === 'string' ? state.status : type.includes('completed') ? 'completed' : 'running';
+    const output = state?.output ?? state?.error;
+    return [{
+      kind: status === 'completed' || status === 'error' ? 'tool_completed' : 'tool_started',
+      data: {
+        providerEventType: type, id: part?.id, name: part?.tool ?? part?.name, status,
+        ...(output === undefined ? {} : { output: String(output).slice(0, 64 * 1024) })
+      }
+    }];
+  }
+  if (type === 'error' || type.includes('error')) {
+    const error = object(event.error);
+    const details = object(error?.data);
+    return [{ kind: 'error', data: {
+      code: String(error?.name ?? error?.code ?? type),
+      message: String(details?.message ?? error?.message ?? event.message ?? part?.message ?? 'OpenCode-Fehler'),
+      retryable: false
+    } }];
+  }
   return [{ kind: 'warning', data: { code: 'unknown_opencode_event', providerEventType: type } }];
 };
 
@@ -155,16 +223,74 @@ export const mapClaudeStreamEvent: ProviderEventMapper = (value): AgentEventDraf
   if (!event || !type) return [{ kind: 'warning', data: { code: 'invalid_claude_event' } }];
   if (type === 'assistant') {
     const message = object(event.message);
-    const text = textFromContent(message?.content ?? event.content);
-    return text ? [{ kind: 'agent_message_completed', data: { text } }] : [];
+    const content = Array.isArray(message?.content ?? event.content) ? (message?.content ?? event.content) as unknown[] : [];
+    const drafts: AgentEventDraft[] = [];
+    for (const rawBlock of content) {
+      const block = object(rawBlock);
+      if (block?.type === 'text' && typeof block.text === 'string' && block.text) {
+        drafts.push({ kind: 'agent_message_completed', data: { text: block.text } });
+      } else if (block?.type === 'tool_use') {
+        drafts.push({ kind: 'tool_started', data: { id: block.id, name: block.name } });
+      }
+    }
+    return drafts;
+  }
+  if (type === 'user') {
+    const message = object(event.message);
+    const content = Array.isArray(message?.content ?? event.content) ? (message?.content ?? event.content) as unknown[] : [];
+    return content.flatMap((rawBlock): AgentEventDraft[] => {
+      const block = object(rawBlock);
+      if (block?.type !== 'tool_result') return [];
+      const output = textFromContent(block.content);
+      return [{ kind: 'tool_completed', data: {
+        id: block.tool_use_id,
+        status: block.is_error === true ? 'failed' : 'completed',
+        ...(output === undefined ? {} : { output: output.slice(0, 64 * 1024) })
+      } }];
+    });
   }
   if (type === 'result') {
     const drafts: AgentEventDraft[] = [];
-    if (typeof event.result === 'string') drafts.push({ kind: 'agent_message_completed', data: { text: event.result } });
     const usage = normalizedUsage(event.usage);
-    if (usage) drafts.push({ kind: 'usage_updated', data: usage });
-    if (event.is_error === true) drafts.push({ kind: 'error', data: { code: String(event.subtype ?? 'claude_result_error'), message: String(event.result ?? 'Claude-Fehler'), retryable: false } });
+    const totalCostUsd = typeof event.total_cost_usd === 'number' && Number.isFinite(event.total_cost_usd)
+      && event.total_cost_usd >= 0 ? event.total_cost_usd : undefined;
+    if (usage || totalCostUsd !== undefined) drafts.push({
+      kind: 'usage_updated',
+      data: {
+        ...(usage ?? {}),
+        ...(totalCostUsd === undefined ? {} : { reportedCostMicros: Math.round(totalCostUsd * 1_000_000), currency: 'USD' }),
+      },
+    });
+    if (event.is_error === true || (typeof event.subtype === 'string' && event.subtype !== 'success')) {
+      drafts.push({ kind: 'error', data: { code: String(event.subtype ?? 'claude_result_error'), message: String(event.result ?? 'Claude-Fehler'), retryable: false } });
+    }
     return drafts;
+  }
+  if (type === 'system' && event.subtype === 'init') {
+    const exactTools = Array.isArray(event.tools) && event.tools.length === 1 && event.tools[0] === 'Read';
+    const empty = (candidate: unknown): boolean => Array.isArray(candidate) && candidate.length === 0;
+    const conforms = event.claude_code_version === '2.1.232' && event.permissionMode === 'plan' && exactTools
+      && empty(event.mcp_servers) && empty(event.plugins) && empty(event.skills) && empty(event.slash_commands);
+    if (!conforms) return [{ kind: 'error', data: {
+      code: 'claude_runtime_conformance_mismatch',
+      message: 'Claude-Runtime meldet breitere oder unvollstaendige Capabilities.',
+      retryable: false
+    } }];
+    return [{ kind: 'heartbeat', data: {
+      phase: 'initialized', sessionId: event.session_id, providerVersion: event.claude_code_version,
+      permissionMode: event.permissionMode, tools: event.tools
+    } }];
+  }
+  if (type === 'system' && event.subtype === 'api_retry') {
+    const knownErrors = new Set([
+      'authentication_failed', 'oauth_org_not_allowed', 'billing_error', 'rate_limit', 'overloaded',
+      'invalid_request', 'model_not_found', 'server_error', 'max_output_tokens', 'unknown'
+    ]);
+    const errorCategory = typeof event.error === 'string' && knownErrors.has(event.error) ? event.error : 'unknown';
+    return [{ kind: 'warning', data: {
+      code: 'provider_api_retry', attempt: event.attempt, maxRetries: event.max_retries,
+      retryDelayMs: event.retry_delay_ms, errorCategory
+    } }];
   }
   if (type === 'system') return [{ kind: 'heartbeat', data: { phase: String(event.subtype ?? 'system') } }];
   if (type.includes('tool')) return [{ kind: type.includes('result') ? 'tool_completed' : 'tool_started', data: { providerEventType: type } }];
@@ -174,7 +300,7 @@ export const mapClaudeStreamEvent: ProviderEventMapper = (value): AgentEventDraf
 export class CodexExecAgentAdapter implements AgentRunnerPort {
   readonly provider = CODEX_EXEC_MANIFEST.id;
   private readonly delegate: FeatureFlaggedCodexAgentAdapter;
-  constructor(supervisor = new ProcessSupervisor(), discovery = new AgentRuntimeDiscovery(), allowUntestedVersions = false, appServerOptions: CodexAppServerOptions & { enabled?: boolean } = {}) {
+  constructor(supervisor = new ProcessSupervisor(), discovery = new AgentRuntimeDiscovery(), allowUntestedVersions = false, appServerOptions: CodexAppServerOptions & { enabled?: CodexAppServerFeatureDecision } = {}) {
     const fallback = new GenericJsonlAgentAdapter(CODEX_EXEC_MANIFEST, supervisor, discovery, mapCodexJsonlEvent, new Set(), allowUntestedVersions);
     const appServer = new CodexAppServerAgentAdapter(supervisor, discovery, appServerOptions);
     this.delegate = new FeatureFlaggedCodexAgentAdapter(appServer, fallback, appServerOptions.enabled);

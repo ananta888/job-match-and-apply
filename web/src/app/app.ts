@@ -3,7 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ApiService } from './api.service';
 import { forkJoin, type Subscription } from 'rxjs';
-import type { AgentApproval, AgentProvider, AgentProviderInstallation, AgentQueueBlockReason, AgentQueueSnapshot, AgentRecoveryDecision, AgentRecoveryLease, AgentRecoveryRun, AgentRun, AgentRunEvent, AgentRunPreflight, AgentRunRequest, AgentRunStatus, AgentWorkflow, AgentWorkspaceMode, AppConfig, ApplicationCase, ApplicationDraft, ArtifactRevision, CandidateMatchAnalysis, CandidateProfileSummary, CompanyCrm, CorrelatedMail, DataInventory, IdentityProfile, JobDecision, JobMatch, JobSourceCapabilities, MailAccount, McpRuntimeStatus, ProfileImportPreview, SearchSchedule, Section, SourceCapability, SourceStatus } from './models';
+import type { AgentApproval, AgentArtifactContent, AgentArtifactRecord, AgentConfigProfile, AgentConfigProfileView, AgentOrchestrationConfirmationInput, AgentOrchestrationConflict, AgentOrchestrationConflictStrategy, AgentOrchestrationCreateRequest, AgentOrchestrationGate, AgentOrchestrationRecord, AgentProvider, AgentProviderConfigProfile, AgentProviderInstallation, AgentQueueBlockReason, AgentQueueSnapshot, AgentRecoveryDecision, AgentRecoveryLease, AgentRecoveryRun, AgentRun, AgentRunEvent, AgentRunPreflight, AgentRunRequest, AgentRunStatus, AgentRuntimeTarget, AgentWorkflow, AgentWorkspaceMode, AppConfig, ApplicationCase, ApplicationDraft, ApplicationExportResult, ApplicationNextActionsProposalProjection, ApplicationProfileSetupStatus, ApplicationStyleDocumentType, ApplicationStyleExampleDocumentType, ApplicationStyleProfileView, ArtifactRevision, CandidateMatchAnalysis, CandidateProfileSummary, CompanyCrm, CorrelatedMail, DataInventory, EditableApplicationStyleProfile, EmployerResponseTriageProposalProjection, IdentityProfile, JobDecision, JobMatch, JobSourceCapabilities, LanguageCheckResult, MailAccount, McpRuntimeStatus, ProfileImportPreview, SearchSchedule, Section, SourceCapability, SourceStatus } from './models';
 
 type AgentEventLevelFilter = 'all' | 'debug' | 'info' | 'warning' | 'error';
 type AgentTimelineView = 'readable' | 'diagnostic';
@@ -60,9 +60,33 @@ export class App implements OnInit, OnDestroy {
   jobDecisions: JobDecision[] = [];
   selectedMatch?: JobMatch;
   draft?: ApplicationDraft;
+  profileSetup?: ApplicationProfileSetupStatus;
+  profileSetupConfirmed = false;
+  applicationStyleProfile?: ApplicationStyleProfileView;
+  styleProfileDraft?: EditableApplicationStyleProfile;
+  styleVocabularyPreferText = '';
+  styleVocabularyAvoidText = '';
+  stylePreferredPatternsText = '';
+  styleAvoidPatternsText = '';
+  styleProfileConfirmed = false;
+  styleProfileBusy = false;
+  styleProfileError = '';
+  readonly styleDocumentTypes: ApplicationStyleDocumentType[] = ['cv', 'cover_letter', 'email', 'linkedin'];
+  readonly styleExampleDocumentTypes: ApplicationStyleExampleDocumentType[] = ['cv', 'cover_letter', 'email', 'linkedin', 'interview'];
   candidateProfile?: CandidateProfileSummary;
   matchAnalysis?: CandidateMatchAnalysis;
   applicationCases: ApplicationCase[] = [];
+  selectedApplicationCaseId?: string;
+  applicationArtifacts: Record<string, ArtifactRevision[]> = {};
+  private readonly pipelineDraftsByCase: Record<string, { annotatedContent: string; iterationManifest: string }> = {};
+  pipelineAnnotatedContent = '';
+  pipelineIterationManifest = '';
+  languageCheckResult?: LanguageCheckResult;
+  languageCheckBusy = false;
+  artifactReviewConfirmed: Record<string, boolean> = {};
+  artifactExportConfirmed: Record<string, boolean> = {};
+  artifactExportFormat: Record<string, 'docx' | 'pdf'> = {};
+  applicationExportResult?: ApplicationExportResult;
   companies: CompanyCrm[] = [];
   mailAccounts: MailAccount[] = [];
   mailInbox: CorrelatedMail[] = [];
@@ -86,6 +110,14 @@ export class App implements OnInit, OnDestroy {
   comparisonJobIds: string[] = [];
   comparison?: { comparison: Array<{ jobId: string; title: string; company: string; total: number; factors: Record<string, number> }>; disclaimer: string };
   agentProviders: AgentProvider[] = [];
+  agentConfigProfile?: AgentConfigProfileView;
+  agentConfigProfileDraft?: AgentConfigProfile;
+  agentConfigProfileConfirmed = false;
+  agentCodexAppServerOptInConfirmed = false;
+  agentConfigCostAmount = '';
+  agentConfigCostCurrency = 'EUR';
+  agentConfigProfileBusy = false;
+  agentConfigProfileError = '';
   agentWorkflows: AgentWorkflow[] = [];
   agentRuns: AgentRun[] = [];
   agentQueue?: AgentQueueSnapshot;
@@ -93,6 +125,26 @@ export class App implements OnInit, OnDestroy {
   agentOperationalError = '';
   selectedAgentRun?: AgentRun;
   agentEvents: AgentRunEvent[] = [];
+  agentArtifacts: AgentArtifactRecord[] = [];
+  agentArtifactContent?: AgentArtifactContent;
+  employerResponseTriageProposal?: EmployerResponseTriageProposalProjection;
+  applicationNextActionsProposal?: ApplicationNextActionsProposalProjection;
+  agentArtifactReviewConfirmed: Record<string, boolean> = {};
+  agentArtifactAdoptionConfirmed: Record<string, boolean> = {};
+  adoptedDocumentRevisionId?: string;
+  agentOrchestrations: AgentOrchestrationRecord[] = [];
+  selectedAgentOrchestration?: AgentOrchestrationRecord;
+  agentOrchestrationForm: {
+    workflowId?: AgentWorkflow['id']; providerId: string; prompt: string; runtimeTarget: AgentRuntimeTarget; wslDistribution?: string;
+    applicationCaseId?: string; mailId?: string; userInputConfirmed: boolean;
+  } = { workflowId: 'evidence-application-package', providerId: '', prompt: '', runtimeTarget: 'windows', userInputConfirmed: false };
+  agentOrchestrationBusy = false;
+  agentOrchestrationUserInputConfirmed = false;
+  agentOrchestrationCancelConfirmed = false;
+  agentOrchestrationConflictStrategies: Record<string, AgentOrchestrationConflictStrategy | undefined> = {};
+  agentOrchestrationConflictArtifactIds: Record<string, string | undefined> = {};
+  agentOrchestrationConflictConfirmed: Record<string, boolean> = {};
+  agentOrchestrationError = '';
   agentEventsAfter = 0;
   readonly agentEventRenderChunk = 100;
   agentEventRenderLimit = this.agentEventRenderChunk;
@@ -120,6 +172,7 @@ export class App implements OnInit, OnDestroy {
   agentExportPreview?: Record<string, unknown>;
   private agentPollHandle?: ReturnType<typeof setInterval>;
   private agentPollInFlight = false;
+  private agentOrchestrationPollInFlight = false;
   private agentOperationsPollInFlight = false;
   private agentEventSubscription?: Subscription;
   private agentPreflightTimer?: ReturnType<typeof setTimeout>;
@@ -130,6 +183,8 @@ export class App implements OnInit, OnDestroy {
   private agentTimelineCache?: { source: AgentRunEvent[]; search: string; type: string; level: AgentEventLevelFilter; entries: AgentTimelineEntry[] };
   private agentEventTypesCache?: { source: AgentRunEvent[]; types: string[] };
   private agentMotionMedia?: MediaQueryList;
+  private agentRecoveryReturnFocus?: HTMLElement;
+  private portalPermissionReturnFocus?: HTMLElement;
   private readonly agentMotionListener = (event: MediaQueryListEvent): void => {
     this.prefersReducedMotion = event.matches;
     if (event.matches) this.agentAutoScroll = false;
@@ -137,7 +192,9 @@ export class App implements OnInit, OnDestroy {
   };
 
   @ViewChild('agentTimelineList') private agentTimelineList?: ElementRef<HTMLOListElement>;
+  @ViewChild('agentRecoveryDialogElement') private agentRecoveryDialogElement?: ElementRef<HTMLDialogElement>;
   @ViewChild('agentRecoveryConfirm') private agentRecoveryConfirm?: ElementRef<HTMLInputElement>;
+  @ViewChild('portalPermissionDialogElement') private portalPermissionDialogElement?: ElementRef<HTMLDialogElement>;
   @ViewChild('portalPermissionConfirm') private portalPermissionConfirm?: ElementRef<HTMLInputElement>;
 
   readonly nav: { id: Section; label: string; icon: string }[] = [
@@ -180,6 +237,7 @@ export class App implements OnInit, OnDestroy {
     this.refreshSources();
     this.api.jobDecisions().subscribe({ next: (items) => { this.jobDecisions = items; this.refreshView(); } });
     this.api.assistantStatus().subscribe({ next: (status) => { this.assistant = status; this.refreshView(); } });
+    this.loadProfileSetup();
   }
 
   refreshSources(): void {
@@ -205,7 +263,7 @@ export class App implements OnInit, OnDestroy {
   select(section: Section): void {
     this.section = section; this.notice = ''; this.error = '';
     if (section !== 'agents') { this.stopAgentPolling(); this.stopAgentStream(); this.closeAgentRecoveryDialog(); }
-    if (section === 'identity') this.loadCandidateProfile();
+    if (section === 'identity') { this.loadProfileSetup(); this.loadCandidateProfile(); }
     if (section === 'applications') this.loadApplicationCases();
     if (section === 'crm') this.loadCrm();
     if (section === 'agents') { this.configureAgentMotionPreference(); this.loadAgentCenter(); }
@@ -213,11 +271,174 @@ export class App implements OnInit, OnDestroy {
   }
 
   loadAgentCenter(): void {
+    this.loadAgentConfigProfile();
     this.loadAgentProviders();
     this.api.applicationCases().subscribe({ next: (items) => { this.applicationCases = items; this.refreshView(); } });
     this.api.agentWorkflows().subscribe({ next: (items) => { this.agentWorkflows = items; this.refreshView(); } });
     this.refreshAgentRuns();
+    this.refreshAgentOrchestrations();
     this.startAgentPolling();
+  }
+
+  loadAgentConfigProfile(): void {
+    this.agentConfigProfileBusy = true;
+    this.agentConfigProfileError = '';
+    this.api.agentConfigProfile().subscribe({
+      next: (view) => {
+        this.applyAgentConfigProfile(view);
+        this.agentConfigProfileBusy = false;
+        this.refreshView();
+      },
+      error: (error) => {
+        this.agentConfigProfileBusy = false;
+        this.agentConfigProfileConfirmed = false;
+        this.agentCodexAppServerOptInConfirmed = false;
+        this.agentConfigProfileError = this.message(error);
+        this.refreshView();
+      }
+    });
+  }
+
+  setAgentConfigProviderRuntime(provider: AgentProviderConfigProfile, runtimeTarget: AgentRuntimeTarget): void {
+    provider.runtimeTarget = runtimeTarget;
+    if (runtimeTarget !== 'wsl') provider.wslDistribution = undefined;
+    this.invalidateAgentConfigConfirmation();
+  }
+
+  setAgentConfigWslDistribution(provider: AgentProviderConfigProfile, distribution: string | undefined): void {
+    provider.wslDistribution = distribution?.trim() || undefined;
+    this.invalidateAgentConfigConfirmation();
+  }
+
+  setAgentConfigBudget(key: 'maxTotalTokens' | 'maxToolCalls' | 'maxRunDurationMs', value: number | string | null | undefined): void {
+    if (!this.agentConfigProfileDraft) return;
+    const parsed = value === '' || value === null || value === undefined ? undefined : Number(value);
+    this.agentConfigProfileDraft.budgets[key] = parsed;
+    this.invalidateAgentConfigConfirmation();
+  }
+
+  setAgentConfigCostAmount(value: string | number | null | undefined): void {
+    this.agentConfigCostAmount = value === null || value === undefined ? '' : String(value).trim();
+    this.invalidateAgentConfigConfirmation();
+  }
+
+  setAgentConfigCostCurrency(value: string): void {
+    this.agentConfigCostCurrency = value.trim().toUpperCase();
+    this.invalidateAgentConfigConfirmation();
+  }
+
+  agentConfigCostSummary(): string {
+    const amountMicros = this.parseAgentConfigCostMicros();
+    if (amountMicros === undefined) return 'Kein hartes Kostenbudget im aktiven Serverprofil ausgewiesen; Kostenobergrenze: unknown.';
+    if (!Number.isSafeInteger(amountMicros) || !/^[A-Z]{3}$/.test(this.agentConfigCostCurrency)) return 'Kostenbudget-Eingabe ist noch ungültig und wird nicht gespeichert.';
+    return `${this.formatAgentConfigCost(amountMicros)} ${this.agentConfigCostCurrency} · ${amountMicros.toLocaleString('de-DE')} Währungs-Mikroeinheiten · harte serverseitige Obergrenze.`;
+  }
+
+  setCodexAppServerEnabled(enabled: boolean): void {
+    if (!this.agentConfigProfileDraft) return;
+    this.agentConfigProfileDraft.features.codexAppServerExperimental = enabled;
+    this.agentCodexAppServerOptInConfirmed = false;
+    this.agentConfigProfileConfirmed = false;
+  }
+
+  invalidateAgentConfigConfirmation(): void {
+    this.agentConfigProfileConfirmed = false;
+  }
+
+  agentConfigProfileSaveUnavailableReason(): string {
+    const current = this.agentConfigProfile;
+    const draft = this.agentConfigProfileDraft;
+    if (!current || !draft) return 'Das serverseitige Profil ist noch nicht geladen.';
+    if (!this.agentConfigProfileConfirmed) return 'Die CAS-gebundene Profiländerung muss bestätigt werden.';
+    if (!current.profile.features.codexAppServerExperimental && draft.features.codexAppServerExperimental && !this.agentCodexAppServerOptInConfirmed) {
+      return 'Der experimentelle Codex App Server benötigt eine zweite ausdrückliche Opt-in-Bestätigung.';
+    }
+    if (!Number.isSafeInteger(draft.budgets.warningAtPercent) || draft.budgets.warningAtPercent < 1 || draft.budgets.warningAtPercent > 100) {
+      return 'Die Budgetwarnung muss eine ganze Prozentzahl zwischen 1 und 100 sein.';
+    }
+    for (const value of [draft.budgets.maxTotalTokens, draft.budgets.maxToolCalls, draft.budgets.maxRunDurationMs]) {
+      if (value !== undefined && (!Number.isSafeInteger(value) || value < 0)) return 'Optionale Budgetlimits müssen nichtnegative ganze Zahlen sein.';
+    }
+    const amountMicros = this.parseAgentConfigCostMicros();
+    if (amountMicros !== undefined && (!Number.isSafeInteger(amountMicros) || amountMicros < 0)) {
+      return 'Das optionale Kostenbudget muss eine nichtnegative Zahl mit höchstens sechs Nachkommastellen sein.';
+    }
+    if (amountMicros !== undefined && !/^[A-Z]{3}$/.test(this.agentConfigCostCurrency)) {
+      return 'Für das Kostenbudget ist ein dreistelliger ISO-Währungscode erforderlich.';
+    }
+    if (draft.providers.some((provider) => provider.wslDistribution
+      && (provider.runtimeTarget !== 'wsl' || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(provider.wslDistribution)))) {
+      return 'Eine optionale WSL-Distribution muss eine pfadfreie Kennung verwenden.';
+    }
+    return '';
+  }
+
+  saveAgentConfigProfile(): void {
+    if (this.agentConfigProfileBusy) return;
+    const current = this.agentConfigProfile;
+    const draft = this.agentConfigProfileDraft;
+    const unavailableReason = this.agentConfigProfileSaveUnavailableReason();
+    if (!current || !draft || unavailableReason) { this.agentConfigProfileError = unavailableReason; return; }
+    this.agentConfigProfileBusy = true;
+    this.agentConfigProfileError = '';
+    this.api.saveAgentConfigProfile(current, this.agentConfigProfileForSave(draft)).subscribe({
+      next: (view) => {
+        this.applyAgentConfigProfile(view);
+        this.agentConfigProfileBusy = false;
+        this.agentPreflight = undefined;
+        this.notice = `Agenten-Sicherheitsprofil ${view.profile.profileId} wurde per CAS gespeichert. Provider und Preflight werden neu geprüft.`;
+        this.loadAgentProviders(true);
+        this.refreshView();
+      },
+      error: (error) => {
+        this.agentConfigProfileBusy = false;
+        this.agentConfigProfileConfirmed = false;
+        this.agentCodexAppServerOptInConfirmed = false;
+        this.agentConfigProfileError = this.message(error);
+        this.refreshView();
+      }
+    });
+  }
+
+  agentConfigRuntimeLabel(provider: AgentProviderConfigProfile): string {
+    return `${provider.runtimeTarget}${provider.wslDistribution ? ` · ${provider.wslDistribution}` : ''}`;
+  }
+
+  private applyAgentConfigProfile(view: AgentConfigProfileView): void {
+    this.agentConfigProfile = view;
+    this.agentConfigProfileDraft = structuredClone(view.profile);
+    this.agentConfigCostAmount = view.profile.budgets.maxCostMicros
+      ? this.formatAgentConfigCost(view.profile.budgets.maxCostMicros.amountMicros)
+      : '';
+    this.agentConfigCostCurrency = view.profile.budgets.maxCostMicros?.currency ?? 'EUR';
+    this.agentConfigProfileConfirmed = false;
+    this.agentCodexAppServerOptInConfirmed = false;
+    this.agentConfigProfileError = '';
+  }
+
+  private parseAgentConfigCostMicros(): number | undefined {
+    const normalized = this.agentConfigCostAmount.trim().replace(',', '.');
+    if (!normalized) return undefined;
+    const match = /^(0|[1-9][0-9]{0,15})(?:\.([0-9]{1,6}))?$/.exec(normalized);
+    if (!match) return Number.NaN;
+    const whole = BigInt(match[1]);
+    const fraction = BigInt((match[2] ?? '').padEnd(6, '0') || '0');
+    const amountMicros = whole * 1_000_000n + fraction;
+    return amountMicros <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(amountMicros) : Number.NaN;
+  }
+
+  private formatAgentConfigCost(amountMicros: number): string {
+    const whole = Math.trunc(amountMicros / 1_000_000);
+    const fraction = String(amountMicros % 1_000_000).padStart(6, '0').replace(/0+$/, '');
+    return fraction ? `${whole},${fraction}` : String(whole);
+  }
+
+  private agentConfigProfileForSave(draft: AgentConfigProfile): AgentConfigProfile {
+    const profile = structuredClone(draft);
+    const amountMicros = this.parseAgentConfigCostMicros();
+    if (amountMicros === undefined) delete profile.budgets.maxCostMicros;
+    else profile.budgets.maxCostMicros = { amountMicros, currency: this.agentConfigCostCurrency };
+    return profile;
   }
 
   loadAgentProviders(refresh = false): void {
@@ -227,7 +448,9 @@ export class App implements OnInit, OnDestroy {
         this.agentProviders = providers;
         this.agentTimelineCache = undefined;
         if (!this.agentRunForm.providerId) this.agentRunForm.providerId = providers.find((item) => item.available)?.id ?? providers[0]?.id ?? '';
+        if (!this.agentOrchestrationForm.providerId) this.agentOrchestrationForm.providerId = providers.find((item) => item.available)?.id ?? providers[0]?.id ?? '';
         this.ensureAgentRuntimeSelection();
+        this.ensureAgentOrchestrationRuntimeSelection();
         this.agentBusy = false; this.refreshAgentPreflight(); this.refreshView();
       },
       error: (error) => { this.agentBusy = false; this.fail(error); }
@@ -252,6 +475,272 @@ export class App implements OnInit, OnDestroy {
       },
       error: (error) => { this.agentPollInFlight = false; this.error = this.message(error); this.refreshView(); }
     });
+  }
+
+  refreshAgentOrchestrations(): void {
+    if (this.agentOrchestrationPollInFlight) return;
+    this.agentOrchestrationPollInFlight = true;
+    this.api.agentOrchestrations().subscribe({
+      next: ({ orchestrations }) => {
+        this.agentOrchestrations = [...orchestrations].sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+        if (this.selectedAgentOrchestration) {
+          const previousRevision = this.selectedAgentOrchestration.revision;
+          const previousConflictFingerprint = this.agentOrchestrationConflictFingerprint(this.selectedAgentOrchestration);
+          const current = orchestrations.find((item) => item.id === this.selectedAgentOrchestration?.id);
+          if (current) {
+            this.selectedAgentOrchestration = current;
+            if (current.revision !== previousRevision || this.agentOrchestrationConflictFingerprint(current) !== previousConflictFingerprint) {
+              this.agentOrchestrationUserInputConfirmed = false;
+              this.agentOrchestrationCancelConfirmed = false;
+              this.resetAgentOrchestrationConflictInputs();
+            }
+          }
+        } else if (orchestrations.length) this.selectAgentOrchestration(orchestrations[0], false);
+        this.agentOrchestrationPollInFlight = false; this.refreshView();
+      },
+      error: (error) => {
+        this.agentOrchestrationPollInFlight = false; this.agentOrchestrationError = this.message(error); this.refreshView();
+      }
+    });
+  }
+
+  selectAgentOrchestration(orchestration: AgentOrchestrationRecord, refresh = true): void {
+    const apply = (current: AgentOrchestrationRecord) => {
+      this.selectedAgentOrchestration = current;
+      this.agentOrchestrationUserInputConfirmed = false;
+      this.agentOrchestrationCancelConfirmed = false;
+      this.resetAgentOrchestrationConflictInputs();
+      if (current.scope.applicationCaseId) this.loadApplicationArtifacts(current.scope.applicationCaseId);
+      this.refreshView();
+    };
+    if (!refresh) { apply(orchestration); return; }
+    this.api.agentOrchestration(orchestration.id).subscribe({ next: apply, error: (error) => { this.agentOrchestrationError = this.message(error); this.refreshView(); } });
+  }
+
+  agentOrchestrationProvider(): AgentProvider | undefined {
+    return this.agentProviders.find((item) => item.id === this.agentOrchestrationForm.providerId);
+  }
+  agentOrchestrationInstallations(): AgentProviderInstallation[] { return this.agentProviderInstallations(this.agentOrchestrationProvider()); }
+  selectedAgentOrchestrationInstallation(): AgentProviderInstallation | undefined {
+    return this.agentOrchestrationInstallations().find((item) => item.runtimeTarget === this.agentOrchestrationForm.runtimeTarget
+      && (item.runtimeTarget !== 'wsl' || item.distribution === this.agentOrchestrationForm.wslDistribution));
+  }
+  selectedAgentOrchestrationInstallationKey(): string {
+    const installation = this.selectedAgentOrchestrationInstallation();
+    return installation ? this.agentInstallationKey(installation) : '';
+  }
+  selectAgentOrchestrationProvider(providerId: string): void {
+    this.agentOrchestrationForm.providerId = providerId;
+    const installation = this.agentOrchestrationInstallations().find((item) => item.support === 'supported') ?? this.agentOrchestrationInstallations()[0];
+    if (installation) this.applyAgentOrchestrationInstallation(installation);
+  }
+  selectAgentOrchestrationInstallation(key: string): void {
+    const installation = this.agentOrchestrationInstallations().find((item) => this.agentInstallationKey(item) === key);
+    if (installation) this.applyAgentOrchestrationInstallation(installation);
+  }
+  setAgentOrchestrationWorkflow(workflowId: AgentWorkflow['id'] | undefined): void {
+    this.agentOrchestrationForm.workflowId = workflowId;
+    this.agentOrchestrationForm.userInputConfirmed = false;
+    if (workflowId !== 'employer-response-triage') this.agentOrchestrationForm.mailId = undefined;
+    const workflow = this.agentWorkflows.find((item) => item.id === workflowId);
+    if (workflow?.requiredScope === 'search_profile') {
+      this.agentOrchestrationForm.applicationCaseId = undefined;
+    }
+  }
+  setAgentOrchestrationApplicationCase(caseId: string | undefined): void {
+    this.agentOrchestrationForm.applicationCaseId = caseId || undefined;
+    this.agentOrchestrationForm.userInputConfirmed = false;
+    this.agentOrchestrationForm.mailId = undefined;
+    if (caseId) this.loadApplicationArtifacts(caseId);
+  }
+  setAgentOrchestrationPrompt(prompt: string): void {
+    this.agentOrchestrationForm.prompt = prompt;
+    this.agentOrchestrationForm.userInputConfirmed = false;
+  }
+  agentOrchestrationWorkflow(): AgentWorkflow | undefined {
+    return this.agentWorkflows.find((item) => item.id === this.agentOrchestrationForm.workflowId);
+  }
+  createAgentOrchestration(): void {
+    const form = this.agentOrchestrationForm;
+    const workflow = this.agentOrchestrationWorkflow();
+    const installation = this.selectedAgentOrchestrationInstallation();
+    const prompt = form.prompt.trim();
+    if (!workflow) { this.agentOrchestrationError = 'Bitte einen versionierten Workflow wählen.'; return; }
+    if (!installation || installation.support !== 'supported') { this.agentOrchestrationError = 'Bitte eine unterstützte Provider-Laufzeit wählen.'; return; }
+    if (prompt.length < 3) { this.agentOrchestrationError = 'Bitte einen konkreten Orchestrierungsauftrag eingeben.'; return; }
+    if (workflow.requiredScope !== 'search_profile' && !form.applicationCaseId) { this.agentOrchestrationError = 'Dieser Workflow benötigt einen expliziten Bewerbungsfall.'; return; }
+    if (workflow.id === 'employer-response-triage' && !form.mailId) {
+      this.agentOrchestrationError = 'Employer-Triage benötigt eine explizit gewählte Inbox-Mail. Öffne sie über die CRM-Aktion; Mailinhalt wird nicht in das Browserformular kopiert.';
+      return;
+    }
+    const request: AgentOrchestrationCreateRequest = {
+      workflowId: workflow.id, providerId: form.providerId, prompt, runtimeTarget: installation.runtimeTarget,
+      ...(installation.runtimeTarget === 'wsl' && installation.distribution ? { wslDistribution: installation.distribution } : {}),
+      ...(form.applicationCaseId ? { applicationCaseId: form.applicationCaseId } : {}),
+      ...(form.mailId ? { mailId: form.mailId } : {})
+    };
+    this.agentOrchestrationBusy = true; this.agentOrchestrationError = '';
+    this.api.createAgentOrchestration(request).subscribe({
+      next: (created) => {
+        this.agentOrchestrationBusy = false;
+        this.agentOrchestrations = [created, ...this.agentOrchestrations.filter((item) => item.id !== created.id)];
+        this.selectAgentOrchestration(created, false);
+        this.agentOrchestrationForm.prompt = '';
+        this.agentOrchestrationForm.userInputConfirmed = false;
+        this.notice = `Multi-Agent-Workflow ${created.id} wurde serverseitig angenommen; alle Ergebnisse bleiben Vorschläge.`;
+        this.refreshView();
+      },
+      error: (error) => { this.agentOrchestrationBusy = false; this.agentOrchestrationError = this.message(error); this.refreshView(); }
+    });
+  }
+
+  agentOrchestrationHasGate(gate: AgentOrchestrationGate): boolean {
+    return this.selectedAgentOrchestration?.unresolvedGates.some((item) => item.gate === gate) ?? false;
+  }
+  agentOrchestrationConflictKey(conflict: AgentOrchestrationConflict): string {
+    return `${this.selectedAgentOrchestration?.id ?? 'none'}:${conflict.id}`;
+  }
+  agentOrchestrationConflictStrategy(conflict: AgentOrchestrationConflict): AgentOrchestrationConflictStrategy | undefined {
+    return this.agentOrchestrationConflictStrategies[this.agentOrchestrationConflictKey(conflict)];
+  }
+  agentOrchestrationConflictArtifactId(conflict: AgentOrchestrationConflict): string | undefined {
+    return this.agentOrchestrationConflictArtifactIds[this.agentOrchestrationConflictKey(conflict)];
+  }
+  setAgentOrchestrationConflictStrategy(conflict: AgentOrchestrationConflict, strategy: AgentOrchestrationConflictStrategy): void {
+    if (conflict.status !== 'unresolved' || !conflict.requiresDomainResolution) return;
+    const key = this.agentOrchestrationConflictKey(conflict);
+    this.agentOrchestrationConflictStrategies[key] = strategy;
+    if (strategy === 'accept_complementary') this.agentOrchestrationConflictArtifactIds[key] = undefined;
+    this.agentOrchestrationConflictConfirmed[key] = false;
+  }
+  setAgentOrchestrationConflictArtifact(conflict: AgentOrchestrationConflict, artifactId: string | undefined): void {
+    if (conflict.status !== 'unresolved' || !conflict.requiresDomainResolution) return;
+    const key = this.agentOrchestrationConflictKey(conflict);
+    this.agentOrchestrationConflictArtifactIds[key] = artifactId || undefined;
+    this.agentOrchestrationConflictConfirmed[key] = false;
+  }
+  setAgentOrchestrationConflictConfirmation(conflict: AgentOrchestrationConflict, confirmed: boolean): void {
+    if (conflict.status !== 'unresolved' || !conflict.requiresDomainResolution) return;
+    this.agentOrchestrationConflictConfirmed[this.agentOrchestrationConflictKey(conflict)] = confirmed;
+  }
+  canResolveAgentOrchestrationConflict(conflict: AgentOrchestrationConflict): boolean {
+    const key = this.agentOrchestrationConflictKey(conflict);
+    const strategy = this.agentOrchestrationConflictStrategies[key];
+    const selectedArtifactId = this.agentOrchestrationConflictArtifactIds[key];
+    return conflict.status === 'unresolved' && conflict.requiresDomainResolution
+      && this.agentOrchestrationConflictConfirmed[key] === true
+      && (strategy === 'accept_complementary'
+        || (strategy === 'select_variant' && conflict.variants.some((variant) => variant.artifactId === selectedArtifactId)));
+  }
+  resolveAgentOrchestrationConflict(conflict: AgentOrchestrationConflict): void {
+    const orchestration = this.selectedAgentOrchestration;
+    if (!orchestration) return;
+    const current = orchestration.conflicts?.find((candidate) => candidate.id === conflict.id);
+    if (!current || current.status !== 'unresolved' || !current.requiresDomainResolution) {
+      this.agentOrchestrationError = 'Dieser Variantenkonflikt ist nicht mehr offen und kann nicht erneut aufgelöst werden.';
+      return;
+    }
+    const key = this.agentOrchestrationConflictKey(current);
+    const strategy = this.agentOrchestrationConflictStrategies[key];
+    const selectedArtifactId = this.agentOrchestrationConflictArtifactIds[key];
+    if (!strategy) { this.agentOrchestrationError = 'Bitte eine bewusste Konfliktstrategie wählen.'; return; }
+    if (strategy === 'select_variant' && !current.variants.some((variant) => variant.artifactId === selectedArtifactId)) {
+      this.agentOrchestrationError = 'Bitte genau eine der serverseitig ausgewiesenen Varianten wählen.';
+      return;
+    }
+    if (!this.agentOrchestrationConflictConfirmed[key]) {
+      this.agentOrchestrationError = 'Die Entscheidung muss an die aktuelle Orchestrierungsrevision und den vollständigen Varianten-Hash gebunden bestätigt werden.';
+      return;
+    }
+    this.agentOrchestrationBusy = true; this.agentOrchestrationError = '';
+    this.api.resolveAgentOrchestrationConflict(orchestration.id, current, orchestration.revision, strategy, selectedArtifactId).subscribe({
+      next: (updated) => {
+        this.agentOrchestrationBusy = false; this.upsertAgentOrchestration(updated); this.selectAgentOrchestration(updated, false);
+        this.notice = 'Der Fan-in-Konflikt wurde revisions- und variantengebunden aufgelöst. Die Finalizer-Ausgabe bleibt ein Vorschlag.';
+        this.refreshView();
+      },
+      error: (error) => {
+        this.agentOrchestrationBusy = false;
+        if (typeof error === 'object' && error && 'status' in error && (error as { status?: number }).status === 409) {
+          this.agentOrchestrationConflictConfirmed = {};
+          this.agentOrchestrationUserInputConfirmed = false;
+          this.agentOrchestrationCancelConfirmed = false;
+        } else this.agentOrchestrationConflictConfirmed[key] = false;
+        this.agentOrchestrationError = this.message(error);
+        this.refreshView();
+      }
+    });
+  }
+  continueAgentOrchestration(): void {
+    const orchestration = this.selectedAgentOrchestration; if (!orchestration) return;
+    const confirmations: AgentOrchestrationConfirmationInput = {};
+    if (this.agentOrchestrationHasGate('review_complete')) {
+      this.agentOrchestrationError = 'Ein veraltetes review_complete-Gate kann im neuen Vorschlag-zuerst-Workflow nicht vom Browser aufgelöst werden.';
+      return;
+    }
+    if (this.agentOrchestrationHasGate('user_input')) {
+      if (!this.agentOrchestrationUserInputConfirmed) { this.agentOrchestrationError = 'Die offene Nutzereingabe muss ausdrücklich bestätigt werden.'; return; }
+      confirmations.userInput = { confirmed: true };
+    }
+    if (!Object.keys(confirmations).length) { this.agentOrchestrationError = 'Die offenen Gates können nur durch serverseitige Evidence oder einen anderen freigegebenen Vertrag aufgelöst werden.'; return; }
+    this.agentOrchestrationBusy = true; this.agentOrchestrationError = '';
+    this.api.continueAgentOrchestration(orchestration.id, orchestration.revision, confirmations).subscribe({
+      next: (updated) => {
+        this.agentOrchestrationBusy = false; this.upsertAgentOrchestration(updated); this.selectAgentOrchestration(updated, false);
+        this.notice = 'Nur die offenen Orchestrierungsrollen wurden fortgesetzt; erfolgreiche Rollen werden nicht erneut ausgeführt.'; this.refreshView();
+      },
+      error: (error) => { this.agentOrchestrationBusy = false; this.agentOrchestrationError = this.message(error); this.refreshView(); }
+    });
+  }
+  cancelAgentOrchestration(): void {
+    const orchestration = this.selectedAgentOrchestration; if (!orchestration) return;
+    if (!this.agentOrchestrationCancelConfirmed) { this.agentOrchestrationError = 'Der Abbruch muss für die aktuelle Orchestrierungsrevision bestätigt werden.'; return; }
+    this.agentOrchestrationBusy = true; this.agentOrchestrationError = '';
+    this.api.cancelAgentOrchestration(orchestration.id, orchestration.revision).subscribe({
+      next: (updated) => {
+        this.agentOrchestrationBusy = false; this.upsertAgentOrchestration(updated); this.selectAgentOrchestration(updated, false);
+        this.notice = 'Orchestrierungsabbruch wurde revisionsgebunden angefordert.'; this.refreshView();
+      },
+      error: (error) => { this.agentOrchestrationBusy = false; this.agentOrchestrationError = this.message(error); this.refreshView(); }
+    });
+  }
+  agentOrchestrationStatusLabel(status: AgentOrchestrationRecord['status']): string {
+    return ({ queued: 'Eingereiht', running: 'Läuft', waiting_for_gate: 'Gate offen', cancelling: 'Wird abgebrochen', cancelled: 'Abgebrochen', succeeded: 'Erfolgreich', failed: 'Fehlgeschlagen', orphaned: 'Verwaist' } as const)[status];
+  }
+  agentOrchestrationGateLabel(gate: AgentOrchestrationGate): string {
+    return ({ user_input: 'Bestätigte Nutzereingabe am serverdefinierten Gate', approval: 'Serverfreigabe', evidence_complete: 'Serverseitige Evidence vollständig', review_complete: 'Legacy-Review-Gate (nicht mehr im Workflow)' } as const)[gate];
+  }
+  agentOrchestrationConflictStatusLabel(status: AgentOrchestrationConflict['status']): string {
+    return ({ equivalent: 'Inhaltlich äquivalent', unresolved: 'Nutzerentscheidung erforderlich', resolved: 'Explizit aufgelöst' } as const)[status];
+  }
+  latestAgentOrchestrationNodeRun(node: AgentOrchestrationRecord['nodes'][number]): string | undefined {
+    return node.runIds.at(-1);
+  }
+  openAgentRunFromOrchestration(runId: string): void {
+    const cached = this.agentRuns.find((item) => item.id === runId);
+    if (cached) { this.selectAgentRun(cached); return; }
+    this.api.agentRun(runId).subscribe({
+      next: (run) => {
+        this.agentRuns = [run, ...this.agentRuns.filter((item) => item.id !== run.id)];
+        this.selectAgentRun(run);
+        this.notice = 'Zugehöriger Node-Run geöffnet. Review und Adoption bleiben an dessen Artefaktrevision gebunden.';
+      },
+      error: (error) => { this.agentOrchestrationError = this.message(error); this.refreshView(); }
+    });
+  }
+  private upsertAgentOrchestration(updated: AgentOrchestrationRecord): void {
+    this.agentOrchestrations = [updated, ...this.agentOrchestrations.filter((item) => item.id !== updated.id)]
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  }
+  private agentOrchestrationConflictFingerprint(orchestration: AgentOrchestrationRecord): string {
+    return JSON.stringify((orchestration.conflicts ?? []).map((conflict) => [
+      conflict.id, conflict.status, conflict.variantsSha256, conflict.resolution?.resolvedAgainstRevision
+    ]));
+  }
+  private resetAgentOrchestrationConflictInputs(): void {
+    this.agentOrchestrationConflictStrategies = {};
+    this.agentOrchestrationConflictArtifactIds = {};
+    this.agentOrchestrationConflictConfirmed = {};
   }
 
   refreshAgentOperationalState(): void {
@@ -399,10 +888,18 @@ export class App implements OnInit, OnDestroy {
       this.agentPausedEvents = [];
       this.agentTimelineNearBottom = true;
       this.agentExportPreview = undefined;
+      this.agentArtifacts = [];
+      this.agentArtifactContent = undefined;
+      this.employerResponseTriageProposal = undefined;
+      this.applicationNextActionsProposal = undefined;
+      this.agentArtifactReviewConfirmed = {};
+      this.agentArtifactAdoptionConfirmed = {};
+      this.adoptedDocumentRevisionId = undefined;
       this.agentInput = '';
       this.agentInputSensitive = false;
     }
     this.selectedAgentRun = run;
+    this.loadAgentArtifacts(run.id);
     this.startAgentStream(run.id);
     this.refreshSelectedAgentRun();
   }
@@ -434,6 +931,98 @@ export class App implements OnInit, OnDestroy {
         this.scheduleAgentAutoScroll();
       },
       error: (error) => { this.error = this.message(error); this.refreshView(); }
+    });
+  }
+
+  loadAgentArtifacts(runId = this.selectedAgentRun?.id): void {
+    if (!runId) return;
+    this.api.agentArtifacts(runId).subscribe({
+      next: ({ artifacts }) => {
+        if (this.selectedAgentRun?.id !== runId) return;
+        this.agentArtifacts = artifacts;
+        this.refreshView();
+      },
+      error: (error) => { this.error = this.message(error); this.refreshView(); }
+    });
+  }
+
+  viewAgentArtifact(artifact: AgentArtifactRecord): void {
+    const run = this.selectedAgentRun; if (!run) return;
+    this.api.agentArtifactContent(run.id, artifact.id).subscribe({
+      next: (content) => {
+        this.agentArtifactContent = content;
+        this.employerResponseTriageProposal = artifact.kind === 'employer-response-triage-proposal'
+          ? this.parseEmployerResponseTriageProposal(content.content) : undefined;
+        this.applicationNextActionsProposal = artifact.kind === 'application-next-actions-proposal'
+          ? this.parseApplicationNextActionsProposal(content.content) : undefined;
+        this.refreshView();
+      },
+      error: (error) => this.fail(error)
+    });
+  }
+  closeAgentArtifactContent(): void {
+    this.agentArtifactContent = undefined;
+    this.employerResponseTriageProposal = undefined;
+    this.applicationNextActionsProposal = undefined;
+  }
+
+  reviewAgentArtifact(artifact: AgentArtifactRecord, decision: 'approved' | 'rejected'): void {
+    const run = this.selectedAgentRun; if (!run) return;
+    if (!this.agentArtifactReviewConfirmed[artifact.id]) { this.error = 'Die Agentenartefakt-Revision muss ausdrücklich bestätigt werden.'; return; }
+    if (artifact.lifecycle !== 'proposed') { this.error = 'Nur ein unverändertes vorgeschlagenes Agentenartefakt kann geprüft werden.'; return; }
+    this.agentBusy = true;
+    this.api.reviewAgentArtifact(run.id, artifact.id, decision, artifact.revision).subscribe({
+      next: (updated) => {
+        this.agentArtifacts = this.agentArtifacts.map((item) => item.id === updated.id ? updated : item);
+        this.agentArtifactReviewConfirmed[artifact.id] = false;
+        this.agentBusy = false;
+        this.notice = decision === 'approved'
+          ? 'Agentenartefakt wurde revisionsgebunden freigegeben. Nur passende Pipeline-Pakete können danach über die getrennte Adopt-Prüfung als fachliche Vorschlagsrevision übernommen werden.'
+          : 'Agentenartefakt wurde revisionsgebunden abgelehnt.';
+        this.refreshView();
+      },
+      error: (error) => { this.agentBusy = false; this.fail(error); }
+    });
+  }
+
+  agentArtifactAdoptionReason(artifact: AgentArtifactRecord): string {
+    const run = this.selectedAgentRun;
+    const application = run ? this.agentRunApplication(run) : undefined;
+    if (!run || !application) return 'Der Run ist keinem aktuell geladenen Bewerbungsfall zugeordnet.';
+    if (application.state !== 'review') return 'Die Übernahme ist nur im aktuellen Review-Status des Falls möglich.';
+    if (application.identityMode !== 'real') return 'Inkognito-Fälle dürfen keine fachlichen Dokumentrevisionen übernehmen.';
+    if (artifact.provenance.identityMode !== 'real') return 'Die Artefaktprovenienz ist nicht an eine reale Identität gebunden.';
+    if (artifact.lifecycle !== 'approved') return 'Zuerst muss exakt diese Agentenartefakt-Revision freigegeben werden.';
+    if (artifact.contentState === 'deleted') return 'Der geprüfte Artefaktinhalt wurde bereits gelöscht.';
+    if (artifact.kind !== 'application-pipeline-package' || artifact.mediaType !== 'application/json') return 'Nur strikt validierte application-pipeline-package-JSON-Artefakte sind übernehmbar.';
+    if (artifact.provenance.applicationCaseId !== application.id) return 'Artefakt und aktueller Bewerbungsfall sind nicht identisch gebunden.';
+    if (artifact.provenance.applicationCaseRevision !== application.revision) return 'Die Fallrevision hat sich seit der Agentenverarbeitung geändert.';
+    if (artifact.provenance.jobId !== application.job.id) return 'Artefakt und aktuelle Stelle sind nicht identisch gebunden.';
+    const companyKey = application.job.company.normalize('NFKC').toLocaleLowerCase('de-DE')
+      .replace(/\b(gmbh|ag|ug|se|inc|ltd|llc)\b/g, '').replace(/[^a-z0-9äöüß]+/gi, '-').replace(/^-|-$/g, '') || 'unknown-company';
+    if (artifact.provenance.companyKey !== companyKey) return 'Artefakt und aktueller Firmenstand sind nicht identisch gebunden.';
+    return '';
+  }
+
+  adoptAgentArtifact(artifact: AgentArtifactRecord): void {
+    const run = this.selectedAgentRun;
+    const application = run ? this.agentRunApplication(run) : undefined;
+    const reason = this.agentArtifactAdoptionReason(artifact);
+    if (!run || !application || reason) { this.error = reason || 'Agentenartefakt kann nicht übernommen werden.'; return; }
+    if (!this.agentArtifactAdoptionConfirmed[artifact.id]) { this.error = 'Die erneute Pipeline-Prüfung und Übernahme muss ausdrücklich bestätigt werden.'; return; }
+    this.agentBusy = true; this.error = '';
+    this.api.adoptAgentArtifact(run.id, artifact.id, artifact.revision).subscribe({
+      next: ({ artifact: updated, documentRevisionId }) => {
+        this.agentArtifacts = this.agentArtifacts.map((item) => item.id === updated.id ? updated : item);
+        this.agentArtifactAdoptionConfirmed[artifact.id] = false;
+        this.adoptedDocumentRevisionId = documentRevisionId;
+        this.selectApplicationCase(application);
+        this.loadApplicationArtifacts(application.id);
+        this.agentBusy = false;
+        this.notice = `Agentenpaket wurde erneut deterministisch geprüft; fachliche Revision ${documentRevisionId} liegt als Vorschlag zur menschlichen Hash-Prüfung vor.`;
+        this.refreshView();
+      },
+      error: (error) => { this.agentBusy = false; this.fail(error); }
     });
   }
 
@@ -584,7 +1173,10 @@ export class App implements OnInit, OnDestroy {
   }
   agentPreflightToolDetail(preflight: AgentRunPreflight): string {
     const blocked = preflight.tools.prohibitedActions.length ? ` Gesperrte Aktionen: ${preflight.tools.prohibitedActions.join(', ')}.` : '';
-    return `Deny-by-default · Allowlist ${preflight.tools.allowlistComplete ? 'vollständig' : 'unvollständig'} · Provider-Werkzeuge sandbox-verwaltet und nicht namentlich offengelegt.${blocked}`;
+    const tooling = preflight.tools.providerTooling === 'server_owned_dynamic_tools'
+      ? 'Root-MCP-Tools werden serverseitig dynamisch und rungebunden bereitgestellt; native Provider-Werkzeuge sind nicht namentlich offengelegt.'
+      : 'Provider erhält ausschließlich Prompt-Kontext; keine dynamischen Root-MCP-Tools.';
+    return `Deny-by-default · Allowlist ${preflight.tools.allowlistComplete ? 'vollständig' : 'unvollständig'} · ${tooling}${blocked}`;
   }
   agentPreflightNetworkDetail(preflight: AgentRunPreflight): string {
     const trustedHost = preflight.network.trustedHostServices.length
@@ -618,9 +1210,22 @@ export class App implements OnInit, OnDestroy {
     const installation = installations.find((item) => item.support === 'supported') ?? installations[0];
     if (installation) this.applyAgentInstallation(installation);
   }
+  private ensureAgentOrchestrationRuntimeSelection(): void {
+    const provider = this.agentOrchestrationProvider() ?? this.agentProviders.find((item) => item.available) ?? this.agentProviders[0];
+    if (!provider) return;
+    this.agentOrchestrationForm.providerId = provider.id;
+    const selected = this.selectedAgentOrchestrationInstallation();
+    if (selected?.support === 'supported') return;
+    const installation = this.agentProviderInstallations(provider).find((item) => item.support === 'supported') ?? this.agentProviderInstallations(provider)[0];
+    if (installation) this.applyAgentOrchestrationInstallation(installation);
+  }
   private applyAgentInstallation(installation: AgentProviderInstallation): void {
     this.agentRunForm.runtimeTarget = installation.runtimeTarget;
     this.agentRunForm.wslDistribution = installation.runtimeTarget === 'wsl' ? installation.distribution : undefined;
+  }
+  private applyAgentOrchestrationInstallation(installation: AgentProviderInstallation): void {
+    this.agentOrchestrationForm.runtimeTarget = installation.runtimeTarget;
+    this.agentOrchestrationForm.wslDistribution = installation.runtimeTarget === 'wsl' ? installation.distribution : undefined;
   }
   selectedAgentWorkflow(): AgentWorkflow | undefined { return this.agentWorkflows.find((item) => item.id === this.agentRunForm.workflowId); }
   agentProviderSupportsNetwork(): boolean { return false; }
@@ -761,7 +1366,7 @@ export class App implements OnInit, OnDestroy {
       error: (error) => { this.agentBusy = false; this.error = this.message(error); this.refreshAgentOperationalState(); this.refreshView(); }
     });
   }
-  openAgentRecoveryDialog(recovery: AgentRecoveryRun, decision: AgentRecoveryDecision): void {
+  openAgentRecoveryDialog(recovery: AgentRecoveryRun, decision: AgentRecoveryDecision, returnFocus?: HTMLElement): void {
     const unavailable = this.agentRecoveryActionUnavailableReason(recovery, decision);
     const run = this.agentRecoveryRunView(recovery);
     const lease = this.agentRecoveryLeaseFor(recovery.runId);
@@ -771,15 +1376,39 @@ export class App implements OnInit, OnDestroy {
     this.agentRecoveryDialog = { runId: recovery.runId, decision, expectedRevision: run.lastEventSequence, leaseId: lease.leaseId };
     this.agentRecoveryConfirmed = false;
     this.agentRecoveryInput = '';
+    this.agentRecoveryReturnFocus = returnFocus;
     this.error = '';
     this.refreshView();
-    setTimeout(() => this.agentRecoveryConfirm?.nativeElement.focus());
+    setTimeout(() => this.openNativeDialog(this.agentRecoveryDialogElement, this.agentRecoveryConfirm));
   }
   closeAgentRecoveryDialog(): void {
+    const returnFocus = this.agentRecoveryReturnFocus;
+    this.closeNativeDialog(this.agentRecoveryDialogElement);
     this.agentRecoveryDialog = undefined;
     this.agentRecoveryConfirmed = false;
     this.agentRecoveryInput = '';
+    this.agentRecoveryReturnFocus = undefined;
     this.refreshView();
+    this.restoreDialogFocus(returnFocus);
+  }
+  cancelAgentRecoveryDialog(event: Event): void {
+    event.preventDefault();
+    this.closeAgentRecoveryDialog();
+  }
+  trapDialogFocus(event: Event, dialog: HTMLDialogElement): void {
+    const keyEvent = event as KeyboardEvent;
+    const focusable = [...dialog.querySelectorAll<HTMLElement>(
+      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    )].filter((element) => !element.hasAttribute('hidden') && element.getAttribute('aria-hidden') !== 'true');
+    if (!focusable.length) { keyEvent.preventDefault(); dialog.focus(); return; }
+    const first = focusable[0];
+    const last = focusable.at(-1)!;
+    const active = document.activeElement;
+    if (keyEvent.shiftKey && (active === first || !dialog.contains(active))) {
+      keyEvent.preventDefault(); last.focus();
+    } else if (!keyEvent.shiftKey && (active === last || !dialog.contains(active))) {
+      keyEvent.preventDefault(); first.focus();
+    }
   }
   confirmAgentRecovery(): void {
     const dialog = this.agentRecoveryDialog;
@@ -987,7 +1616,9 @@ export class App implements OnInit, OnDestroy {
 
   private startAgentPolling(): void {
     this.stopAgentPolling();
-    this.agentPollHandle = setInterval(() => { if (this.section === 'agents') this.refreshAgentRuns(); }, 2500);
+    this.agentPollHandle = setInterval(() => {
+      if (this.section === 'agents') { this.refreshAgentRuns(); this.refreshAgentOrchestrations(); }
+    }, 2500);
   }
   private stopAgentPolling(): void {
     if (this.agentPollHandle) clearInterval(this.agentPollHandle);
@@ -1045,19 +1676,28 @@ export class App implements OnInit, OnDestroy {
     }
     return undefined;
   }
-  openPortalPermissionDialog(intent: 'enable' | 'disable'): void {
+  openPortalPermissionDialog(intent: 'enable' | 'disable', returnFocus?: HTMLElement): void {
     const unavailable = this.portalPermissionUnavailableReason(intent);
     if (unavailable) { this.error = unavailable; this.notice = ''; this.refreshView(); return; }
     this.portalPermissionIntent = intent;
     this.portalPermissionConfirmed = false;
+    this.portalPermissionReturnFocus = returnFocus;
     this.error = '';
     this.refreshView();
-    setTimeout(() => this.portalPermissionConfirm?.nativeElement.focus());
+    setTimeout(() => this.openNativeDialog(this.portalPermissionDialogElement, this.portalPermissionConfirm));
   }
   closePortalPermissionDialog(): void {
+    const returnFocus = this.portalPermissionReturnFocus;
+    this.closeNativeDialog(this.portalPermissionDialogElement);
     this.portalPermissionIntent = undefined;
     this.portalPermissionConfirmed = false;
+    this.portalPermissionReturnFocus = undefined;
     this.refreshView();
+    this.restoreDialogFocus(returnFocus);
+  }
+  cancelPortalPermissionDialog(event: Event): void {
+    event.preventDefault();
+    this.closePortalPermissionDialog();
   }
   confirmPortalPermission(): void {
     const intent = this.portalPermissionIntent;
@@ -1065,7 +1705,7 @@ export class App implements OnInit, OnDestroy {
     const unavailable = this.portalPermissionUnavailableReason(intent);
     if (unavailable) { this.error = unavailable; this.closePortalPermissionDialog(); return; }
     this.busy = true; this.error = '';
-    this.api.setMcpPortalAccess(intent === 'enable').subscribe({
+    this.api.setMcpPortalAccess(intent === 'enable', this.config.revision).subscribe({
       next: (config) => {
         this.config = this.normalizeConfigForUi(config);
         this.busy = false;
@@ -1108,13 +1748,15 @@ export class App implements OnInit, OnDestroy {
     if (!this.config) return;
     this.busy = true;
     this.api.createIncognito(this.config.searchProfile.regions[0] ?? 'Deutschland').subscribe({
-      next: (identity) => {
-        this.config?.identities.push(identity);
-        if (this.config) this.config.activeIdentityId = identity.id;
-        this.busy = false;
-        this.notice = 'Neue Scheinidentität mit sicheren Platzhaltern angelegt.';
-        this.refreshView();
-      },
+      next: () => this.api.config().subscribe({
+        next: (config) => {
+          this.config = this.normalizeConfigForUi(config);
+          this.busy = false;
+          this.notice = 'Neue Scheinidentität mit sicheren Platzhaltern angelegt.';
+          this.refreshView();
+        },
+        error: (error) => this.fail(error)
+      }),
       error: (error) => this.fail(error)
     });
   }
@@ -1188,7 +1830,12 @@ export class App implements OnInit, OnDestroy {
     if (!this.selectedMatch || !this.config) return;
     this.busy = true;
     this.api.createApplicationCase(this.selectedMatch, this.config.activeIdentityId, this.documentType).subscribe({
-      next: (application) => { this.applicationCases.unshift(application); this.busy = false; this.notice = 'Bewerbungsfall lokal angelegt.'; this.refreshView(); },
+      next: (application) => {
+        this.applicationCases.unshift(application);
+        this.selectApplicationCase(application);
+        this.applicationArtifacts[application.id] = [];
+        this.busy = false; this.notice = 'Bewerbungsfall lokal angelegt und an die Werkstatt gebunden.'; this.refreshView();
+      },
       error: (error) => this.fail(error)
     });
   }
@@ -1196,10 +1843,9 @@ export class App implements OnInit, OnDestroy {
   nextApplicationState(application: ApplicationCase): string | undefined {
     const next: Record<string, string> = {
       selected: 'analysis', analysis: 'questions', questions: 'draft', draft: 'review',
-      review: 'approved', approved: 'exported', exported: 'dry_run', dry_run: 'closed'
+      dry_run: 'closed'
     };
     const target = next[application.state];
-    if (application.identityMode === 'incognito' && ['approved', 'exported', 'dry_run'].includes(target ?? '')) return undefined;
     return target;
   }
 
@@ -1215,7 +1861,195 @@ export class App implements OnInit, OnDestroy {
     });
   }
 
-  loadApplicationCases(): void { this.api.applicationCases().subscribe({ next: (items) => { this.applicationCases = items; this.refreshView(); } }); }
+  loadApplicationCases(): void { this.api.applicationCases().subscribe({ next: (items) => {
+    this.applicationCases = items;
+    if (this.selectedApplicationCaseId && !items.some((item) => item.id === this.selectedApplicationCaseId)) this.selectedApplicationCaseId = undefined;
+    this.refreshView();
+  } }); }
+
+  selectedApplicationCase(): ApplicationCase | undefined {
+    return this.applicationCases.find((item) => item.id === this.selectedApplicationCaseId);
+  }
+
+  selectApplicationCase(application: ApplicationCase): void {
+    const previousCaseId = this.selectedApplicationCaseId;
+    if (previousCaseId && previousCaseId !== application.id) {
+      this.pipelineDraftsByCase[previousCaseId] = {
+        annotatedContent: this.pipelineAnnotatedContent,
+        iterationManifest: this.pipelineIterationManifest
+      };
+    }
+    this.selectedApplicationCaseId = application.id;
+    this.languageCheckResult = undefined;
+    this.applicationExportResult = undefined;
+    if (previousCaseId !== application.id) {
+      const localDraft = this.pipelineDraftsByCase[application.id];
+      this.pipelineAnnotatedContent = localDraft?.annotatedContent ?? (this.draft?.jobId === application.job.id ? this.draft.content : '');
+      this.pipelineIterationManifest = localDraft?.iterationManifest ?? '';
+    }
+    this.loadApplicationArtifacts(application.id);
+    this.refreshView();
+  }
+
+  setPipelineAnnotatedContent(content: string): void {
+    if (content !== this.pipelineAnnotatedContent) this.languageCheckResult = undefined;
+    this.pipelineAnnotatedContent = content;
+  }
+
+  setPipelineIterationManifest(manifest: string): void { this.pipelineIterationManifest = manifest; }
+
+  loadApplicationArtifacts(caseId: string): void {
+    this.api.applicationArtifacts(caseId).subscribe({
+      next: (items) => { this.applicationArtifacts[caseId] = items; this.refreshView(); },
+      error: (error) => this.fail(error)
+    });
+  }
+
+  artifactsFor(application: ApplicationCase): ArtifactRevision[] { return this.applicationArtifacts[application.id] ?? []; }
+
+  runLocalLanguageCheck(): void {
+    const content = this.pipelineAnnotatedContent.trim() || this.draft?.content.trim() || '';
+    if (!content) { this.error = 'Für die lokale Sprachprüfung fehlt ein Dokumenttext.'; return; }
+    this.languageCheckBusy = true; this.error = '';
+    this.api.languageCheck(content, 'de-DE').subscribe({
+      next: (result) => {
+        this.languageCheckResult = result; this.languageCheckBusy = false;
+        this.notice = result.available
+          ? `Lokale Sprachprüfung abgeschlossen: ${result.issues.length} Hinweis(e).`
+          : 'Die lokale Sprachprüfung ist nicht verfügbar; die serverseitige Finalisierung bleibt fail-closed.';
+        this.refreshView();
+      },
+      error: (error) => { this.languageCheckBusy = false; this.fail(error); }
+    });
+  }
+
+  finalizeSelectedApplicationCase(): void {
+    const application = this.selectedApplicationCase();
+    const annotatedContent = this.pipelineAnnotatedContent.trim();
+    const iterationManifest = this.pipelineIterationManifest.trim();
+    if (!application) { this.error = 'Bitte zuerst einen Bewerbungsfall in der Werkstatt öffnen.'; return; }
+    if (application.state !== 'review') { this.error = 'Serverseitige Finalisierung ist ausschließlich im Review-Status möglich.'; return; }
+    if (application.identityMode !== 'real') { this.error = 'Inkognito-Fälle dürfen nicht finalisiert werden.'; return; }
+    if (!annotatedContent || !iterationManifest) { this.error = 'Annotierter Entwurf und Review-Manifest sind beide erforderlich.'; return; }
+    this.busy = true; this.error = '';
+    this.api.finalizeApplicationCase(application.id, annotatedContent, iterationManifest).subscribe({
+      next: ({ draft, revision }) => {
+        this.draft = draft;
+        this.applicationArtifacts[application.id] = [revision, ...this.artifactsFor(application).filter((item) => item.id !== revision.id)];
+        this.busy = false;
+        this.notice = `Pipeline-Revision ${revision.id} wurde serverseitig finalisiert und hashgebunden vorgeschlagen.`;
+        this.refreshView();
+      },
+      error: (error) => { this.busy = false; this.fail(error); }
+    });
+  }
+
+  reviewApplicationRevision(application: ApplicationCase, revision: ArtifactRevision, decision: 'approved' | 'rejected'): void {
+    if (!this.artifactReviewConfirmed[revision.id]) { this.error = 'Die exakte Hash-Revision muss vor der Entscheidung bestätigt werden.'; return; }
+    const issueCount = revision.pipelineProof?.languageCheck.issueCount;
+    if (revision.lifecycle !== 'proposed' || issueCount === undefined) { this.error = 'Nur eine serverseitig nachgewiesene vorgeschlagene Revision kann geprüft werden.'; return; }
+    this.busy = true; this.error = '';
+    this.api.reviewApplicationArtifact(application.id, revision.id, decision, revision.sha256, issueCount).subscribe({
+      next: (updated) => {
+        this.applicationArtifacts[application.id] = this.artifactsFor(application).map((item) => item.id === updated.id ? updated : item);
+        this.artifactReviewConfirmed[revision.id] = false;
+        this.busy = false;
+        this.notice = decision === 'approved'
+          ? 'Exakt diese Dokumentrevision wurde menschlich und hashgebunden freigegeben.'
+          : 'Exakt diese Dokumentrevision wurde abgelehnt.';
+        this.refreshView();
+      },
+      error: (error) => { this.busy = false; this.fail(error); }
+    });
+  }
+
+  approveApplicationCase(application: ApplicationCase, revision: ArtifactRevision): void {
+    if (revision.applicationCaseId !== application.id || revision.lifecycle !== 'approved' || revision.review?.decision !== 'approved') {
+      this.error = 'Der Fall kann nur mit einer hashgeprüften, freigegebenen Revision genehmigt werden.'; return;
+    }
+    this.busy = true;
+    this.api.transitionApplicationCase(application.id, 'approved', { revisionId: revision.id, expectedSha256: revision.sha256 }).subscribe({
+      next: (updated) => {
+        this.applicationCases = this.applicationCases.map((item) => item.id === updated.id ? updated : item);
+        this.busy = false; this.notice = `Bewerbungsfall wurde auf Basis der Revision ${revision.id} freigegeben.`; this.refreshView();
+      },
+      error: (error) => { this.busy = false; this.fail(error); }
+    });
+  }
+
+  exportApplicationRevision(application: ApplicationCase, revision: ArtifactRevision): void {
+    if (!this.artifactExportConfirmed[revision.id]) { this.error = 'Der Export der exakten Revision muss ausdrücklich bestätigt werden.'; return; }
+    const unavailableReason = this.applicationArtifactExportUnavailableReason(application, revision);
+    if (unavailableReason) { this.error = unavailableReason; return; }
+    const format = this.artifactExportFormat[revision.id] ?? 'pdf';
+    this.busy = true; this.error = '';
+    this.api.exportApplicationArtifact(application.id, revision.id, format).subscribe({
+      next: (result) => {
+        this.applicationExportResult = result;
+        this.artifactExportConfirmed[revision.id] = false;
+        this.busy = false;
+        this.notice = `${result.fileName} wurde aus der geprüften Revision ${result.artifactRevisionId} erzeugt.`;
+        this.downloadApplicationExport(result);
+        this.loadApplicationCases(); this.loadApplicationArtifacts(application.id); this.refreshView();
+      },
+      error: (error) => { this.busy = false; this.fail(error); }
+    });
+  }
+
+  applicationArtifactExportUnavailableReason(application: ApplicationCase, revision: ArtifactRevision): string {
+    if (application.state !== 'approved') return 'Der Bewerbungsfall ist nicht freigegeben.';
+    if (application.identityMode !== 'real') return 'Inkognito-Fälle dürfen nicht exportiert werden.';
+    if (revision.lifecycle !== 'approved') return 'Die Dokumentrevision ist nicht freigegeben.';
+    if (application.approvedArtifactRevisionId !== revision.id || application.approvedArtifactSha256 !== revision.sha256) {
+      return 'Nur die beim Fall-Approval exakt gebundene Revisions-ID und ihr SHA-256 dürfen exportiert werden.';
+    }
+    return '';
+  }
+
+  private downloadApplicationExport(result: ApplicationExportResult): void {
+    if (typeof document === 'undefined' || typeof URL === 'undefined' || typeof URL.createObjectURL !== 'function') return;
+    const binary = atob(result.base64); const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+    const url = URL.createObjectURL(new Blob([bytes], { type: result.mimeType }));
+    const link = document.createElement('a'); link.href = url; link.download = result.fileName; link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  openCaseAgentWorkflow(application: ApplicationCase, workflowId: NonNullable<AgentRunRequest['workflowId']>): void {
+    const prompts: Record<NonNullable<AgentRunRequest['workflowId']>, string> = {
+      'guided-job-analysis': 'Analysiere passende Stellen nachvollziehbar und liefere ausschließlich Vorschläge.',
+      'evidence-application-package': `Prüfe die evidenzbasierte Bewerbungsunterlage für ${application.job.title} bei ${application.job.company}.`,
+      'employer-response-triage': `Ordne die dem Fall zugewiesenen Unternehmensantworten ein und schlage sichere nächste Schritte für ${application.job.company} vor.`,
+      'application-next-actions': `Ermittle firmenweit nachvollziehbare nächste Schritte für alle Bewerbungen bei ${application.job.company}.`
+    };
+    this.agentRunForm = {
+      providerId: this.agentRunForm.providerId,
+      prompt: prompts[workflowId],
+      runtimeTarget: this.agentRunForm.runtimeTarget,
+      ...(this.agentRunForm.runtimeTarget === 'wsl' && this.agentRunForm.wslDistribution
+        ? { wslDistribution: this.agentRunForm.wslDistribution }
+        : {}),
+      workspaceMode: 'read_only', network: false, applicationCaseId: application.id, workflowId,
+      budget: { wallTimeMinutes: 30, maxOutputMiB: 10 }
+    };
+    this.select('agents');
+    this.scheduleAgentPreflight();
+  }
+  openInboxMailAgentOrchestration(message: CorrelatedMail): void {
+    const caseId = this.mailCorrelationTarget[message.id];
+    const application = this.applicationCases.find((candidate) => candidate.id === caseId);
+    if (!application) { this.error = 'Bitte zuerst einen Bewerbungsfall für diese Inbox-Mail wählen.'; return; }
+    this.agentOrchestrationForm = {
+      workflowId: 'employer-response-triage', providerId: this.agentOrchestrationForm.providerId,
+      prompt: `Ordne die explizit gewählte Inbox-Mail sicher dem Bewerbungsfall bei ${application.job.company} zu und liefere ausschließlich Antwort- und Terminvorschläge.`,
+      runtimeTarget: this.agentOrchestrationForm.runtimeTarget,
+      ...(this.agentOrchestrationForm.runtimeTarget === 'wsl' && this.agentOrchestrationForm.wslDistribution
+        ? { wslDistribution: this.agentOrchestrationForm.wslDistribution }
+        : {}),
+      applicationCaseId: application.id, mailId: message.id, userInputConfirmed: false
+    };
+    this.select('agents');
+  }
   loadCrm(): void {
     this.api.crmCompanies().subscribe({ next: (items) => { this.companies = items; this.applicationCases = items.flatMap((item) => item.applications); this.refreshView(); }, error: (error) => this.fail(error) });
     this.api.mailAccounts().subscribe({ next: (items) => { this.mailAccounts = items; this.refreshView(); }, error: (error) => this.fail(error) });
@@ -1261,14 +2095,6 @@ export class App implements OnInit, OnDestroy {
     const caseId = this.mailCorrelationTarget[messageId]; if (!caseId) { this.error = 'Bitte zuerst einen Bewerbungsfall wählen.'; return; }
     this.api.confirmMailCorrelation(messageId, caseId).subscribe({ next: () => { this.notice = 'Nachricht verbindlich der Stelle zugeordnet.'; this.loadCrm(); }, error: (error) => this.fail(error) });
   }
-  storeDraftRevision(application: ApplicationCase): void {
-    if (!this.draft?.content) { this.error = 'Es ist noch kein Entwurf vorhanden.'; return; }
-    const type: ArtifactRevision['type'] = this.draft.documentType === 'email' ? 'application_email' : this.draft.documentType;
-    this.api.createArtifact(application.id, type, this.draft.content).subscribe({ next: () => { this.notice = 'Entwurf als nachvollziehbare Revision gespeichert.'; this.loadCrm(); }, error: (error) => this.fail(error) });
-  }
-  markRevisionUsed(application: ApplicationCase, revision: ArtifactRevision): void {
-    this.api.markArtifactUsed(application.id, revision.id).subscribe({ next: () => { this.notice = 'Diese unveränderliche Revision ist als tatsächlich verwendet markiert.'; this.loadCrm(); }, error: (error) => this.fail(error) });
-  }
   loadOperations(): void {
     this.api.dataInventory().subscribe({ next: (value) => { this.dataInventory = value; this.refreshView(); }, error: (error) => this.fail(error) });
     this.api.schedules().subscribe({ next: (items) => { this.schedules = items; this.refreshView(); }, error: (error) => this.fail(error) });
@@ -1279,6 +2105,179 @@ export class App implements OnInit, OnDestroy {
   }
   previewPortableExport(): void { this.api.portableExport().subscribe({ next: (value) => { this.exportPreview = value; this.notice = 'Portabler Export ohne Identitäten erstellt.'; this.refreshView(); }, error: (error) => this.fail(error) }); }
   applyRetentionPolicy(): void { this.api.runRetention(this.retentionDays).subscribe({ next: () => { this.notice = 'Bestätigte Aufbewahrungsregel wurde lokal ausgeführt.'; this.loadOperations(); }, error: (error) => this.fail(error) }); }
+  loadProfileSetup(): void {
+    this.api.applicationPipelineSetup().subscribe({
+      next: (status) => {
+        this.profileSetup = status;
+        if (status.initialized && status.styleProfile === 'present') this.loadApplicationStyleProfile();
+        else {
+          this.applicationStyleProfile = undefined;
+          this.styleProfileDraft = undefined;
+          this.styleProfileError = '';
+        }
+        this.refreshView();
+      },
+      error: (error) => { this.profileSetup = undefined; this.error = this.message(error); this.refreshView(); }
+    });
+  }
+  initializeApplicationProfiles(): void {
+    if (!this.profileSetupConfirmed) { this.error = 'Die lokale Anlage leerer Profilvorlagen muss ausdrücklich bestätigt werden.'; return; }
+    this.busy = true; this.error = '';
+    this.api.initializeApplicationProfiles().subscribe({
+      next: (status) => {
+        this.profileSetup = status; this.profileSetupConfirmed = false; this.busy = false;
+        this.notice = status.created?.length
+          ? `Leere lokale Vorlagen angelegt: ${status.created.join(', ')}. Kandidatenfakten wurden nicht erfunden.`
+          : 'Vorhandene Profile wurden nicht überschrieben.';
+        this.loadCandidateProfile();
+        if (status.initialized && status.styleProfile === 'present') this.loadApplicationStyleProfile();
+        this.refreshView();
+      },
+      error: (error) => { this.busy = false; this.fail(error); }
+    });
+  }
+  loadApplicationStyleProfile(): void {
+    this.styleProfileBusy = true;
+    this.styleProfileError = '';
+    this.api.applicationStyleProfile().subscribe({
+      next: (view) => {
+        this.applyApplicationStyleProfile(view);
+        this.styleProfileBusy = false;
+        this.refreshView();
+      },
+      error: (error) => {
+        this.styleProfileBusy = false;
+        this.styleProfileError = this.message(error);
+        this.refreshView();
+      }
+    });
+  }
+  saveApplicationStyleProfile(): void {
+    const current = this.applicationStyleProfile;
+    const draft = this.styleProfileDraft;
+    if (!current || !draft) return;
+    if (!this.styleProfileConfirmed) {
+      this.styleProfileError = 'Die versionierte Stilprofil-Änderung muss ausdrücklich bestätigt werden.';
+      return;
+    }
+    const profile = this.normalizedApplicationStyleProfile(draft);
+    const validationError = this.applicationStyleProfileValidationError(profile);
+    if (validationError) { this.styleProfileError = validationError; return; }
+    this.styleProfileBusy = true;
+    this.styleProfileError = '';
+    this.api.saveApplicationStyleProfile(current, profile).subscribe({
+      next: (view) => {
+        this.applyApplicationStyleProfile(view);
+        this.styleProfileBusy = false;
+        this.notice = `Stilprofil als Revision ${view.revision} gespeichert. Die lokale Sprachprüfung bleibt nspell-only.`;
+        this.refreshView();
+      },
+      error: (error) => {
+        this.styleProfileBusy = false;
+        this.styleProfileError = this.message(error);
+        this.refreshView();
+      }
+    });
+  }
+  addApprovedStyleExample(): void {
+    if (!this.styleProfileDraft || this.styleProfileDraft.approvedExamples.length >= 50) return;
+    this.styleProfileDraft.approvedExamples.push({
+      id: this.nextStyleExampleId('approved-example'), documentType: 'cover_letter', text: ''
+    });
+  }
+  removeApprovedStyleExample(index: number): void { this.styleProfileDraft?.approvedExamples.splice(index, 1); }
+  addRejectedStyleExample(): void {
+    if (!this.styleProfileDraft || this.styleProfileDraft.rejectedExamples.length >= 50) return;
+    this.styleProfileDraft.rejectedExamples.push({
+      id: this.nextStyleExampleId('rejected-example'), documentType: 'cover_letter', text: '', reason: ''
+    });
+  }
+  removeRejectedStyleExample(index: number): void { this.styleProfileDraft?.rejectedExamples.splice(index, 1); }
+  styleDocumentTypeLabel(kind: ApplicationStyleExampleDocumentType): string {
+    return ({ cv: 'Lebenslauf', cover_letter: 'Anschreiben', email: 'E-Mail', linkedin: 'LinkedIn', interview: 'Interview' })[kind];
+  }
+  private applyApplicationStyleProfile(view: ApplicationStyleProfileView): void {
+    this.applicationStyleProfile = view;
+    this.styleProfileDraft = structuredClone(view.profile);
+    this.styleVocabularyPreferText = view.profile.vocabulary.prefer.join('\n');
+    this.styleVocabularyAvoidText = view.profile.vocabulary.avoid.join('\n');
+    this.stylePreferredPatternsText = view.profile.preferredPatterns.join('\n');
+    this.styleAvoidPatternsText = view.profile.avoidPatterns.join('\n');
+    this.styleProfileConfirmed = false;
+    this.styleProfileError = '';
+  }
+  private normalizedApplicationStyleProfile(draft: EditableApplicationStyleProfile): EditableApplicationStyleProfile {
+    const normalized = structuredClone(draft);
+    const trim = (value: string) => value.trim();
+    normalized.language = trim(normalized.language); normalized.locale = trim(normalized.locale);
+    normalized.tone = trim(normalized.tone); normalized.formality = trim(normalized.formality);
+    normalized.directness = trim(normalized.directness); normalized.sentenceLength = trim(normalized.sentenceLength);
+    normalized.technicalDepth = trim(normalized.technicalDepth); normalized.enthusiasm = trim(normalized.enthusiasm);
+    normalized.selfPromotion = trim(normalized.selfPromotion); normalized.humor = trim(normalized.humor);
+    normalized.vocabulary = {
+      prefer: this.styleLines(this.styleVocabularyPreferText), avoid: this.styleLines(this.styleVocabularyAvoidText)
+    };
+    normalized.preferredPatterns = this.styleLines(this.stylePreferredPatternsText);
+    normalized.avoidPatterns = this.styleLines(this.styleAvoidPatternsText);
+    for (const kind of this.styleDocumentTypes) {
+      normalized.documentStyles[kind].perspective = trim(normalized.documentStyles[kind].perspective);
+      normalized.documentStyles[kind].technicalDensity = trim(normalized.documentStyles[kind].technicalDensity);
+    }
+    normalized.approvedExamples = normalized.approvedExamples.map((item) => ({
+      id: trim(item.id), documentType: item.documentType, text: trim(item.text),
+      ...(item.sourceRef?.trim() ? { sourceRef: trim(item.sourceRef) } : {}),
+      ...(item.notes?.trim() ? { notes: trim(item.notes) } : {})
+    }));
+    normalized.rejectedExamples = normalized.rejectedExamples.map((item) => ({
+      id: trim(item.id), documentType: item.documentType, text: trim(item.text), reason: trim(item.reason)
+    }));
+    return normalized;
+  }
+  private applicationStyleProfileValidationError(profile: EditableApplicationStyleProfile): string | undefined {
+    const core = [profile.language, profile.locale, profile.tone, profile.formality, profile.directness, profile.sentenceLength,
+      profile.technicalDepth, profile.enthusiasm, profile.selfPromotion, profile.humor];
+    if (core.some((value) => !value)) return 'Alle Kernfelder des Stilprofils müssen ausgefüllt sein.';
+    const lists = [profile.vocabulary.prefer, profile.vocabulary.avoid, profile.preferredPatterns, profile.avoidPatterns];
+    if (lists.some((items) => items.length > 100 || items.some((item) => !item || item.length > 2_000))) {
+      return 'Wortschatz und Muster sind auf 100 nichtleere Einträge mit je 2.000 Zeichen begrenzt.';
+    }
+    if (lists.some((items) => new Set(items.map((item) => item.toLocaleLowerCase('de-DE'))).size !== items.length)) {
+      return 'Wortschatz und Muster dürfen keine doppelten Einträge enthalten.';
+    }
+    if (this.styleDocumentTypes.some((kind) => !profile.documentStyles[kind].perspective || !profile.documentStyles[kind].technicalDensity
+      || profile.documentStyles[kind].maxSentenceWords < 10 || profile.documentStyles[kind].maxSentenceWords > 100)) {
+      return 'Dokumentstile benötigen Perspektive, Technikdichte und 10 bis 100 Wörter pro Satz.';
+    }
+    const idsValid = (items: Array<{ id: string }>) => items.every((item) => /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(item.id))
+      && new Set(items.map((item) => item.id)).size === items.length;
+    if (!idsValid(profile.approvedExamples) || !idsValid(profile.rejectedExamples)) return 'Beispiel-IDs müssen eindeutiges kebab-case verwenden.';
+    if (profile.approvedExamples.length > 50 || profile.rejectedExamples.length > 50
+      || profile.approvedExamples.some((item) => item.text.length > 20_000 || (item.sourceRef?.length ?? 0) > 500 || (item.notes?.length ?? 0) > 2_000)
+      || profile.rejectedExamples.some((item) => item.text.length > 20_000 || item.reason.length > 2_000)) {
+      return 'Beispiellisten oder Beispieltexte überschreiten die geschlossenen Vertragsgrenzen.';
+    }
+    if (profile.approvedExamples.some((item) => !item.text) || profile.rejectedExamples.some((item) => !item.text || !item.reason)) {
+      return 'Beispiele benötigen Text; abgelehnte Beispiele zusätzlich einen Grund.';
+    }
+    const quality = profile.qualityThresholds;
+    if (![quality.maxRepeatedSentenceStarts, quality.maxAvoidPatternMatches].every((value) => Number.isSafeInteger(value) && value >= 0 && value <= 100)) {
+      return 'Qualitätsgrenzen müssen ganze Zahlen zwischen 0 und 100 sein.';
+    }
+    if (!Number.isSafeInteger(profile.reviewWorkflow.maxRevisionCycles) || profile.reviewWorkflow.maxRevisionCycles < 1 || profile.reviewWorkflow.maxRevisionCycles > 5) {
+      return 'Der Review-Workflow erlaubt ein bis fünf Revisionszyklen.';
+    }
+    return undefined;
+  }
+  private styleLines(value: string): string[] { return value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean); }
+  private nextStyleExampleId(prefix: string): string {
+    const ids = new Set([
+      ...(this.styleProfileDraft?.approvedExamples.map((item) => item.id) ?? []),
+      ...(this.styleProfileDraft?.rejectedExamples.map((item) => item.id) ?? [])
+    ]);
+    let index = ids.size + 1;
+    while (ids.has(`${prefix}-${index}`)) index += 1;
+    return `${prefix}-${index}`;
+  }
   loadCandidateProfile(): void {
     this.api.candidateProfile().subscribe({
       next: (profile) => { this.candidateProfile = profile; this.refreshView(); },
@@ -1376,6 +2375,60 @@ export class App implements OnInit, OnDestroy {
     return active.filter((item) => item.includes('lokal') || !supported.has(item));
   }
   acceptedCount(): number { return this.matches.filter((match) => match.accepted).length; }
+
+  formatProposalConfidence(value: number): string { return `${Math.round(value * 100)} %`; }
+
+  private parseEmployerResponseTriageProposal(content: string): EmployerResponseTriageProposalProjection | undefined {
+    try {
+      const parsed = JSON.parse(content) as Record<string, unknown>;
+      const proposal = parsed['proposal'] as Record<string, unknown> | undefined;
+      if (parsed['contract'] !== 'employer-response-triage-proposal' || parsed['contractVersion'] !== '1.0'
+        || typeof parsed['sha256'] !== 'string' || !proposal || proposal['schemaVersion'] !== 1
+        || typeof proposal['confidence'] !== 'number' || proposal['confidence'] < 0 || proposal['confidence'] > 1
+        || typeof proposal['selectedMailId'] !== 'string' || !this.isStringArray(proposal['sourceReferences'])
+        || !Array.isArray(proposal['caseCandidates'])) return undefined;
+      return parsed as unknown as EmployerResponseTriageProposalProjection;
+    } catch { return undefined; }
+  }
+
+  private parseApplicationNextActionsProposal(content: string): ApplicationNextActionsProposalProjection | undefined {
+    try {
+      const parsed = JSON.parse(content) as Record<string, unknown>;
+      const proposal = parsed['proposal'] as Record<string, unknown> | undefined;
+      if (parsed['contract'] !== 'application-next-actions-proposal' || parsed['contractVersion'] !== '1.0'
+        || typeof parsed['sha256'] !== 'string' || !proposal || proposal['schemaVersion'] !== 1
+        || typeof proposal['companyKey'] !== 'string' || !Array.isArray(proposal['suggestions']) || !Array.isArray(proposal['conflicts'])) return undefined;
+      return parsed as unknown as ApplicationNextActionsProposalProjection;
+    } catch { return undefined; }
+  }
+
+  private isStringArray(value: unknown): value is string[] {
+    return Array.isArray(value) && value.every((item) => typeof item === 'string');
+  }
+
+  private openNativeDialog(dialogRef?: ElementRef<HTMLDialogElement>, initialFocus?: ElementRef<HTMLElement>): void {
+    const dialog = dialogRef?.nativeElement;
+    if (!dialog) return;
+    if (!dialog.open) {
+      if (typeof dialog.showModal === 'function') dialog.showModal();
+      else dialog.setAttribute('open', '');
+    }
+    initialFocus?.nativeElement.focus();
+  }
+
+  private closeNativeDialog(dialogRef?: ElementRef<HTMLDialogElement>): void {
+    const dialog = dialogRef?.nativeElement;
+    if (!dialog?.open) return;
+    if (typeof dialog.close === 'function') dialog.close();
+    else dialog.removeAttribute('open');
+  }
+
+  private restoreDialogFocus(target?: HTMLElement): void {
+    if (!target) return;
+    setTimeout(() => {
+      if (target.isConnected && !target.hasAttribute('disabled')) target.focus();
+    });
+  }
 
   private refreshView(): void { this.changeDetector.markForCheck(); }
   private fail(error: unknown): void { this.busy = false; this.loading = false; this.error = this.message(error); this.refreshView(); }

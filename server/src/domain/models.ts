@@ -120,6 +120,10 @@ export interface ApplicationCase {
   artifactNames: string[];
   warnings: string[];
   revision: number;
+  /** Exact human-approved, pipeline-verified document binding for use/export. */
+  approvedArtifactRevisionId?: string;
+  approvedArtifactSha256?: string;
+  approvedAt?: string;
 }
 
 export interface ApplicationStatusEvent {
@@ -162,9 +166,53 @@ export interface ComparisonNote {
 
 export interface ApplicationArtifactRevision {
   id: string; applicationCaseId: string; companyKey: string; jobId: string;
-  type: 'cv' | 'cover_letter' | 'application_email'; lifecycle: 'proposed' | 'approved' | 'used' | 'superseded';
+  type: 'cv' | 'cover_letter' | 'application_email'; lifecycle: 'proposed' | 'approved' | 'rejected' | 'used' | 'superseded';
   sha256: string; bytes: number; artifactPath: string; pipelineContractVersion: string;
+  pipelineProof?: ApplicationPipelineProof;
+  /** Immutable link back to an explicitly reviewed AgentArtifact proposal. */
+  sourceAgentArtifactId?: string;
+  adoptionIdempotencyKeySha256?: string;
+  review?: {
+    decision: 'approved' | 'rejected'; reviewer: 'local-user'; reviewedAt: string;
+    expectedSha256: string; acknowledgedLanguageIssueCount: number;
+  };
   createdAt: string; usedAt?: string; usedForApplicationCaseId?: string;
+}
+
+export interface ApplicationPipelineEvidence {
+  pipelineContractVersion: string;
+  completedStages: string[];
+  annotatedSha256: string;
+  iterationManifestSha256: string;
+  candidateProfileSha256: string;
+  styleProfileSha256: string;
+  artifactSha256: string;
+  /** New proofs bind the deterministic job-analysis/match/question preparation. Legacy signed proofs may omit this field. */
+  preparation?: {
+    jobAnalysisSha256: string;
+    matchMatrixSha256: string;
+    unresolvedQuestionsSha256: string;
+    matchMatrixValid: true;
+  };
+  languageCheck: {
+    available: boolean;
+    backend: string;
+    language: string;
+    issueCount: number;
+    issuesSha256: string;
+    checkedArtifactSha256: string;
+  };
+}
+
+export interface ApplicationPipelineProof extends ApplicationPipelineEvidence {
+  contract: 'application-pipeline-proof';
+  contractVersion: '1.0';
+  applicationCaseId: string;
+  jobId: string;
+  identityId: string;
+  documentType: ApplicationArtifactRevision['type'];
+  issuedAt: string;
+  signature: string;
 }
 
 export type EmployerResponseKind = 'acknowledgement' | 'question' | 'interview' | 'rejection' | 'offer' | 'other';
@@ -224,6 +272,7 @@ export interface ApplicationDraft {
   gaps: string[];
   warnings: string[];
   lifecycle: 'preview' | 'final';
+  pipelineEvidence?: ApplicationPipelineEvidence;
 }
 
 export interface ApplicationPipelineCapabilities {

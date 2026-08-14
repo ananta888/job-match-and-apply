@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ApplicationCase } from '../domain/models.js';
-import { parseAndCorrelateMail } from './mail-correlation.js';
+import { companyKey, parseAndCorrelateMail } from './mail-correlation.js';
 
 const application = (id: string, jobId: string, title: string): ApplicationCase => ({
   id, job: { id: jobId, sourceId: 'test', title, company: 'Beispiel GmbH', location: 'Berlin', workModel: 'hybrid', employmentType: 'full_time', description: '', skills: [] },
@@ -8,6 +8,11 @@ const application = (id: string, jobId: string, title: string): ApplicationCase 
 });
 
 describe('mail correlation', () => {
+  it('creates ASCII-safe stable company scope identifiers', () => {
+    expect(companyKey('Müller & Söhne GmbH')).toBe('muller-sohne');
+    expect(companyKey('Straße AG')).toBe('strasse');
+  });
+
   it('assigns an exact job reference among multiple jobs at one company', async () => {
     const cases = [application('11111111-1111-4111-8111-111111111111', 'JOB-123', 'Backend Engineer'), application('22222222-2222-4222-8222-222222222222', 'JOB-456', 'Frontend Engineer')];
     const mail = Buffer.from('From: recruiting@beispiel.de\r\nTo: me@example.org\r\nSubject: Interview zu JOB-456\r\nMessage-ID: <one@example.org>\r\n\r\nEinladung zum Interview für Frontend Engineer.');

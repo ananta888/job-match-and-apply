@@ -1,9 +1,10 @@
 import { spawn } from 'node:child_process';
-import { access, realpath } from 'node:fs/promises';
+import { access, realpath, stat } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { isAbsolute, posix, resolve, win32 } from 'node:path';
 import type { AgentProviderInstallation, RuntimeTarget } from '../ports/agent-runner.js';
 import { buildMinimalLocalChildEnvironment } from '../services/process-environment.js';
+import { CODEX_CONFORMED_VERSION_PATTERN } from './codex-offline-policy.js';
 
 export interface ProviderDiscoveryDefinition {
   provider: string;
@@ -14,9 +15,9 @@ export interface ProviderDiscoveryDefinition {
 }
 
 export const BUILTIN_PROVIDER_DISCOVERY: readonly ProviderDiscoveryDefinition[] = [
-  { provider: 'codex-exec', executableNames: ['codex'], versionArgs: ['--version'], testedVersionPatterns: [/^(?:codex-cli|codex)\s+0\.147\./i], authStatusArgs: ['login', 'status'] },
-  { provider: 'opencode', executableNames: ['opencode'], versionArgs: ['--version'], testedVersionPatterns: [] },
-  { provider: 'claude-cli', executableNames: ['claude'], versionArgs: ['--version'], testedVersionPatterns: [] }
+  { provider: 'codex-exec', executableNames: ['codex'], versionArgs: ['--version'], testedVersionPatterns: [new RegExp(CODEX_CONFORMED_VERSION_PATTERN, 'i')], authStatusArgs: ['login', 'status'] },
+  { provider: 'opencode', executableNames: ['opencode'], versionArgs: ['--version'], testedVersionPatterns: [/^1\.14\.41$/i] },
+  { provider: 'claude-cli', executableNames: ['claude'], versionArgs: ['--version'], testedVersionPatterns: [/^2\.1\.232 \(Claude Code\)$/i] }
 ];
 
 export interface DiscoveryCommandResult { exitCode: number | null; stdout: string; stderr: string; }
@@ -57,12 +58,28 @@ function supportFor(version: string | undefined, definition: ProviderDiscoveryDe
   return { support: 'untested', reason: 'Installierte Version besitzt noch keine freigegebene Contract-Fixture.' };
 }
 
-function isFullyQualifiedWindowsPath(value: string): boolean {
+export function isFullyQualifiedWindowsPath(value: string): boolean {
   if (!win32.isAbsolute(value)) return false;
   const root = win32.parse(value).root;
   if (/^[A-Za-z]:[\\/]$/.test(root)) return true;
   if (!root.startsWith('\\\\') || root.startsWith('\\\\?\\') || root.startsWith('\\\\.\\')) return false;
   return root.split(/[\\/]+/).filter(Boolean).length === 2;
+}
+
+export function isSafeWslDistribution(value: string): boolean {
+  return /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(value);
+}
+
+export function defaultWslHostExecutable(env: NodeJS.ProcessEnv = process.env): string {
+  const configuredRoot = env.SystemRoot ?? env.WINDIR;
+  const root = configuredRoot && /^[A-Za-z]:[\\/]/.test(configuredRoot) ? configuredRoot : 'C:\\Windows';
+  return win32.join(root, 'System32', 'wsl.exe');
+}
+
+function isSafeWslHostExecutable(value: string): boolean {
+  return /^[A-Za-z]:[\\/]/.test(value)
+    && isFullyQualifiedWindowsPath(value)
+    && win32.basename(value).toLocaleLowerCase('en-US') === 'wsl.exe';
 }
 
 async function executableCandidates(name: string, env: NodeJS.ProcessEnv, platform: NodeJS.Platform): Promise<string[]> {
@@ -115,10 +132,11 @@ export class AgentRuntimeDiscovery {
     return installations;
   }
 
-  async discoverWsl(definition: ProviderDiscoveryDefinition, wslExecutable = 'wsl.exe'): Promise<AgentProviderInstallation[]> {
+  async discoverWsl(definition: ProviderDiscoveryDefinition, wslExecutable = defaultWslHostExecutable()): Promise<AgentProviderInstallation[]> {
+    if (!isSafeWslHostExecutable(wslExecutable)) throw new Error('WSL-Host-Executable ist ungueltig.');
     const listed = await this.executor.run(wslExecutable, ['--list', '--quiet']);
     if (listed.exitCode !== 0) return [];
-    const distributions = listed.stdout.replace(/\0/g, '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    const distributions = listed.stdout.replace(/\0/g, '').split(/\r?\n/).map((line) => line.trim()).filter(isSafeWslDistribution);
     const installations: AgentProviderInstallation[] = [];
     for (const distribution of distributions) {
       for (const name of definition.executableNames) {
@@ -146,8 +164,10 @@ export class AgentRuntimeDiscovery {
     return installations;
   }
 
-  async windowsPathToWsl(windowsPath: string, distribution: string, wslExecutable = 'wsl.exe'): Promise<string> {
+  async windowsPathToWsl(windowsPath: string, distribution: string, wslExecutable = defaultWslHostExecutable()): Promise<string> {
     if (!isFullyQualifiedWindowsPath(windowsPath)) throw new Error('Windows-Pfad muss absolut sein.');
+    if (!isSafeWslDistribution(distribution)) throw new Error('WSL-Distribution ist ungueltig.');
+    if (!isSafeWslHostExecutable(wslExecutable)) throw new Error('WSL-Host-Executable ist ungueltig.');
     const result = await this.executor.run(wslExecutable, ['-d', distribution, '--', 'wslpath', '-a', '-u', windowsPath]);
     const mapped = result.stdout.trim();
     if (result.exitCode !== 0 || !mapped.startsWith('/')) throw new Error(`WSL-Pfadabbildung fehlgeschlagen: ${result.stderr.trim()}`);
@@ -160,7 +180,9 @@ export type PathFlavor = 'windows' | 'posix';
 /** Pure containment predicate for already-resolved paths; useful for cross-platform policy tests. */
 export function isPathWithinRoot(requested: string, allowedRoot: string, flavor: PathFlavor): boolean {
   const implementation = flavor === 'windows' ? win32 : posix;
-  if (!implementation.isAbsolute(requested) || !implementation.isAbsolute(allowedRoot)) return false;
+  if (flavor === 'windows') {
+    if (!isFullyQualifiedWindowsPath(requested) || !isFullyQualifiedWindowsPath(allowedRoot)) return false;
+  } else if (!implementation.isAbsolute(requested) || !implementation.isAbsolute(allowedRoot)) return false;
   const difference = implementation.relative(implementation.normalize(allowedRoot), implementation.normalize(requested));
   return difference === '' || (difference !== '..' && !difference.startsWith(`..${implementation.sep}`) && !implementation.isAbsolute(difference));
 }
@@ -168,9 +190,11 @@ export function isPathWithinRoot(requested: string, allowedRoot: string, flavor:
 export async function validateWorkspaceRoot(requested: string, allowedRoots: readonly string[]): Promise<string> {
   if (!isAbsolute(requested)) throw new Error('Workspace-Pfad muss absolut sein.');
   const resolvedRequested = await realpath(requested);
+  if (!(await stat(resolvedRequested)).isDirectory()) throw new Error('Workspace-Pfad muss ein Verzeichnis sein.');
   for (const allowed of allowedRoots) {
     if (!isAbsolute(allowed)) continue;
     const resolvedAllowed = await realpath(allowed);
+    if (!(await stat(resolvedAllowed)).isDirectory()) continue;
     if (isPathWithinRoot(resolvedRequested, resolvedAllowed, process.platform === 'win32' ? 'windows' : 'posix')) return resolvedRequested;
   }
   throw new Error('Workspace liegt außerhalb der freigegebenen Wurzeln.');

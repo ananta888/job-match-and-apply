@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, symlink } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -16,6 +16,9 @@ describe('cross-platform path containment properties', () => {
     ['windows different drive', 'D:\\work\\root', 'C:\\work\\root', 'windows', false],
     ['UNC case-folded descendant', '\\\\SERVER\\Share\\Root\\child', '\\\\server\\share\\root', 'windows', true],
     ['UNC different share', '\\\\server\\other\\root', '\\\\server\\share\\root', 'windows', false],
+    ['windows root-relative request', '\\work\\root\\child', 'C:\\work\\root', 'windows', false],
+    ['windows device namespace', '\\\\?\\C:\\work\\root\\child', 'C:\\work\\root', 'windows', false],
+    ['windows device root', 'C:\\work\\root\\child', '\\\\?\\C:\\work\\root', 'windows', false],
     ['linux descendant', '/srv/work/root/child', '/srv/work/root', 'posix', true],
     ['linux dot normalization', '/srv/work/root/a/../child', '/srv/work/root', 'posix', true],
     ['linux case mutation', '/srv/work/Root/child', '/srv/work/root', 'posix', false],
@@ -43,5 +46,12 @@ describe('cross-platform path containment properties', () => {
     }
     await expect(validateWorkspaceRoot(insideLink, [allowed])).resolves.toBeTruthy();
     await expect(validateWorkspaceRoot(outsideLink, [allowed])).rejects.toThrow('außerhalb');
+  });
+
+  it('rejects an existing file as a workspace root', async () => {
+    const base = await mkdtemp(join(tmpdir(), 'path-file-property-')); roots.push(base);
+    const file = join(base, 'not-a-directory');
+    await writeFile(file, 'synthetic');
+    await expect(validateWorkspaceRoot(file, [base])).rejects.toThrow('Verzeichnis');
   });
 });

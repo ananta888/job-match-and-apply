@@ -2,7 +2,14 @@ import { createHash, randomUUID } from 'node:crypto';
 import { simpleParser, type AddressObject, type ParsedMail } from 'mailparser';
 import type { ApplicationCase, CorrelatedMailMessage, EmployerResponseKind } from '../domain/models.js';
 
-export const companyKey = (company: string): string => company.normalize('NFKC').toLocaleLowerCase('de-DE').replace(/\b(gmbh|ag|ug|se|inc|ltd|llc)\b/g, '').replace(/[^a-z0-9äöüß]+/gi, '-').replace(/^-|-$/g, '') || 'unknown-company';
+export const companyKey = (company: string): string => company
+  .normalize('NFKD')
+  .toLocaleLowerCase('de-DE')
+  .replace(/ß/g, 'ss')
+  .replace(/\p{M}+/gu, '')
+  .replace(/\b(gmbh|ag|ug|se|inc|ltd|llc)\b/g, '')
+  .replace(/[^a-z0-9]+/g, '-')
+  .replace(/^-|-$/g, '') || 'unknown-company';
 
 function addresses(value?: AddressObject | AddressObject[]): string[] {
   return (Array.isArray(value) ? value : value ? [value] : []).flatMap((item) => item.value.map((entry) => entry.address?.toLocaleLowerCase() ?? '')).filter(Boolean);

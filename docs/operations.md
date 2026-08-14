@@ -3,10 +3,15 @@
 ## Windows und WSL2
 
 Fuer die Angular-/Node-Anwendung werden Node.js 22 und npm benoetigt. Der Job-Search-MCP
-benoetigt Python 3.12. `setup:integrations` verwendet eine native Windows-3.12-Installation oder
-richtet andernfalls in der expliziten Ubuntu-WSL2-Distribution `.venv-wsl` ein. Der resultierende
-Startvertrag liegt privat unter `.local-data/job-search-mcp-launch.json`; er wird validiert und in
-der Demo-Konfiguration vorausgefuellt, schaltet `stdio` aber nie automatisch ein.
+benoetigt Python 3.12. `setup:integrations` bevorzugt die explizite Ubuntu-WSL2-Distribution und
+richtet dort `.venv-wsl` ein. Nur mit `-RuntimeTarget windows` beziehungsweise
+`JOB_MCP_RUNTIME_TARGET=windows` wird eine native Windows-3.12-Installation gewaehlt; `auto`
+erlaubt den dokumentierten Fallback. Die WSL-Venv bleibt ueber das lokale Submodule-Git-Exclude
+unversioniert, ohne die getrackte Upstream-`.gitignore` zu aendern. Der resultierende
+Startvertrag liegt privat unter `.local-data/job-search-mcp-launch.json`. Er wird validiert und bei
+einer noch frischen Demo-Konfiguration beim nächsten Laden automatisch als effektiver
+`stdio`-Start übernommen. Ein fehlender oder ungültiger Vertrag lässt den Offline-Demo-Adapter
+aktiv beziehungsweise liefert einen fail-closed Runtimefehler; es gibt keinen unsicheren Start.
 Der Vertrag ist durch `contracts/v1/job-search-mcp-launch.schema.json` versioniert. API und
 `npm run diagnose` verwenden denselben Parser und dieselbe Realpfad-/Venv-Prüfung. Mit
 `GET /api/sources/runtime` kann die Oberfläche `launchValidated` und `state` auswerten; `mode=stdio`
@@ -28,6 +33,15 @@ Portalzugriff. Die Agenten-CLIs bleiben davon getrennte Prozesse und erreichen d
 über den schmalen MCP-Vertrag. Bekannte Sandbox- und Shell-Wrapper werden im MCP-Startvertrag
 fail-closed abgelehnt.
 
+Im WSL-Vertrag ist das MCP-Executable das einzige Kommando nach `wsl.exe -d <Distribution> --`.
+Es gibt weder Shell- noch `env`-Wrapper. Die Windows/WSL-Umgebungsbruecke ist auf
+`ALLOW_EXTERNAL_PORTALS:JOB_MCP_STATE_DIR` begrenzt. Dadurch kann die gesondert bestaetigte
+Portalzugriffsroute spaeter genau `ALLOW_EXTERNAL_PORTALS` umschalten, waehrend der Setup- und
+Diagnose-Smoke immer `0` voraussetzt. Der Smoke validiert zuerst WSL-/Executable-Realpfad,
+Venv-Grenze und wrapperfreie argv, prueft die beiden Variablen in WSL und fuehrt dann nur
+MCP-Handshake, `tools/list` und `capabilities` aus. Suche, Login, Credentials und Browsertools
+werden dabei nicht aufgerufen.
+
 Eine gegebenenfalls im Submodul vorhandene `.opencode/opencode.json` ist kein unterstützter
 Root-Startpfad. Sie wird von Setup, API und Diagnose weder geladen noch komponiert; nur der private,
 versionierte Root-Startvertrag darf den Job-Search-MCP aktivieren.
@@ -37,13 +51,26 @@ git clone --recurse-submodules <repository-url>
 npm.cmd install
 npm.cmd --prefix server install
 npm.cmd run setup:integrations
+npm.cmd run job-mcp:smoke
 npm.cmd test
 npm.cmd run build
 npm.cmd run diagnose
 ```
 
-Der Demo-Modus verwendet nur synthetische Offline-Daten. Externe Portale bleiben ohne
-`ALLOW_EXTERNAL_PORTALS=1` gesperrt. Login, Captcha und 2FA erfordern sichtbare Interaktion.
+Der Setup-Lauf installiert auch das Camoufox-Browserpaket. Dieser Download verwendet die
+Camoufox-Paketquellen, fuehrt aber keine Jobportal-Anfrage aus. Fuer einen CI-/Diagnoselauf ohne
+Browserdownload kann bewusst `-SkipBrowserFetch` gesetzt werden; ein sichtbarer StepStone-Login
+ist dann erst nach einem spaeteren Browser-Fetch betriebsbereit.
+
+Der Demo-Modus verwendet nur synthetische Offline-Daten. Ein validierter privater Launch aktiviert
+den effektiven `stdio`-Modus, aber niemals das Portalnetz. Externe Portale bleiben ohne
+`ALLOW_EXTERNAL_PORTALS=1` gesperrt. Die Reihenfolge für StepStone ist: Setup und Offline-Smoke,
+den automatisch übernommenen Runtime-Status in **Quellen & MCP** kontrollieren, Portalzugriff über
+den eigenen Bestätigungsdialog freigeben und erst dann **Sichtbaren Login öffnen**. Login, Captcha und 2FA
+erfordern sichtbare Interaktion. Das System umgeht keine Portalrichtlinie oder Schutzmassnahme.
+
+Ausfuehrliche Setup-, Diagnose- und Fehlerhinweise stehen in
+[Job-Search-MCP als Trusted Host](setup-job-search-mcp.md).
 
 ## Maileingang
 
@@ -73,17 +100,32 @@ aktualisiert sie jedoch nie ungefragt. Der Status erscheint in der Agentenansich
 `npm.cmd run diagnose`. REST-API und Angular zeigen die erkannten Installationen nach Windows- oder
 WSL-Runtime und Distribution an. Vor dem Start wird eine Installation explizit ausgewählt; der
 Server akzeptiert nur eine dazu passende, unterstützte Runtime und verlangt bei WSL die
-Distribution. Ein frei eingegebener Executable-Pfad bleibt ausgeschlossen. OpenCode und Claude
-bleiben außerdem blockiert, solange kein Versionsmuster ausdrücklich freigegeben ist.
+Distribution. Ein frei eingegebener Executable-Pfad bleibt ausgeschlossen. OpenCode ist nur in
+Version `1.14.41`, Claude Code nur in Version `2.1.232 (Claude Code)` und jeweils ausschließlich
+als WSL-Runtime freigegeben. Andere Versionen und Runtimeziele bleiben fail-closed blockiert.
 
-Neue Runs verwenden `read-only` und `network: disabled`. Workspace-Schreibrechte sind bewusst
-auswählbar; Netzwerkrequests lehnt die API derzeit vollständig ab. Eine zentrale
-kontextgebundene Freigabe für produktive CLI-Toolaufrufe ist noch nicht verdrahtet. Der
-interaktive Fake demonstriert Approve/Deny und Rückfragen ohne Seiteneffekt; seine Freigaben
-laufen durch die zentrale Policy und einmalige parametergebundene Approval-Tokens. Providerzugänge
+Neue Runs verwenden `read-only` und `network: disabled`; Requests mit `network:true` lehnt die API
+vollständig ab. Workspace-Schreibrechte sind nur bei Providern auswählbar, deren Manifest diesen
+Modus anbietet. Bei OpenCode und Claude bezeichnet `network: disabled` die modellseitige
+Toolgrenze: Bubblewrap isoliert Dateisystem, PID und IPC, lässt aber die Provider-Control-Plane für
+den Modellaufruf erreichbar. Die feste Read-only-Policy entfernt Shell-, Schreib-, Web-, MCP- und
+Subagent-Werkzeuge. Das ist ausdrücklich keine Netzwerk-Namespace-Sperre des gesamten
+Providerprozesses.
+
+Kontextgebundene Root-Freigaben sind für den mit
+`CODEX_APP_SERVER_EXPERIMENTAL=1` oder dem bestätigten Agentenprofil aktivierten nativen Codex App
+Server verdrahtet. Der
+interaktive Fake demonstriert Approve/Deny und Rückfragen ohne Seiteneffekt; seine Freigaben laufen
+ebenfalls durch die zentrale Policy und einmalige parametergebundene Approval-Tokens. Providerzugänge
 werden über deren lokalen Login eingerichtet. API-Schlüssel, Tokens und
 Portalkennwörter dürfen nicht in Prompt, Angular-Konfiguration oder Repository-`.env` kopiert
 werden.
+
+Das persistente Approval-Lifecycle-Journal unter `.local-data/agent-approvals/` ist append-only
+und `fsync`-gesichert. Es enthält keine Rohparameter, Akteursnamen oder Bearer-Tokens; Bindung,
+Parameter und Akteur werden nur gehasht abgelegt. Nach einem Serverneustart wird diese Historie
+gelesen, offene sowie erteilte, noch nicht verbrauchte Freigaben werden jedoch widerrufen und
+müssen neu angefordert werden.
 
 Bei einem hängenden Lauf wird zuerst **Abbrechen** verwendet. Der Server versucht, den bekannten
 Prozessbaum nach einer Grace Period zu beenden. Nach einem Serverneustart werden persistierte
@@ -106,12 +148,12 @@ Speicherdateien können personenbezogene Daten enthalten und müssen entsprechen
 Der Offline-Referenzpfad lässt sich nach `npm.cmd run dev` in **Agenten** mit dem Provider
 **Synthetischer Offline-Agent** testen. Er benötigt weder Konto noch Netzwerk. Die API bindet nur
 an `127.0.0.1`; Angular verwendet REST-Kommandos, nativen EventSource-Reconnect mit
-`Last-Event-ID` und ergänzendes REST-Polling. Ein
-`Idempotency-Key` findet persistierte Runs wieder und koalesziert gleichzeitig eintreffende gleiche
-Startrequests atomar innerhalb desselben Express-Prozesses. Die Inflight-Map ist jedoch
-prozesslokal und der Disk-Store besitzt keine transaktionale Unique-Constraint; über mehrere
-Serverprozesse sowie Crash-/Neustart-Grenzen hinweg besteht deshalb keine dauerhafte
-Exactly-once-Garantie. Run-Prompts und klassifizierte Eventfelder werden im Disk-Store mit
+`Last-Event-ID` und ergänzendes REST-Polling. Ein `Idempotency-Key` wird ohne Requestinhalt als
+Hash/Fingerprint und opaker Ergebnisverweis unter `.local-data/agent-idempotency/` persistiert. Er
+findet auch nach einem Neustart einen abgeschlossenen Run wieder; gleichzeitig eintreffende gleiche
+Requests werden im selben Express-Prozess koalesziert. Der Dateistore koordiniert jedoch keine
+prozessübergreifende Transaktion oder verteiltes Claim-Protokoll. Bei mehreren Serverprozessen besteht daher
+weiterhin keine harte Exactly-once-Garantie. Run-Prompts und klassifizierte Eventfelder werden im Disk-Store mit
 AES-256-GCM verschlüsselt; `.local-data/keys/agent-run-vault.key` muss gemeinsam mit
 `.local-data/agent-runs/` gesichert werden.
 
@@ -143,10 +185,14 @@ Codex-/OpenCode-/Claude-/MCP-Projektkonfiguration versucht, `job-search-mcp` als
 Damit kann insbesondere die optionale `.opencode`-Entwicklerkonfiguration des Submoduls nicht
 versehentlich innerhalb von Bubblewrap ausgeführt werden. Der Root-Adapter bleibt der
 unterstützte trusted-host-Startpfad. Projektverwaltete MCP-/Plugin-Deklarationen sind im Agent
-Center generell fail-closed. Codex Exec verwendet auf der freigegebenen 0.147-Linie zusätzlich
-`--ignore-user-config`; OpenCode/Claude erhalten in Bubblewrap ein leeres temporäres HOME und
-XDG-Konfigurationsverzeichnis. Der experimentelle Codex App Server fällt vor dem ersten Turn auf
-Exec zurück, solange er Userkonfiguration nicht nachweisbar ignorieren kann.
+Center generell fail-closed. Codex Exec verwendet bei der ausschließlich freigegebenen Version
+`0.147.0` feste servereigene Argumente mit `--ignore-user-config --strict-config`,
+`web_search="disabled"` und `sandbox_workspace_write.network_access=false`. Der experimentelle
+Codex App Server verwendet dieselben Overrides und erhält ein temporäres `CODEX_HOME`,
+das höchstens die lokale `auth.json`, aber keine Benutzer-MCP-/Plugin-Konfiguration enthält.
+OpenCode und Claude erhalten ein temporäres HOME/XDG-Verzeichnis; nur ihre jeweilige
+Authentifizierungsdatei wird read-only eingebunden. Bei einem als offline ausgewählten App-Server-
+Run ist ein Healthfehler fail-closed und führt nicht zu einem schwächeren Exec-Fallback.
 
 Wichtige Diagnoseendpunkte sind `GET /api/agents/providers`, `GET /api/agents/health`,
 `GET /api/agent-runs`, `GET /api/agent-runs/:id/events` und
@@ -157,8 +203,10 @@ Wichtige Diagnoseendpunkte sind `GET /api/agents/providers`, `GET /api/agents/he
 Vor einem Start ruft Angular `POST /api/agent-runs/preflight` mit demselben strikt validierten
 Run-Entwurf auf. Die Antwort ist `Cache-Control: no-store`, echoet weder Prompt noch IDs, Pfade
 oder Inhalte und startet weder Agent noch Job-Search-MCP. Sie nennt serverseitig erkannte Runtime,
-effektiven Workspacezugriff, Datenkategorien, Limits, Netzwerkpolicy und die vollständige aktuell
-leere Root-MCP-Tool-Allowlist. Beim Workflow `guided-job-analysis` ist ausdrücklich sichtbar,
+effektiven Workspacezugriff, Datenkategorien, Limits, Netzwerkpolicy und die vollständige
+provider- und workflowabhängige Root-MCP-Tool-Allowlist. Sie ist für OpenCode, Claude, Fake und
+den stabilen Codex-Exec-Transport leer; beim aktivierten nativen Codex App Server enthält sie nur die benötigten
+Domainwerkzeuge. Beim Workflow `guided-job-analysis` ist ausdrücklich sichtbar,
 dass `job-search-mcp` erst beim eigentlichen Start auf dem Trusted Host läuft und der Agent nur
 normalisierte Ergebnisse erhält.
 
@@ -166,11 +214,67 @@ Rungebundene Vorschläge liegen unter `GET/POST /api/agent-runs/:id/artifacts`. 
 UTF-8-Inhalt werden über `.../artifacts/:artifactId` beziehungsweise `.../content` gelesen;
 `.../artifacts/diff?left=<id>&right=<id>` liefert einen größen- und zeilenbegrenzten Vergleich.
 `POST .../artifacts/:artifactId/review` akzeptiert ausschließlich `approved` oder `rejected`
-zusammen mit `expectedRevision` und `confirmed:true`. Es existiert absichtlich kein REST-Endpunkt
-zum Markieren als `used`. Inhaltsantworten tragen `Cache-Control: no-store`; Run- und
+zusammen mit `expectedRevision` und `confirmed:true`. Die bestätigte Route `.../adopt` kann nur ein
+freigegebenes `application-pipeline-package` übernehmen. Dabei führt der Server die lokale
+Evidence- und Sprachpipeline erneut aus, prüft Fall-, Stellen-, Firmen-, Identitäts-, Revisions-
+und Hash-Provenance und erzeugt eine neue fachliche Revision im Zustand `proposed`. Nur dieser
+servereigene Übernahmeport darf anschließend das Agentenartefakt als `used` markieren; einen freien
+Lifecycle-Schalter gibt es nicht. Inhaltsantworten tragen `Cache-Control: no-store`; Run- und
 Supportexporte sowie normale Auditlogs enthalten keine Artefakt-Rohinhalte. Die Dateien unter
 `.local-data/agent-artifacts/` sind dennoch personenbezogene lokale Daten und gehören in die
 gemeinsame Backup-, Zugriffs- und Löschpolicy.
+
+### Multi-Agent-Orchestrierung
+
+`POST /api/agent-orchestrations` startet einen versionierten Workflow, nicht nur einen einzelnen
+UI-Run. Der Workflow `evidence-application-package` führt fünf getrennte Node-Runs aus:
+Evidence → Author → ATS und Recruiter/Style → Finalizer. Scope, Input-Digests, Rollenprompt,
+Abhängigkeiten, Budgets, Retryregeln und Artefakte werden serverseitig gebunden. Evidence-Gates
+kommen ausschließlich aus dem lokalen Kandidatenprofil. Das einzige browserauflösbare Vor-Gate des
+Finalizers ist `user_input`, gebunden an die aktuelle ApplicationCase-Revision und die
+ausdrückliche Bestätigung; `review_complete` ist kein Vor-Gate dieses Workflows. Eine wartende
+Orchestrierung wird mit `expectedRevision` fortgesetzt oder abgebrochen. Der Finalizer erzeugt nur
+ein strikt validiertes `application-pipeline-package` im Zustand `package_proposal`. Danach folgen
+separat Artefakt-Review, Adoption mit erneuter lokaler Pipelineprüfung, eine fachliche
+Vorschlagsrevision, deren Review, die exakte Fallfreigabe sowie `used` beziehungsweise Export.
+
+### Profile und lokale Sprachprüfung
+
+`GET /api/application-pipeline/setup` zeigt, ob die privaten Kandidaten- und Stilprofile vorhanden
+sind. Die bestätigte Setup-Route kopiert nur die leeren Beispiele des Submodules nach
+`.local-data/profiles/`, überschreibt nichts und erfindet keine Kandidatenfakten. Das Stilprofil
+wird über `GET/PUT /api/application-pipeline/style-profile` mit `expectedRevision`,
+`expectedSha256` und `confirmed:true` bearbeitet und vor atomarer Veröffentlichung durch den
+Submodule-Validator geprüft.
+
+Die Sprachprüfung verwendet standardmäßig gebündelte deutsche und englische Wörterbücher über
+`nspell`; Dokumenttext verlässt dabei den Rechner nicht. `LANGUAGE_CHECK_BACKEND=languagetool`
+oder `hunspell` wählt die bestehenden lokalen Submodule-Backends. Ein nicht verfügbares Backend
+bleibt in der finalen Evidence-Pipeline ein blockierender Nachweisfehler.
+
+### Retention, Observability und Agentenprofile
+
+Die lokale Composition legt Retention-Journal, Idempotenzregister, Agenten-Konfigurationsprofil
+und strukturierte Observability ausschließlich unter `.local-data/` an. Retention arbeitet als
+Preview mit Digest und anschließend bestätigter Kaskade über terminale Runs, Eventlogs, vorhandene
+optional konfigurierte Rohlogs und Agentenartefakte. Der Supervisor unterstützt Rohlogrotation,
+die normalen Provideradapter aktivieren sie derzeit jedoch nicht. Aktive Legal Holds auf Run,
+Artefakt oder Bewerbungsfall blockieren die Löschung;
+bei bereits verwendeten Artefakten bleibt die Provenance-Metadatei erhalten, während Rohinhalt
+gelöscht werden kann. Das Journal speichert Referenzen nur gehasht, ist append-only und wird
+`fsync`-gesichert; es ist jedoch keine extern signierte oder manipulationssichere Audit-Chain.
+
+`GET/PUT /api/agents/config-profile` verwaltet ein versionsgebundenes, secret-freies Profil mit
+Compare-and-swap über `expectedUpdatedAt`, Last-known-good-Kopie und sicherem Reset. Das Feature
+`codexAppServerExperimental` wird beim Provider-Preflight und Start dynamisch berücksichtigt;
+einzelne Runwerte stammen weiterhin aus dem validierten Runrequest. Der produktiv verdrahtete
+Angular-CAS-Editor zeigt aktives Profil beziehungsweise Last-known-good-Quelle, Provider-Runtime,
+Sandbox, Offline-/Approvalmodus, Budgetgrenzen und Featureflags. Er bietet keine Secret-, Pfad-,
+Command- oder argv-Felder an, verlangt für den Codex App Server ein gesondertes Opt-in und erneuert
+nach erfolgreichem Speichern Providererkennung und Preflight. Reservierte Realtime-/Rohlogflags
+sind in der Oberfläche nur lesbar. Das lokale Observability-Log enthält nur allowlistete Codes,
+Zeitmessungen und gehashte Korrelations-/Run-IDs, niemals Prompts, Mails oder freie Details; eine
+Angular-Logansicht ist dafür noch nicht vorhanden.
 
 ## Backup und Restore
 
@@ -227,3 +331,7 @@ konkreten Pfaden erfolgen.
   kein manuelles Datenschutzreview.
 - Backup, Upgrade, Rollback und bekannte Einschraenkungen sind fuer das Release dokumentiert.
 - Ein frischer Checkout reproduziert den synthetischen Kernpfad ohne Credentials und Netzwerk.
+
+Die konkreten Pins, Provider- und Featuregrenzen sowie Rollback- und Offline-Kommandos stehen in
+der [Release-Matrix](release-matrix.md). Bei einem Sicherheits- oder Datenschutzvorfall gilt das
+[Incident- und Datenschutz-Runbook](incident-privacy-runbook.md).

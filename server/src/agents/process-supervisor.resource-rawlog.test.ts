@@ -3,7 +3,14 @@ import { mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { classifyProcessResourceUsage, ProcessSupervisor, type ResourceProbe } from './process-supervisor.js';
+import {
+  classifyProcessResourceUsage,
+  HostProcessTreeResourceProbe,
+  ProcessSupervisor,
+  summarizeProcessTree,
+  type ProcessTableCommandExecutor,
+  type ResourceProbe,
+} from './process-supervisor.js';
 
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
@@ -83,6 +90,47 @@ describe('ProcessSupervisor optional raw-log rotation', () => {
 });
 
 describe('ProcessSupervisor injected resource boundaries', () => {
+  it('aggregates only the supervised process tree from a process-table snapshot', () => {
+    expect(summarizeProcessTree(10, [
+      { pid: 1, parentPid: 0, residentMemoryBytes: 1_000 },
+      { pid: 10, parentPid: 1, residentMemoryBytes: 200 },
+      { pid: 11, parentPid: 10, residentMemoryBytes: 300 },
+      { pid: 12, parentPid: 11, residentMemoryBytes: 400 },
+      { pid: 99, parentPid: 1, residentMemoryBytes: 99_000 },
+    ])).toEqual({ residentMemoryBytes: 900, childProcessCount: 2 });
+  });
+
+  it('uses fixed platform commands and normalizes Windows and POSIX RSS units', async () => {
+    const calls: Array<{ executable: string; args: readonly string[] }> = [];
+    const windowsExecutor: ProcessTableCommandExecutor = { async run(executable, args) {
+      calls.push({ executable, args });
+      return { exitCode: 0, stdout: JSON.stringify([
+        { ProcessId: 10, ParentProcessId: 1, WorkingSetSize: '200' },
+        { ProcessId: 11, ParentProcessId: 10, WorkingSetSize: 300 },
+      ]), stderr: '' };
+    } };
+    await expect(new HostProcessTreeResourceProbe('win32', windowsExecutor).sample(10))
+      .resolves.toEqual({ residentMemoryBytes: 500, childProcessCount: 1 });
+    expect(calls[0]?.executable).toMatch(/^[A-Za-z]:\\.*\\powershell\.exe$/i);
+    expect(calls[0]?.args).toEqual(expect.arrayContaining(['-NoProfile', '-NonInteractive', '-Command']));
+
+    const posixExecutor: ProcessTableCommandExecutor = { async run(executable, args) {
+      calls.push({ executable, args });
+      return { exitCode: 0, stdout: '10 1 2\n11 10 3\n', stderr: '' };
+    } };
+    await expect(new HostProcessTreeResourceProbe('linux', posixExecutor).sample(10))
+      .resolves.toEqual({ residentMemoryBytes: 5 * 1024, childProcessCount: 1 });
+    expect(calls[1]).toEqual({ executable: '/usr/bin/ps', args: ['-axo', 'pid=,ppid=,rss='] });
+  });
+
+  it('fails closed for malformed tables, unsupported hosts, and a missing root process', async () => {
+    const malformed: ProcessTableCommandExecutor = { async run() { return { exitCode: 0, stdout: 'not-json', stderr: '' }; } };
+    await expect(new HostProcessTreeResourceProbe('win32', malformed).sample(10)).rejects.toThrow();
+    const missing: ProcessTableCommandExecutor = { async run() { return { exitCode: 0, stdout: '11 1 3\n', stderr: '' }; } };
+    await expect(new HostProcessTreeResourceProbe('linux', missing).sample(10)).rejects.toThrow('Root-Prozess fehlt');
+    await expect(new HostProcessTreeResourceProbe('aix', missing).sample(10)).rejects.toThrow('nicht unterstuetzt');
+  });
+
   it('classifies exact and exceeded memory/child boundaries deterministically', () => {
     expect(classifyProcessResourceUsage(
       { residentMemoryBytes: 100, childProcessCount: 1 },
@@ -117,9 +165,59 @@ describe('ProcessSupervisor injected resource boundaries', () => {
     expect(result.lastResourceUsage).toEqual({ residentMemoryBytes: 101, childProcessCount: 0 });
   });
 
+  it.runIf(['win32', 'linux', 'darwin'].includes(process.platform))('enforces a real host process-table sample', async () => {
+    const cwd = await temporaryRoot('supervisor-host-probe-');
+    const result = await new ProcessSupervisor().start({
+      executable: process.execPath,
+      args: ['-e', 'setInterval(() => {}, 1000)'],
+      cwd,
+      limits: {
+        maxResidentMemoryBytes: 1,
+        maxChildProcesses: 16,
+        resourceProbeIntervalMs: 100,
+        wallTimeMs: 15_000,
+        idleTimeMs: 15_000,
+        cancelGraceMs: 100,
+      },
+    }).completion;
+
+    expect(result.termination).toBe('memory_limit');
+    expect(result.lastResourceUsage?.residentMemoryBytes).toBeGreaterThan(1);
+  }, 20_000);
+
+  it.runIf(['win32', 'linux', 'darwin'].includes(process.platform))('detects and cleans up a real descendant over the child-process ceiling', async () => {
+    const cwd = await temporaryRoot('supervisor-host-child-probe-');
+    let descendantPidText = '';
+    const result = await new ProcessSupervisor().start({
+      executable: process.execPath,
+      args: ['-e', [
+        'const { spawn } = require("node:child_process");',
+        'const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });',
+        'process.stdout.write(String(child.pid));',
+        'setInterval(() => {}, 1000);',
+      ].join('')],
+      cwd,
+      limits: {
+        maxResidentMemoryBytes: 1024 * 1024 * 1024,
+        maxChildProcesses: 0,
+        resourceProbeIntervalMs: 100,
+        wallTimeMs: 15_000,
+        idleTimeMs: 15_000,
+        cancelGraceMs: 100,
+      },
+    }, { onStdout: (chunk) => { descendantPidText += chunk; } }).completion;
+
+    expect(result.termination).toBe('child_process_limit');
+    expect(result.lastResourceUsage?.childProcessCount).toBeGreaterThan(0);
+    const descendantPid = Number(descendantPidText);
+    expect(descendantPid).toBeGreaterThan(0);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(() => process.kill(descendantPid, 0)).toThrow();
+  }, 20_000);
+
   it('fails closed for a missing, throwing, or invalid resource probe', async () => {
     const cwd = await temporaryRoot('supervisor-probe-failure-');
-    expect(() => new ProcessSupervisor().start({
+    expect(() => new ProcessSupervisor(null).start({
       executable: process.execPath, args: ['-e', 'setInterval(() => {}, 1000)'], cwd,
       limits: { maxResidentMemoryBytes: 100 },
     })).toThrow('ResourceProbe');

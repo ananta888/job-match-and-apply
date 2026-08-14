@@ -63,7 +63,8 @@ checks.push({ id: 'job-search-mcp-wsl-runtime', ok: wslMcpReady, required: false
 
 let configuredMcpMode = 'demo';
 const localConfigPath = resolve(root, '.local-data/config.json');
-if (existsSync(localConfigPath)) {
+const hasLocalConfig = existsSync(localConfigPath);
+if (hasLocalConfig) {
   try {
     const parsed = JSON.parse(readFileSync(localConfigPath, 'utf8'));
     configuredMcpMode = String(parsed?.config?.mcp?.mode ?? parsed?.mcp?.mode ?? 'demo');
@@ -72,19 +73,41 @@ if (existsSync(localConfigPath)) {
 const mcpLaunchSpecPath = resolve(root, '.local-data/job-search-mcp-launch.json');
 let trustedHostLaunch = false;
 let trustedHostDetail = 'Noch kein privater MCP-Startvertrag; setup:integrations erzeugt ihn.';
+let offlineMcpSmoke = false;
+let offlineMcpSmokeDetail = 'Noch kein validierter privater Startvertrag.';
 if (existsSync(mcpLaunchSpecPath)) {
   try {
     const launch = parseJobSearchMcpLaunch(JSON.parse(readFileSync(mcpLaunchSpecPath, 'utf8')));
     const runtime = await validateJobSearchMcpRuntime(launch, { projectRoot: root });
     trustedHostLaunch = runtime.ready;
+    if (!hasLocalConfig && trustedHostLaunch) configuredMcpMode = 'stdio';
     trustedHostDetail = `Direkter ${runtime.runtimeTarget === 'wsl' ? `WSL-${runtime.distribution}-` : 'nativer '}stdio-Start als trusted-host; Realpfad liegt in der Integration-Venv, keine Agenten-Sandbox.`;
+    if (launch.env.ALLOW_EXTERNAL_PORTALS !== '0') {
+      offlineMcpSmokeDetail = 'Offline-Smoke aus Sicherheitsgruenden uebersprungen: privater Startvertrag sperrt Portalnetz nicht.';
+    } else {
+      try {
+        const { runOfflineJobSearchMcpSmoke } = await import('../server/src/services/job-search-mcp-smoke.mjs');
+        const smoke = await runOfflineJobSearchMcpSmoke({ projectRoot: root, launchPath: mcpLaunchSpecPath });
+        offlineMcpSmoke = smoke.status === 'ok';
+        offlineMcpSmokeDetail = offlineMcpSmoke
+          ? `MCP-Handshake, tools/list, capabilities und StepStone-Vertrag erfolgreich; ${smoke.portalNetwork}; kein Such-/Login-Werkzeug aufgerufen.`
+          : 'Offline-MCP-Smoke lieferte keinen Erfolgsstatus.';
+      } catch (error) {
+        offlineMcpSmokeDetail = `Offline-MCP-Smoke fehlgeschlagen: ${error instanceof Error ? error.message : String(error)}`;
+      }
+    }
   } catch (error) {
     trustedHostDetail = `Privater MCP-Startvertrag oder Runtimepfad ist ungueltig: ${error instanceof Error ? error.message : String(error)}`;
+    offlineMcpSmokeDetail = 'Offline-MCP-Smoke wegen ungueltigem Startvertrag nicht ausgefuehrt.';
   }
 }
 checks.push({
   id: 'job-search-mcp-trusted-host-boundary', ok: trustedHostLaunch,
   required: configuredMcpMode === 'stdio', detail: trustedHostDetail
+});
+checks.push({
+  id: 'job-search-mcp-offline-stdio-smoke', ok: offlineMcpSmoke,
+  required: configuredMcpMode === 'stdio', detail: offlineMcpSmokeDetail
 });
 const mcpRuntimeReady = configuredMcpMode === 'stdio' ? trustedHostLaunch : nativeMcpReady || wslMcpReady;
 checks.push({
@@ -95,9 +118,23 @@ checks.push({
 });
 const languageTool = process.env.LANGUAGETOOL_URL;
 const hunspell = spawnSync(process.platform === 'win32' ? 'where.exe' : 'which', ['hunspell'], { encoding: 'utf8', windowsHide: true });
+const bundledNspell = ['server/node_modules/nspell/package.json', 'server/node_modules/dictionary-de/package.json', 'server/node_modules/dictionary-en/package.json']
+  .every((path) => existsSync(resolve(root, path)));
+const requestedLanguageBackend = process.env.LANGUAGE_CHECK_BACKEND || 'nspell';
+const languageBackendReady = requestedLanguageBackend === 'nspell'
+  ? bundledNspell
+  : requestedLanguageBackend === 'languagetool'
+    ? Boolean(languageTool)
+    : requestedLanguageBackend === 'hunspell' && hunspell.status === 0;
 checks.push({
-  id: 'local-language-backend', ok: Boolean(languageTool) || hunspell.status === 0, required: false,
-  detail: languageTool ? 'LANGUAGETOOL_URL ist konfiguriert (Wert redigiert).' : hunspell.status === 0 ? 'Hunspell lokal gefunden.' : 'Optional: weder LanguageTool noch Hunspell konfiguriert.'
+  id: 'local-language-backend', ok: languageBackendReady, required: true,
+  detail: requestedLanguageBackend === 'nspell' && bundledNspell
+    ? 'Gebündeltes lokales nspell mit deutschen und englischen Wörterbüchern; kein externer Sprachdienst erforderlich.'
+    : requestedLanguageBackend === 'languagetool' && languageTool
+      ? 'Lokales LanguageTool ist konfiguriert (Wert redigiert).'
+      : requestedLanguageBackend === 'hunspell' && hunspell.status === 0
+        ? 'Hunspell lokal gefunden.'
+        : `Das ausdrücklich konfigurierte lokale Sprachbackend ${requestedLanguageBackend} ist nicht bereit.`
 });
 const configPath = localConfigPath;
 if (existsSync(configPath)) {

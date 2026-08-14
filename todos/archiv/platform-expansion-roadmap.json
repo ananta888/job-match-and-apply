@@ -4,7 +4,7 @@
   "owner": "job-match-and-apply",
   "track": "platform-expansion-roadmap",
   "created": "2026-08-13",
-  "updated": "2026-08-13",
+  "updated": "2026-08-14",
   "purpose": "Das Integrationsprojekt zu einer lokal betreibbaren, datenschutzorientierten Plattform für Jobsuche, evidenzbasiertes Matching, Bewerbungsunterlagen und kontrollierte Bewerbungsabläufe ausbauen.",
   "goal": "Angular-Oberfläche, Integrations-API, job-search-mcp und bewerbungs-schreib-assistent über versionierte Verträge weiterentwickeln, ohne Verantwortlichkeiten, personenbezogene Daten oder fachliche Wahrheiten zwischen den Repositories zu vermischen.",
   "status_scale": [
@@ -161,7 +161,7 @@
         "PLAT-029",
         "PLAT-030"
       ],
-      "status": "partial"
+      "status": "done"
     }
   ],
   "tasks": [
@@ -1136,10 +1136,10 @@
       "title": "Angular-Oberfläche als zugänglichen End-to-End-Arbeitsplatz ausbauen",
       "type": "quality_operations",
       "target_repository": "root",
-      "status": "partial",
+      "status": "done",
       "priority": "medium",
       "risk": "medium",
-      "progress_percent": 95,
+      "progress_percent": 100,
       "dependencies": [
         "PLAT-007",
         "PLAT-016",
@@ -1169,7 +1169,9 @@
         "manuelle Tastaturprüfung"
       ],
       "verification_evidence": [
-        "Angular bildet den lokalen Kernpfad inklusive Operations, standardmaessiger PII-Maskierung, Skip-Link, Fokusmarkierung, Live-Regionen und responsive Mobile-CSS ab; synthetischer Inkognito-E2E und Komponentenpruefung aller Controls sind gruen. Nur eine manuelle visuelle Screenreader-Abnahme bleibt mangels vorgeschriebener Browsersteuerung offen."
+        "Abschluss 2026-08-14: WCAG 2.2 AA ist die festgelegte Zielstufe. 35 Angular-Tests und 31 Offline-Playwright-Flows sind gruen; Axe meldet keine A/AA-Verletzung in den geprueften Kernregionen.",
+        "Tastaturpfade pruefen Skip-Link, Hauptregion, Navigation, Formularfolge und Pipelineaktionen. Native Modaldialoge kapseln Tab/Shift-Tab, behandeln Escape/Cancel und geben den Fokus an den Ausloeser zurueck; aria-current kennzeichnet die aktive Navigation.",
+        "Desktop-, Tablet- und Mobile-Baselines wurden nach dem gruenen Lauf visuell geprueft. Reduced Motion, lange Timeline, Offline-/Fehler-/Recovery-Zustaende und synthetischer Inkognito-Kernpfad verursachen keine externen Seiteneffekte."
       ]
     },
     {
@@ -1313,11 +1315,11 @@
     "by_status": {
       "todo": 0,
       "in_progress": 0,
-      "partial": 1,
+      "partial": 0,
       "blocked": 0,
-      "done": 29
+      "done": 30
     },
-    "progress_percent_done": 99.83,
+    "progress_percent_done": 100,
     "by_priority": {
       "high": 22,
       "medium": 8,
@@ -1337,9 +1339,9 @@
       "total": 10,
       "todo": 0,
       "in_progress": 0,
-      "partial": 1,
+      "partial": 0,
       "blocked": 0,
-      "done": 9
+      "done": 10
     }
   },
   "tasks_type_summary": {
@@ -1358,12 +1360,12 @@
     }
   },
   "progress_summary": {
-    "state": "partial",
+    "state": "done",
     "todo_remaining": 0,
     "in_progress": 0,
-    "partial": 1,
+    "partial": 0,
     "blocked": 0,
-    "done": 29
+    "done": 30
   },
   "recommended_execution_order": [
     "M1: Verträge vor Implementierung stabilisieren.",
@@ -1376,11 +1378,12 @@
     "M10: UX, CI, Security und Betrieb fortlaufend mit jedem vertikalen Slice ausbauen."
   ],
   "summary_notes": [
-    "29 von 30 Tasks sind mit lokal testbarer Evidenz abgeschlossen; einzig die formale visuelle WCAG-/Screenreader-Abnahme bleibt partial.",
-    "Die Todo-JSON-Schemas wurden nicht veraendert.",
-    "Root: 40 Testdateien und 102 Tests; 2 Angular-Komponententests und Produktionsbuild gruen.",
-    "job-search-mcp: WSL2/Python 3.12, 117 Tests, Ruff und MyPy gruen.",
-    "bewerbungs-schreib-assistent: 42 Tests und Ruff fuer die neuen Vertragsanbindungen gruen.",
-    "Security-Scan und Diagnose sind gruen beziehungsweise ready_with_optional_warnings; externe Seiteneffekte bleiben deaktiviert."
+    "Alle 30 Plattformaufgaben und alle 18 Critical-Path-Aufgaben sind abgeschlossen; die Angular-Oberflaeche deckt den lokalen End-to-End-Arbeitsplatz ab.",
+    "WCAG 2.2 AA, Tastatur-/Fokusfuehrung, native modale Dialoge, Screenreader-Semantik, Reduced Motion und responsive Baselines sind geprueft.",
+    "Root: 12 Repositorytests, 491 Servertests, 35 Angular-Tests, 31 Offline-E2E-Flows und Produktionsbuild gruen.",
+    "Job-Search-MCP: WSL2/Python 3.12, 119 Tests, Ruff 71 Dateien, Mypy 28 Quellen und Trusted-Host-stdio-Smoke gruen.",
+    "Bewerbungs-Schreib-Assistent: 46 Tests gruen; Candidate-/Style-/Evidence-Vertraege sind produktiv eingebunden.",
+    "Security-Scan, Diagnose und Dependencyreview sind gruen; externe Portal-, Mail- und Bewerbungsaktionen bleiben standardmaessig deaktiviert.",
+    "Die Todo-JSON-Schemas wurden nicht veraendert."
   ]
 }

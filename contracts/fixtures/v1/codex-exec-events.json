@@ -1,6 +1,6 @@
 {
   "provider": "codex-exec",
-  "providerVersion": "codex-cli 0.147.x",
+  "providerVersion": "codex-cli 0.147.0",
   "source": "synthetic no-network corpus for the documented exec --json JSONL contract; upgrade gate remains exact-version allowlisted",
   "events": [
     { "type": "thread.started", "thread_id": "synthetic-thread" },

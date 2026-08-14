@@ -26,6 +26,7 @@ export function nextAgentEvent(run: AgentRun, draft: AgentEventDraft, now = new 
     timestamp,
     provider: run.provider,
     correlationId: draft.correlationId ?? runCorrelationId ?? randomUUID(),
+    ...(draft.providerEventId ? { providerEventId: draft.providerEventId } : {}),
     kind: draft.kind,
     data
   };

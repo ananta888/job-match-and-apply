@@ -1,4 +1,9 @@
 import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
+import {
+  hashApprovalLifecycleValue,
+  type ApprovalLifecycleJournal,
+  type ApprovalLifecycleRecovery,
+} from './approval-lifecycle-journal.js';
 import type { RiskClass } from './security-policy.js';
 
 type JsonPrimitive = string | number | boolean | null;
@@ -159,22 +164,38 @@ function base64UrlDecodeJson(encoded: string): ApprovalTokenPayload {
  * but signing keys and raw command parameters never need to be persisted here.
  */
 export class ApprovalQueue {
-  readonly audit: ApprovalAuditEntry[] = [];
+  private readonly auditEntries: ApprovalAuditEntry[] = [];
   private readonly requests = new Map<string, ApprovalRequest>();
   private readonly revokedTokenIds = new Set<string>();
   private readonly consumedTokenIds = new Set<string>();
+  private readonly lifecycleBindings = new Map<string, string>();
   private readonly key: Buffer;
+  private readonly recoveredLifecycle?: ApprovalLifecycleRecovery;
 
   constructor(
     signingKey: Buffer | string,
     private readonly clock: () => Date = () => new Date(),
     private readonly defaultTtlMs = 5 * 60_000,
+    private readonly lifecycleJournal?: ApprovalLifecycleJournal,
   ) {
     this.key = Buffer.isBuffer(signingKey) ? Buffer.from(signingKey) : Buffer.from(signingKey, 'utf8');
     if (this.key.byteLength < 32) throw new Error('approval_signing_key_too_short');
     if (!Number.isSafeInteger(defaultTtlMs) || defaultTtlMs < 1_000 || defaultTtlMs > 60 * 60_000) {
       throw new Error('approval_ttl_out_of_range');
     }
+    // Pending or approved authority is never restored after a process restart:
+    // the durable journal records a revocation while bearer tokens stay absent.
+    if (lifecycleJournal) this.recoveredLifecycle = lifecycleJournal.recover(this.clock());
+  }
+
+  /** Approval history is append-only from a caller's point of view. */
+  get audit(): readonly ApprovalAuditEntry[] {
+    return this.auditEntries.map((entry) => Object.freeze(structuredClone(entry)));
+  }
+
+  /** Hash-only restart diagnostics; no request payload, actor or token exists here. */
+  get durabilityRecovery(): ApprovalLifecycleRecovery | undefined {
+    return this.recoveredLifecycle ? structuredClone(this.recoveredLifecycle) : undefined;
   }
 
   request(input: ApprovalRequestInput): ApprovalRequest {
@@ -196,8 +217,15 @@ export class ApprovalQueue {
       expiresAt: new Date(now.getTime() + ttl).toISOString(),
       status: 'pending',
     };
+    const bindingHash = this.bindingHash(request);
+    this.lifecycleJournal?.record({
+      kind: 'approval_requested', requestId: request.id, runId: request.runId,
+      occurredAt: request.createdAt, bindingHash, parametersHash: request.parametersHash,
+      risk: request.risk, expiresAt: request.expiresAt,
+    });
+    this.lifecycleBindings.set(request.id, bindingHash);
     this.requests.set(request.id, request);
-    this.audit.push({ requestId: request.id, action: 'requested', actor: 'system', occurredAt: request.createdAt });
+    this.auditEntries.push({ requestId: request.id, action: 'requested', actor: 'system', occurredAt: request.createdAt });
     return cloneRequest(request);
   }
 
@@ -234,11 +262,12 @@ export class ApprovalQueue {
       issuedAt: now.getTime(),
       expiresAt: Date.parse(request.expiresAt),
     };
+    this.recordDecision(request, 'approval_approved', actor, now);
     request.status = 'approved';
     request.resolvedAt = now.toISOString();
     request.resolvedBy = actor;
     request.tokenId = payload.jti;
-    this.audit.push({ requestId, action: 'approved', actor, occurredAt: now.toISOString(), tokenId: payload.jti });
+    this.auditEntries.push({ requestId, action: 'approved', actor, occurredAt: now.toISOString(), tokenId: payload.jti });
     return this.sign(payload);
   }
 
@@ -250,6 +279,7 @@ export class ApprovalQueue {
     diff?: string,
   ): { request: ApprovalRequest; token: string } {
     const original = this.requirePending(requestId);
+    if (!actor.trim()) throw new Error('approval_actor_required');
     const now = this.clock();
     const remainingTtl = Math.max(1_000, Date.parse(original.expiresAt) - now.getTime());
     const replacement = this.request({
@@ -263,22 +293,29 @@ export class ApprovalQueue {
       alternatives: original.alternatives,
       expiresInMs: remainingTtl,
     });
+    this.lifecycleJournal?.record({
+      kind: 'approval_superseded', requestId: original.id, runId: original.runId,
+      occurredAt: now.toISOString(), bindingHash: this.requiredBinding(original),
+      actorHash: hashApprovalLifecycleValue(actor.trim()), replacementRequestId: replacement.id,
+    });
     original.status = 'superseded';
     original.resolvedAt = now.toISOString();
     original.resolvedBy = actor;
     original.supersededBy = replacement.id;
-    this.audit.push({ requestId: original.id, action: 'edited', actor, occurredAt: now.toISOString() });
+    this.auditEntries.push({ requestId: original.id, action: 'edited', actor, occurredAt: now.toISOString() });
     return { request: replacement, token: this.approve(replacement.id, actor) };
   }
 
   deny(requestId: string, actor: string, note?: string): ApprovalRequest {
     const request = this.requirePending(requestId);
+    if (!actor.trim()) throw new Error('approval_actor_required');
     const now = this.clock();
+    this.recordDecision(request, 'approval_denied', actor, now);
     request.status = 'denied';
     request.resolvedAt = now.toISOString();
     request.resolvedBy = actor;
     request.resolutionNote = note;
-    this.audit.push({ requestId, action: 'denied', actor, occurredAt: now.toISOString() });
+    this.auditEntries.push({ requestId, action: 'denied', actor, occurredAt: now.toISOString() });
     return cloneRequest(request);
   }
 
@@ -287,12 +324,14 @@ export class ApprovalQueue {
     if (!request) throw new Error('approval_request_not_found');
     this.expireIfNecessary(request, this.clock());
     if (request.status !== 'pending' && request.status !== 'approved') throw new Error(`approval_not_revocable:${request.status}`);
+    if (!actor.trim()) throw new Error('approval_actor_required');
     const now = this.clock();
+    this.recordDecision(request, 'approval_revoked', actor, now);
     request.status = 'revoked';
     request.resolvedAt = now.toISOString();
     request.resolvedBy = actor;
     if (request.tokenId) this.revokedTokenIds.add(request.tokenId);
-    this.audit.push({ requestId, action: 'revoked', actor, occurredAt: now.toISOString(), tokenId: request.tokenId });
+    this.auditEntries.push({ requestId, action: 'revoked', actor, occurredAt: now.toISOString(), tokenId: request.tokenId });
     return cloneRequest(request);
   }
 
@@ -322,10 +361,11 @@ export class ApprovalQueue {
     if (!request || request.status !== 'approved' || request.tokenId !== payload.jti) {
       throw new Error('approval_token_request_invalid');
     }
+    this.recordDecision(request, 'approval_consumed', 'system', now);
     this.consumedTokenIds.add(payload.jti);
     request.status = 'consumed';
     request.resolvedAt = now.toISOString();
-    this.audit.push({ requestId: request.id, action: 'consumed', actor: 'system', occurredAt: now.toISOString(), tokenId: payload.jti });
+    this.auditEntries.push({ requestId: request.id, action: 'consumed', actor: 'system', occurredAt: now.toISOString(), tokenId: payload.jti });
     return {
       requestId: request.id,
       tokenId: payload.jti,
@@ -348,10 +388,40 @@ export class ApprovalQueue {
 
   private expireIfNecessary(request: ApprovalRequest, now: Date): void {
     if ((request.status === 'pending' || request.status === 'approved') && Date.parse(request.expiresAt) <= now.getTime()) {
+      this.recordDecision(request, 'approval_expired', 'system', now);
       request.status = 'expired';
       if (request.tokenId) this.revokedTokenIds.add(request.tokenId);
-      this.audit.push({ requestId: request.id, action: 'expired', actor: 'system', occurredAt: now.toISOString(), tokenId: request.tokenId });
+      this.auditEntries.push({ requestId: request.id, action: 'expired', actor: 'system', occurredAt: now.toISOString(), tokenId: request.tokenId });
     }
+  }
+
+  private bindingHash(request: ApprovalRequest): string {
+    return parameterHash({
+      requestId: request.id, runId: request.runId, toolName: request.toolName,
+      target: request.target, parametersHash: request.parametersHash,
+      risk: request.risk, expiresAt: request.expiresAt,
+    });
+  }
+
+  private requiredBinding(request: ApprovalRequest): string {
+    const binding = this.lifecycleBindings.get(request.id) ?? this.bindingHash(request);
+    if (this.lifecycleJournal && !this.lifecycleBindings.has(request.id)) {
+      throw new Error('approval_lifecycle_binding_missing');
+    }
+    return binding;
+  }
+
+  private recordDecision(
+    request: ApprovalRequest,
+    kind: 'approval_approved' | 'approval_denied' | 'approval_revoked' | 'approval_consumed' | 'approval_expired',
+    actor: string,
+    occurredAt: Date,
+  ): void {
+    this.lifecycleJournal?.record({
+      kind, requestId: request.id, runId: request.runId,
+      occurredAt: occurredAt.toISOString(), bindingHash: this.requiredBinding(request),
+      actorHash: hashApprovalLifecycleValue(actor.trim()),
+    });
   }
 
   private sign(payload: ApprovalTokenPayload): string {

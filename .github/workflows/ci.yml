@@ -31,8 +31,22 @@ jobs:
       - run: npm --prefix server ci
       - run: npm --prefix web ci
       - run: npm run security:scan
+      - run: npm audit --audit-level=high
+      - run: npm --prefix server audit --audit-level=high
+      - run: npm --prefix web audit --audit-level=high
       - run: npm test
       - run: npm run build
+
+  dependency-review:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
 
   web-e2e:
     runs-on: windows-latest
@@ -81,6 +95,10 @@ jobs:
         with:
           python-version: '3.12'
       - run: python -m pip install -e '.[dev]'
+        working-directory: integrations/job-search-mcp
+      - run: python -m pip install pip-audit
+        working-directory: integrations/job-search-mcp
+      - run: python -m pip_audit
         working-directory: integrations/job-search-mcp
       - run: python -m unittest discover -s tests
         working-directory: integrations/job-search-mcp

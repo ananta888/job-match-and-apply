@@ -1,7 +1,7 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
-import type { AgentProvider, AgentQueueSnapshot, AgentRecoveryDecision, AgentRecoveryLease, AgentRecoveryResolution, AgentRecoverySnapshot, AgentRun, AgentRunEvent, AgentRunEventsPage, AgentRunPreflight, AgentRunRequest, AgentWorkflow, AppConfig, ApplicationCase, ApplicationDraft, ArtifactRevision, CandidateMatchAnalysis, CandidateProfileSummary, CompanyCrm, CorrelatedMail, DataInventory, IdentityProfile, JobDecision, JobMatch, JobSourceCapabilities, MailAccount, McpRuntimeStatus, ProfileImportPreview, SearchProfile, SearchSchedule, SourceStatus } from './models';
+import type { AgentArtifactAdoptionResult, AgentArtifactContent, AgentArtifactRecord, AgentConfigProfile, AgentConfigProfileView, AgentOrchestrationConfirmationInput, AgentOrchestrationConflict, AgentOrchestrationConflictResolutionRequest, AgentOrchestrationCreateRequest, AgentOrchestrationRecord, AgentProvider, AgentQueueSnapshot, AgentRecoveryDecision, AgentRecoveryLease, AgentRecoveryResolution, AgentRecoverySnapshot, AgentRun, AgentRunEvent, AgentRunEventsPage, AgentRunPreflight, AgentRunRequest, AgentWorkflow, AppConfig, ApplicationCase, ApplicationDraft, ApplicationExportResult, ApplicationPipelineFinalizeResult, ApplicationProfileSetupStatus, ApplicationStyleProfileView, ArtifactRevision, CandidateMatchAnalysis, CandidateProfileSummary, CompanyCrm, CorrelatedMail, DataInventory, EditableApplicationStyleProfile, IdentityProfile, JobDecision, JobMatch, JobSourceCapabilities, LanguageCheckResult, MailAccount, McpRuntimeStatus, ProfileImportPreview, SearchProfile, SearchSchedule, SourceStatus } from './models';
 
 @Injectable({ providedIn: 'root' })
 export class ApiService {
@@ -9,8 +9,8 @@ export class ApiService {
 
   config(): Observable<AppConfig> { return this.http.get<AppConfig>('/api/config'); }
   saveConfig(config: AppConfig): Observable<AppConfig> { return this.http.put<AppConfig>('/api/config', config); }
-  setMcpPortalAccess(enabled: boolean): Observable<AppConfig> {
-    return this.http.put<AppConfig>('/api/config/mcp/portal-access', { enabled, confirmed: true });
+  setMcpPortalAccess(enabled: boolean, expectedRevision: number): Observable<AppConfig> {
+    return this.http.put<AppConfig>('/api/config/mcp/portal-access', { enabled, confirmed: true, expectedRevision });
   }
   sources(): Observable<SourceStatus[]> { return this.http.get<SourceStatus[]>('/api/sources'); }
   sourceRuntime(): Observable<McpRuntimeStatus> { return this.http.get<McpRuntimeStatus>('/api/sources/runtime'); }
@@ -47,6 +47,23 @@ export class ApiService {
   assistantStatus(): Observable<{ available: boolean; note: string }> {
     return this.http.get<{ available: boolean; note: string }>('/api/assistant/status');
   }
+  applicationPipelineSetup(): Observable<ApplicationProfileSetupStatus> {
+    return this.http.get<ApplicationProfileSetupStatus>('/api/application-pipeline/setup');
+  }
+  initializeApplicationProfiles(): Observable<ApplicationProfileSetupStatus> {
+    return this.http.post<ApplicationProfileSetupStatus>('/api/application-pipeline/setup/profiles', { confirmed: true });
+  }
+  applicationStyleProfile(): Observable<ApplicationStyleProfileView> {
+    return this.http.get<ApplicationStyleProfileView>('/api/application-pipeline/style-profile');
+  }
+  saveApplicationStyleProfile(current: ApplicationStyleProfileView, profile: EditableApplicationStyleProfile): Observable<ApplicationStyleProfileView> {
+    return this.http.put<ApplicationStyleProfileView>('/api/application-pipeline/style-profile', {
+      expectedRevision: current.revision,
+      expectedSha256: current.sha256,
+      confirmed: true,
+      profile
+    });
+  }
   candidateProfile(): Observable<CandidateProfileSummary> { return this.http.get<CandidateProfileSummary>('/api/candidate-profile'); }
   patchClaim(claimId: string, statement: string, status: string): Observable<unknown> {
     return this.http.patch('/api/candidate-profile/claims', { confirmed: true, operations: [
@@ -71,7 +88,50 @@ export class ApiService {
   agentProviders(refresh = false): Observable<AgentProvider[]> {
     return this.http.get<AgentProvider[]>(refresh ? '/api/agents/providers?refresh=true' : '/api/agents/providers');
   }
+  agentConfigProfile(): Observable<AgentConfigProfileView> {
+    return this.http.get<AgentConfigProfileView>('/api/agents/config-profile');
+  }
+  saveAgentConfigProfile(current: AgentConfigProfileView, profile: AgentConfigProfile): Observable<AgentConfigProfileView> {
+    return this.http.put<AgentConfigProfileView>('/api/agents/config-profile', {
+      expectedUpdatedAt: current.profile.updatedAt, confirmed: true, profile
+    });
+  }
   agentWorkflows(): Observable<AgentWorkflow[]> { return this.http.get<AgentWorkflow[]>('/api/agents/workflows'); }
+  agentOrchestrations(): Observable<{ orchestrations: AgentOrchestrationRecord[] }> {
+    return this.http.get<{ orchestrations: AgentOrchestrationRecord[] }>('/api/agent-orchestrations');
+  }
+  agentOrchestration(orchestrationId: string): Observable<AgentOrchestrationRecord> {
+    return this.http.get<AgentOrchestrationRecord>(`/api/agent-orchestrations/${encodeURIComponent(orchestrationId)}`);
+  }
+  createAgentOrchestration(request: AgentOrchestrationCreateRequest): Observable<AgentOrchestrationRecord> {
+    return this.http.post<AgentOrchestrationRecord>('/api/agent-orchestrations', request);
+  }
+  continueAgentOrchestration(orchestrationId: string, expectedRevision: number, confirmations: AgentOrchestrationConfirmationInput): Observable<AgentOrchestrationRecord> {
+    return this.http.post<AgentOrchestrationRecord>(`/api/agent-orchestrations/${encodeURIComponent(orchestrationId)}/continue`, {
+      expectedRevision, ...confirmations
+    });
+  }
+  cancelAgentOrchestration(orchestrationId: string, expectedRevision: number): Observable<AgentOrchestrationRecord> {
+    return this.http.post<AgentOrchestrationRecord>(`/api/agent-orchestrations/${encodeURIComponent(orchestrationId)}/cancel`, {
+      expectedRevision, confirmed: true
+    });
+  }
+  resolveAgentOrchestrationConflict(
+    orchestrationId: string,
+    conflict: AgentOrchestrationConflict,
+    expectedRevision: number,
+    strategy: AgentOrchestrationConflictResolutionRequest['strategy'],
+    selectedArtifactId?: string
+  ): Observable<AgentOrchestrationRecord> {
+    const request: AgentOrchestrationConflictResolutionRequest = {
+      expectedRevision, variantsSha256: conflict.variantsSha256, strategy, confirmed: true,
+      ...(strategy === 'select_variant' && selectedArtifactId ? { selectedArtifactId } : {})
+    };
+    return this.http.post<AgentOrchestrationRecord>(
+      `/api/agent-orchestrations/${encodeURIComponent(orchestrationId)}/conflicts/${encodeURIComponent(conflict.id)}/resolve`,
+      request
+    );
+  }
   agentQueue(): Observable<AgentQueueSnapshot> { return this.http.get<AgentQueueSnapshot>('/api/agents/queue'); }
   agentRecovery(): Observable<AgentRecoverySnapshot> { return this.http.get<AgentRecoverySnapshot>('/api/agents/recovery'); }
   agentRuns(): Observable<AgentRun[]> { return this.http.get<AgentRun[]>('/api/agent-runs'); }
@@ -80,6 +140,22 @@ export class ApiService {
   agentRun(runId: string): Observable<AgentRun> { return this.http.get<AgentRun>(`/api/agent-runs/${encodeURIComponent(runId)}`); }
   agentRunEvents(runId: string, after: number): Observable<AgentRunEventsPage> {
     return this.http.get<AgentRunEventsPage>(`/api/agent-runs/${encodeURIComponent(runId)}/events?after=${after}`);
+  }
+  agentArtifacts(runId: string): Observable<{ artifacts: AgentArtifactRecord[] }> {
+    return this.http.get<{ artifacts: AgentArtifactRecord[] }>(`/api/agent-runs/${encodeURIComponent(runId)}/artifacts`);
+  }
+  agentArtifactContent(runId: string, artifactId: string): Observable<AgentArtifactContent> {
+    return this.http.get<AgentArtifactContent>(`/api/agent-runs/${encodeURIComponent(runId)}/artifacts/${encodeURIComponent(artifactId)}/content`);
+  }
+  reviewAgentArtifact(runId: string, artifactId: string, decision: 'approved' | 'rejected', expectedRevision: number): Observable<AgentArtifactRecord> {
+    return this.http.post<AgentArtifactRecord>(`/api/agent-runs/${encodeURIComponent(runId)}/artifacts/${encodeURIComponent(artifactId)}/review`, {
+      decision, expectedRevision, confirmed: true
+    });
+  }
+  adoptAgentArtifact(runId: string, artifactId: string, expectedRevision: number): Observable<AgentArtifactAdoptionResult> {
+    return this.http.post<AgentArtifactAdoptionResult>(`/api/agent-runs/${encodeURIComponent(runId)}/artifacts/${encodeURIComponent(artifactId)}/adopt`, {
+      expectedRevision, confirmed: true
+    });
   }
   agentRunEventStream(runId: string, after: number): Observable<AgentRunEvent> {
     return new Observable<AgentRunEvent>((subscriber) => {
@@ -144,31 +220,55 @@ export class ApiService {
   confirmMailCorrelation(messageId: string, applicationCaseId: string): Observable<CorrelatedMail> {
     return this.http.post<CorrelatedMail>(`/api/mail/messages/${messageId}/correlation`, { applicationCaseId, confirmed: true });
   }
-  createArtifact(caseId: string, type: ArtifactRevision['type'], content: string): Observable<ArtifactRevision> {
-    return this.http.post<ArtifactRevision>(`/api/application-cases/${caseId}/artifacts`, { type, content, pipelineContractVersion: '1.0.0' });
+  applicationArtifacts(caseId: string): Observable<ArtifactRevision[]> {
+    return this.http.get<ArtifactRevision[]>(`/api/application-cases/${encodeURIComponent(caseId)}/artifacts`);
+  }
+  finalizeApplicationCase(caseId: string, annotatedContent: string, iterationManifest: string): Observable<ApplicationPipelineFinalizeResult> {
+    return this.http.post<ApplicationPipelineFinalizeResult>(`/api/application-cases/${encodeURIComponent(caseId)}/pipeline/finalize`, {
+      annotatedContent, iterationManifest
+    });
+  }
+  reviewApplicationArtifact(
+    caseId: string,
+    revisionId: string,
+    decision: 'approved' | 'rejected',
+    expectedSha256: string,
+    acknowledgedLanguageIssueCount: number
+  ): Observable<ArtifactRevision> {
+    return this.http.post<ArtifactRevision>(`/api/application-cases/${encodeURIComponent(caseId)}/artifacts/${encodeURIComponent(revisionId)}/review`, {
+      decision, expectedSha256, acknowledgedLanguageIssueCount, confirmed: true
+    });
   }
   markArtifactUsed(caseId: string, revisionId: string): Observable<ArtifactRevision> {
-    return this.http.post<ArtifactRevision>(`/api/application-cases/${caseId}/artifacts/${revisionId}/use`, { confirmed: true });
+    return this.http.post<ArtifactRevision>(`/api/application-cases/${encodeURIComponent(caseId)}/artifacts/${encodeURIComponent(revisionId)}/use`, { confirmed: true });
+  }
+  exportApplicationArtifact(caseId: string, revisionId: string, format: 'docx' | 'pdf'): Observable<ApplicationExportResult> {
+    return this.http.post<ApplicationExportResult>(`/api/application-cases/${encodeURIComponent(caseId)}/export`, {
+      revisionId, format, confirmed: true
+    });
+  }
+  createApplicationPackage(caseId: string, revisionIds: string[]): Observable<Record<string, unknown>> {
+    return this.http.post<Record<string, unknown>>(`/api/application-cases/${encodeURIComponent(caseId)}/package`, { revisionIds, confirmed: true });
+  }
+  createSubmissionDryRun(caseId: string, revisionIds: string[]): Observable<Record<string, unknown>> {
+    return this.http.post<Record<string, unknown>>(`/api/application-cases/${encodeURIComponent(caseId)}/submission-dry-run`, { revisionIds, confirmed: true });
+  }
+  languageCheck(content: string, language = 'de-DE'): Observable<LanguageCheckResult> {
+    return this.http.post<LanguageCheckResult>('/api/language-check', { content, language });
   }
   createApplicationCase(match: JobMatch, identityId: string, documentType: 'cv' | 'cover_letter' | 'email'): Observable<ApplicationCase> {
     return this.http.post<ApplicationCase>('/api/application-cases', { match, identityId, documentType });
   }
-  transitionApplicationCase(caseId: string, state: string): Observable<ApplicationCase> {
-    return this.http.post<ApplicationCase>(`/api/application-cases/${caseId}/transition`, { state });
+  transitionApplicationCase(caseId: string, state: string, approvedRevision?: { revisionId: string; expectedSha256: string }): Observable<ApplicationCase> {
+    return this.http.post<ApplicationCase>(`/api/application-cases/${encodeURIComponent(caseId)}/transition`, {
+      state,
+      ...(state === 'approved' && approvedRevision
+        ? { revisionId: approvedRevision.revisionId, expectedSha256: approvedRevision.expectedSha256, confirmed: true }
+        : {})
+    });
   }
   draft(match: JobMatch, identityId: string, documentType: 'cv' | 'cover_letter' | 'email'): Observable<ApplicationDraft> {
     return this.http.post<ApplicationDraft>('/api/applications/draft', { match, identityId, documentType });
   }
 
-  finalize(
-    match: JobMatch,
-    identityId: string,
-    documentType: 'cv' | 'cover_letter' | 'email',
-    annotatedContent: string,
-    iterationManifest: string
-  ): Observable<ApplicationDraft> {
-    return this.http.post<ApplicationDraft>('/api/applications/finalize', {
-      match, identityId, documentType, annotatedContent, iterationManifest
-    });
-  }
 }

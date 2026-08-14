@@ -20,7 +20,9 @@ describe('synthetic incognito end-to-end path', () => {
     await request(app).post(`/api/application-cases/${application.body.id}/transition`).send({ state: 'questions' }).expect(200);
     await request(app).post(`/api/application-cases/${application.body.id}/transition`).send({ state: 'draft' }).expect(200);
     await request(app).post(`/api/application-cases/${application.body.id}/transition`).send({ state: 'review' }).expect(200);
-    await request(app).post(`/api/application-cases/${application.body.id}/transition`).send({ state: 'approved' }).expect(409);
+    await request(app).post(`/api/application-cases/${application.body.id}/transition`).send({
+      state: 'approved', revisionId: '00000000-0000-4000-8000-000000000000', expectedSha256: '0'.repeat(64), confirmed: true
+    }).expect(409);
     await request(app).post('/api/applications/finalize').send({ match, identityId: identity.id, documentType: 'cover_letter', annotatedContent: 'Text', iterationManifest: 'passes: []' }).expect(409);
   });
 });

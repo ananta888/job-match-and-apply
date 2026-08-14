@@ -77,7 +77,11 @@ export class JsonWorkspaceStore implements WorkspaceStore {
     return structuredClone((await this.load()).applicationCases.find((item) => item.id === id));
   }
   async appendApplicationEvent(event: ApplicationStatusEvent): Promise<void> {
-    await this.mutate((data) => { data.applicationEvents.push(structuredClone(event)); });
+    await this.mutate((data) => {
+      const existing = data.applicationEvents.find((item) => item.id === event.id);
+      if (existing && JSON.stringify(existing) !== JSON.stringify(event)) throw Object.assign(new Error('Application-Event-ID wurde widerspruechlich wiederverwendet.'), { statusCode: 409 });
+      if (!existing) data.applicationEvents.push(structuredClone(event));
+    });
   }
   async listApplicationEvents(caseId: string): Promise<ApplicationStatusEvent[]> {
     return structuredClone((await this.load()).applicationEvents.filter((event) => event.applicationCaseId === caseId));
@@ -123,7 +127,13 @@ export class JsonWorkspaceStore implements WorkspaceStore {
     await this.mutate((data) => { const before = data.comparisonNotes.length; data.comparisonNotes = data.comparisonNotes.filter((item) => item.id !== id); deleted = before !== data.comparisonNotes.length; });
     return deleted;
   }
-  async appendTrackingEvent(event: ApplicationTrackingEvent): Promise<void> { await this.mutate((data) => { data.trackingEvents.push(structuredClone(event)); }); }
+  async appendTrackingEvent(event: ApplicationTrackingEvent): Promise<void> {
+    await this.mutate((data) => {
+      const existing = data.trackingEvents.find((item) => item.id === event.id);
+      if (existing && JSON.stringify(existing) !== JSON.stringify(event)) throw Object.assign(new Error('Tracking-Event-ID wurde widerspruechlich wiederverwendet.'), { statusCode: 409 });
+      if (!existing) data.trackingEvents.push(structuredClone(event));
+    });
+  }
   async listTrackingEvents(caseId: string): Promise<ApplicationTrackingEvent[]> { return structuredClone((await this.load()).trackingEvents.filter((item) => item.applicationCaseId === caseId)); }
   async saveArtifactRevision(revision: ApplicationArtifactRevision): Promise<void> {
     await this.mutate((data) => {
@@ -141,7 +151,7 @@ export class JsonWorkspaceStore implements WorkspaceStore {
       removed.closedApplications = removedCaseIds.size; data.applicationCases = data.applicationCases.filter((item) => !removedCaseIds.has(item.id));
       data.applicationEvents = data.applicationEvents.filter((item) => !removedCaseIds.has(item.applicationCaseId));
       data.trackingEvents = data.trackingEvents.filter((item) => !removedCaseIds.has(item.applicationCaseId));
-      data.artifactRevisions = data.artifactRevisions.filter((item) => !removedCaseIds.has(item.applicationCaseId));
+      data.artifactRevisions = data.artifactRevisions.filter((item) => item.lifecycle === 'used' || !removedCaseIds.has(item.applicationCaseId));
       const keepReminders = data.reminders.filter((item) => !item.completed || item.createdAt >= cutoffIso); removed.reminders = data.reminders.length - keepReminders.length; data.reminders = keepReminders;
       const keepNotes = data.comparisonNotes.filter((item) => item.updatedAt >= cutoffIso); removed.comparisonNotes = data.comparisonNotes.length - keepNotes.length; data.comparisonNotes = keepNotes;
       const keepDecisions = data.jobDecisions.filter((item) => item.state !== 'neutral' || item.updatedAt >= cutoffIso); removed.neutralDecisions = data.jobDecisions.length - keepDecisions.length; data.jobDecisions = keepDecisions;
@@ -201,7 +211,11 @@ export class MemoryWorkspaceStore implements WorkspaceStore {
   }
   async listApplicationCases(): Promise<ApplicationCase[]> { return structuredClone(this.cases); }
   async getApplicationCase(id: string): Promise<ApplicationCase | undefined> { return structuredClone(this.cases.find((item) => item.id === id)); }
-  async appendApplicationEvent(event: ApplicationStatusEvent): Promise<void> { this.events.push(structuredClone(event)); }
+  async appendApplicationEvent(event: ApplicationStatusEvent): Promise<void> {
+    const existing = this.events.find((item) => item.id === event.id);
+    if (existing && JSON.stringify(existing) !== JSON.stringify(event)) throw Object.assign(new Error('Application-Event-ID wurde widerspruechlich wiederverwendet.'), { statusCode: 409 });
+    if (!existing) this.events.push(structuredClone(event));
+  }
   async listApplicationEvents(caseId: string): Promise<ApplicationStatusEvent[]> { return structuredClone(this.events.filter((event) => event.applicationCaseId === caseId)); }
   async exportSnapshot() { return { schemaVersion: 1 as const, searchRuns: structuredClone(this.runs), applicationCases: structuredClone(this.cases), applicationEvents: structuredClone(this.events), searchSchedules: structuredClone(this.schedules), reminders: structuredClone(this.reminders), jobDecisions: structuredClone(this.decisions), comparisonNotes: structuredClone(this.comparisonNotes), trackingEvents: structuredClone(this.trackingEvents), artifactRevisions: structuredClone(this.artifacts) }; }
   async clear(scope: 'search_runs' | 'application_cases' | 'search_schedules' | 'reminders' | 'job_decisions' | 'comparison_notes'): Promise<number> {
@@ -232,7 +246,11 @@ export class MemoryWorkspaceStore implements WorkspaceStore {
   async deleteComparisonNote(id: string): Promise<boolean> {
     const index = this.comparisonNotes.findIndex((item) => item.id === id); if (index < 0) return false; this.comparisonNotes.splice(index, 1); return true;
   }
-  async appendTrackingEvent(event: ApplicationTrackingEvent): Promise<void> { this.trackingEvents.push(structuredClone(event)); }
+  async appendTrackingEvent(event: ApplicationTrackingEvent): Promise<void> {
+    const existing = this.trackingEvents.find((item) => item.id === event.id);
+    if (existing && JSON.stringify(existing) !== JSON.stringify(event)) throw Object.assign(new Error('Tracking-Event-ID wurde widerspruechlich wiederverwendet.'), { statusCode: 409 });
+    if (!existing) this.trackingEvents.push(structuredClone(event));
+  }
   async listTrackingEvents(caseId: string): Promise<ApplicationTrackingEvent[]> { return structuredClone(this.trackingEvents.filter((item) => item.applicationCaseId === caseId)); }
   async saveArtifactRevision(revision: ApplicationArtifactRevision): Promise<void> {
     const index = this.artifacts.findIndex((item) => item.id === revision.id);
@@ -248,7 +266,10 @@ export class MemoryWorkspaceStore implements WorkspaceStore {
     for (let index = this.cases.length - 1; index >= 0; index--) if (oldCaseIds.has(this.cases[index]!.id)) this.cases.splice(index, 1);
     for (let index = this.events.length - 1; index >= 0; index--) if (oldCaseIds.has(this.events[index]!.applicationCaseId)) this.events.splice(index, 1);
     for (let index = this.trackingEvents.length - 1; index >= 0; index--) if (oldCaseIds.has(this.trackingEvents[index]!.applicationCaseId)) this.trackingEvents.splice(index, 1);
-    for (let index = this.artifacts.length - 1; index >= 0; index--) if (oldCaseIds.has(this.artifacts[index]!.applicationCaseId)) this.artifacts.splice(index, 1);
+    for (let index = this.artifacts.length - 1; index >= 0; index--) {
+      const artifact = this.artifacts[index]!;
+      if (artifact.lifecycle !== 'used' && oldCaseIds.has(artifact.applicationCaseId)) this.artifacts.splice(index, 1);
+    }
     for (let index = this.reminders.length - 1; index >= 0; index--) if (this.reminders[index]!.completed && this.reminders[index]!.createdAt < cutoffIso) { this.reminders.splice(index, 1); removed.reminders++; }
     for (let index = this.comparisonNotes.length - 1; index >= 0; index--) if (this.comparisonNotes[index]!.updatedAt < cutoffIso) { this.comparisonNotes.splice(index, 1); removed.comparisonNotes++; }
     for (let index = this.decisions.length - 1; index >= 0; index--) if (this.decisions[index]!.state === 'neutral' && this.decisions[index]!.updatedAt < cutoffIso) { this.decisions.splice(index, 1); removed.neutralDecisions++; }

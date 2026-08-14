@@ -1,5 +1,5 @@
 import request from 'supertest';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createApp } from './app.js';
 import { MemoryConfigStore } from './services/config-store.js';
 import { MemoryAuditLogger } from './services/audit-logger.js';
@@ -68,12 +68,55 @@ describe('API', () => {
     const store = new MemoryConfigStore(config);
     const app = createApp(store);
     const publicConfig = (await request(app).get('/api/config').expect(200)).body;
-    publicConfig.searchProfile.name = 'GeÃ¤nderte Suche';
+    publicConfig.searchProfile.name = 'Geänderte Suche';
     const response = await request(app).put('/api/config').send(publicConfig).expect(200);
     expect(response.body.mcp.env).toEqual({ ALLOW_EXTERNAL_PORTALS: '', JOB_MCP_STATE_DIR: '' });
     expect(response.body.mcp.configuredEnvironmentKeys).toEqual(['ALLOW_EXTERNAL_PORTALS', 'JOB_MCP_STATE_DIR']);
     expect((await store.load()).mcp.env).toEqual({ ALLOW_EXTERNAL_PORTALS: '1', JOB_MCP_STATE_DIR: 'private-runtime-location' });
-    expect(response.body.searchProfile.name).toBe('GeÃ¤nderte Suche');
+    expect(response.body.searchProfile.name).toBe('Geänderte Suche');
+    expect(response.body.revision).toBe(publicConfig.revision + 1);
+  });
+
+  it('rejects unknown or malformed nested config fields as 400 before entering the store CAS', async () => {
+    const store = new MemoryConfigStore();
+    const app = createApp(store);
+    const publicConfig = (await request(app).get('/api/config').expect(200)).body;
+    const compareAndSave = vi.spyOn(store, 'compareAndSave');
+    const malformed = [
+      { ...structuredClone(publicConfig), searchProfile: { ...publicConfig.searchProfile, browserInjected: true } },
+      { ...structuredClone(publicConfig), identities: [{ ...publicConfig.identities[0], browserInjected: true }] },
+      { ...structuredClone(publicConfig), mcp: { ...publicConfig.mcp, env: { ALLOW_EXTERNAL_PORTALS: 1 } } },
+      { ...structuredClone(publicConfig), assistant: { ...publicConfig.assistant, browserInjected: true } }
+    ];
+
+    for (const body of malformed) {
+      const response = await request(app).put('/api/config').send(body).expect(400);
+      expect(response.body.category).toBe('validation');
+    }
+    expect(compareAndSave).not.toHaveBeenCalled();
+    expect((await store.loadSnapshot()).revision).toBe(0);
+  });
+
+  it('allows only one concurrent update for the same config revision', async () => {
+    const config = structuredClone(defaultConfig);
+    config.mcp.env = { ALLOW_EXTERNAL_PORTALS: '0', JOB_MCP_STATE_DIR: 'private-runtime-location' };
+    const store = new MemoryConfigStore(config);
+    const app = createApp(store);
+    const current = (await request(app).get('/api/config').expect(200)).body;
+    const first = structuredClone(current); first.searchProfile.name = 'CAS A';
+    const second = structuredClone(current); second.searchProfile.name = 'CAS B';
+
+    const responses = await Promise.all([
+      request(app).put('/api/config').send(first),
+      request(app).put('/api/config').send(second)
+    ]);
+    expect(responses.map((response) => response.status).sort()).toEqual([200, 409]);
+    const successful = responses.find((response) => response.status === 200)!;
+    expect(successful.body.revision).toBe(1);
+    expect(successful.body.mcp.env).toEqual({ ALLOW_EXTERNAL_PORTALS: '', JOB_MCP_STATE_DIR: '' });
+    expect(JSON.stringify(successful.body)).not.toContain('private-runtime-location');
+    expect((await store.loadSnapshot()).revision).toBe(1);
+    expect((await store.load()).searchProfile.name).toBe(successful.body.searchProfile.name);
   });
 
   it('keeps integration commands, paths and environment server-owned', async () => {
@@ -109,16 +152,32 @@ describe('API', () => {
     const store = new MemoryConfigStore(config);
     const response = await request(createApp(store))
       .put('/api/config/mcp/portal-access')
-      .send({ enabled: false, confirmed: true })
+      .send({ enabled: false, confirmed: true, expectedRevision: 0 })
       .expect(200);
+    expect(response.body.revision).toBe(1);
     expect(response.body.mcp.env).toEqual({ ALLOW_EXTERNAL_PORTALS: '', JOB_MCP_STATE_DIR: '' });
+    expect(JSON.stringify(response.body)).not.toContain('private-runtime-location');
+    expect((await store.load()).mcp.env).toEqual({ ALLOW_EXTERNAL_PORTALS: '0', JOB_MCP_STATE_DIR: 'private-runtime-location' });
+  });
+
+  it('serializes concurrent portal permission updates and rejects the stale revision', async () => {
+    const config = structuredClone(defaultConfig);
+    config.mcp.env = { ALLOW_EXTERNAL_PORTALS: '1', JOB_MCP_STATE_DIR: 'private-runtime-location' };
+    const store = new MemoryConfigStore(config);
+    const app = createApp(store);
+    const responses = await Promise.all([
+      request(app).put('/api/config/mcp/portal-access').send({ enabled: false, confirmed: true, expectedRevision: 0 }),
+      request(app).put('/api/config/mcp/portal-access').send({ enabled: false, confirmed: true, expectedRevision: 0 })
+    ]);
+    expect(responses.map((response) => response.status).sort()).toEqual([200, 409]);
+    expect((await store.loadSnapshot()).revision).toBe(1);
     expect((await store.load()).mcp.env).toEqual({ ALLOW_EXTERNAL_PORTALS: '0', JOB_MCP_STATE_DIR: 'private-runtime-location' });
   });
 
   it('does not enable external portals without a validated trusted-host launch', async () => {
     await request(createApp(new MemoryConfigStore()))
       .put('/api/config/mcp/portal-access')
-      .send({ enabled: true, confirmed: true })
+      .send({ enabled: true, confirmed: true, expectedRevision: 0 })
       .expect(409);
   });
 
@@ -196,7 +255,9 @@ describe('API', () => {
     await request(app).post(`/api/application-cases/${created.body.id}/transition`).send({ state: 'analysis' }).expect(200);
     await request(app).post(`/api/application-cases/${created.body.id}/transition`).send({ state: 'draft' }).expect(200);
     await request(app).post(`/api/application-cases/${created.body.id}/transition`).send({ state: 'review' }).expect(200);
-    const blocked = await request(app).post(`/api/application-cases/${created.body.id}/transition`).send({ state: 'approved' }).expect(409);
+    const blocked = await request(app).post(`/api/application-cases/${created.body.id}/transition`).send({
+      state: 'approved', revisionId: '00000000-0000-4000-8000-000000000000', expectedSha256: '0'.repeat(64), confirmed: true
+    }).expect(409);
     expect(blocked.body.category).toBe('policy');
     const history = await request(app).get(`/api/application-cases/${created.body.id}/history`).expect(200);
     expect(history.body.map((event: { to: string }) => event.to)).toEqual(['selected', 'analysis', 'draft', 'review']);

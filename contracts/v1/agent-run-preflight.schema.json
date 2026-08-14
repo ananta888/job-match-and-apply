@@ -82,9 +82,14 @@
       "required": ["policy", "allowedRootMcpTools", "allowlistComplete", "providerTooling", "providerToolNamesExposed", "prohibitedActions"],
       "properties": {
         "policy": { "const": "deny_by_default" },
-        "allowedRootMcpTools": { "type": "array", "maxItems": 0 },
+        "allowedRootMcpTools": {
+          "type": "array",
+          "maxItems": 15,
+          "uniqueItems": true,
+          "items": { "enum": ["jobs.search", "job_search.capabilities", "job_search.search", "applications.get", "companies.get", "application.tracking.list", "messages.list", "application.analyze", "application.pipeline.audit", "mail.correlation.propose", "application.status.propose", "reminder.propose", "document.revision.propose", "domain.command.confirm", "domain.command.execute_local"] }
+        },
         "allowlistComplete": { "const": true },
-        "providerTooling": { "const": "sandbox_managed" },
+        "providerTooling": { "enum": ["server_owned_dynamic_tools", "prompt_context_only"] },
         "providerToolNamesExposed": { "const": false },
         "prohibitedActions": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
       }
@@ -93,7 +98,7 @@
       "type": "object", "additionalProperties": false,
       "required": ["requested", "effective", "enforced", "trustedHostServices"],
       "properties": {
-        "requested": { "type": "boolean" }, "effective": { "const": "disabled" }, "enforced": { "const": true },
+        "requested": { "type": "boolean" }, "effective": { "const": "disabled" }, "enforced": { "type": "boolean" },
         "trustedHostServices": {
           "type": "array",
           "items": {

@@ -8,12 +8,24 @@ describe('AgentTelemetry', () => {
     metrics.runStarted('fake');
     metrics.approvalResolved(1200);
     metrics.streamReconnected();
+    metrics.observeStreamLag(25);
+    metrics.errorObserved();
     metrics.recordUsage('run-1', { provider: 'fake', source: 'provider', capturedAt: '2026-08-13T00:00:00Z', totalTokens: 42 });
     metrics.runTerminal('succeeded');
     const snapshot = metrics.snapshot(new Date('2026-08-13T00:01:00Z'));
-    expect(snapshot).toMatchObject({ queueDepth: 2, activeRuns: 0, totals: { started: 1, terminal: { succeeded: 1 }, approvals: 1, streamReconnects: 1 }, providerRuns: { fake: 1 } });
+    expect(snapshot).toMatchObject({ queueDepth: 2, activeRuns: 0, totals: { started: 1, terminal: { succeeded: 1 }, approvals: 1, streamReconnects: 1, streamLagMs: { last: 25, max: 25 }, errors: 1 }, providerRuns: { fake: 1 } });
     expect(JSON.stringify(snapshot)).not.toMatch(/prompt|message|content|token.*42/i);
     expect(metrics.usageFor('run-1')).toMatchObject({ totalTokens: 42, source: 'provider' });
+  });
+
+  it('normalizes every measurement with unit, source, timestamp, and explicit provider-version unknowns', () => {
+    const metrics = new AgentTelemetry();
+    metrics.recordUsage('run-points', { provider: 'fake', source: 'estimated', capturedAt: '2026-08-14T00:00:00Z', totalTokens: 12 });
+    const points = metrics.metricPointsFor('run-points');
+    expect(points).toContainEqual({ name: 'total_tokens', value: 12, unit: 'tokens', source: 'estimated', capturedAt: '2026-08-14T00:00:00Z', provider: 'fake', providerVersion: 'unknown' });
+    expect(points).toContainEqual({ name: 'tool_calls', value: null, unit: 'calls', source: 'unknown', capturedAt: '2026-08-14T00:00:00Z', provider: 'fake', providerVersion: 'unknown' });
+    expect(points).toContainEqual({ name: 'reported_cost', value: null, unit: 'currency_micros', currency: undefined, source: 'unknown', capturedAt: '2026-08-14T00:00:00Z', provider: 'fake', providerVersion: 'unknown' });
+    expect(() => metrics.recordUsage('invalid-time', { provider: 'fake', source: 'unknown', capturedAt: 'later' })).toThrow('telemetry_captured_at_invalid');
   });
 
   it('rejects unbounded values and unsafe provider labels', () => {

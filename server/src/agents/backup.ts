@@ -50,6 +50,13 @@ export interface AgentRestoreOptions {
   dryRun?: boolean;
   /** Existing targets are never replaced unless this is explicitly true. */
   allowOverwrite?: boolean;
+  /** Synthetic fault boundary for deterministic disk-full/rollback drills. */
+  faultInjector?: AgentBackupFaultInjector;
+}
+
+export interface AgentBackupFaultInjector {
+  afterFileWrite?(phase: 'backup' | 'restore', relativePath: string, index: number): void | Promise<void>;
+  beforePublish?(phase: 'backup' | 'restore'): void | Promise<void>;
 }
 
 export interface AgentRestoreResult {
@@ -264,7 +271,8 @@ export async function createAgentBackupBundle(
   sourceRoot: string,
   bundleRoot: string,
   files: Array<{ path: string; classification: AgentBackupClassification }>,
-  now = new Date()
+  now = new Date(),
+  faultInjector?: AgentBackupFaultInjector,
 ): Promise<AgentBackupBundleResult> {
   const source = await realpath(resolve(sourceRoot));
   const target = resolve(bundleRoot);
@@ -289,6 +297,7 @@ export async function createAgentBackupBundle(
       contained(stage, destination);
       await mkdir(dirname(destination), { recursive: true, mode: 0o700 });
       await writeFile(destination, value, { flag: 'wx', mode: candidate.classification === 'secret' ? 0o600 : 0o640 });
+      await faultInjector?.afterFileWrite?.('backup', path, entries.length + 1);
       entries.push({ path, classification: candidate.classification, bytes: value.byteLength, sha256: hash(value) });
     }
     entries.sort((left, right) => left.path.localeCompare(right.path));
@@ -300,6 +309,7 @@ export async function createAgentBackupBundle(
     await writeFile(join(stage, MANIFEST_FILE), `${JSON.stringify(manifest, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
     const validation = await validateAgentBackup(join(stage, FILES_DIRECTORY), manifest);
     if (!validation.valid) throw new Error(`backup_bundle_validation_failed:${validation.errors[0]?.reason ?? 'unknown'}`);
+    await faultInjector?.beforePublish?.('backup');
     await rename(stage, canonicalTarget);
     return { bundleRoot: canonicalTarget, manifest };
   } catch (error) {
@@ -387,11 +397,13 @@ export async function restoreAgentBackupBundle(
       contained(stage, destination);
       await mkdir(dirname(destination), { recursive: true, mode: 0o700 });
       await writeFile(destination, value, { flag: 'wx', mode: entry.classification === 'secret' ? 0o600 : 0o640 });
+      await options.faultInjector?.afterFileWrite?.('restore', entry.path, entries.indexOf(entry) + 1);
     }
     const stagedValidation = await validateAgentBackup(stage, migration.manifest);
     if (!stagedValidation.valid) throw new Error(`restore_stage_validation_failed:${stagedValidation.errors[0]?.reason ?? 'unknown'}`);
     await writeFile(join(stage, MANIFEST_FILE), `${JSON.stringify(migration.manifest, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
     if (existing) { await rename(canonicalTarget, rollback); movedExisting = true; }
+    await options.faultInjector?.beforePublish?.('restore');
     try { await rename(stage, canonicalTarget); }
     catch (error) {
       if (movedExisting) await rename(rollback, canonicalTarget);

@@ -4,7 +4,7 @@ import { extname, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const EXCLUDED_DIRECTORIES = new Set([
-  '.git', '.angular', '.venv', '__pycache__', 'build', 'coverage', 'dist', 'node_modules', 'venv'
+  '.git', '.angular', '.venv', '.venv-wsl', '__pycache__', 'build', 'coverage', 'dist', 'node_modules', 'venv'
 ]);
 const RUNTIME_DIRECTORIES = new Set(['.application-work', '.local-data']);
 const SOURCE_EXTENSIONS = new Set([

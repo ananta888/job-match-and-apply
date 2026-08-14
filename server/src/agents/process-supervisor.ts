@@ -1,8 +1,9 @@
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import {
   closeSync, constants, existsSync, lstatSync, mkdirSync, openSync, readdirSync, realpathSync, renameSync, unlinkSync, writeSync,
 } from 'node:fs';
-import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { isAbsolute, join, relative, resolve, sep, win32 } from 'node:path';
+import { buildMinimalLocalChildEnvironment } from '../services/process-environment.js';
 
 export interface ProcessLimits {
   wallTimeMs: number;
@@ -41,6 +42,174 @@ export interface ResourceProbe {
   sample(rootPid: number): Promise<ProcessResourceUsage>;
 }
 
+export interface ProcessTableEntry {
+  pid: number;
+  parentPid: number;
+  residentMemoryBytes: number;
+}
+
+export interface ProcessTableCommandResult { exitCode: number | null; stdout: string; stderr: string; }
+export interface ProcessTableCommandExecutor {
+  run(executable: string, args: readonly string[], timeoutMs: number): Promise<ProcessTableCommandResult>;
+}
+
+/** Fixed-command executor used only for OS process accounting; no run/client value reaches argv. */
+export class SpawnProcessTableCommandExecutor implements ProcessTableCommandExecutor {
+  async run(executable: string, args: readonly string[], timeoutMs: number): Promise<ProcessTableCommandResult> {
+    return new Promise((resolveResult) => {
+      execFile(executable, [...args], {
+        windowsHide: true,
+        timeout: timeoutMs,
+        maxBuffer: 8 * 1024 * 1024,
+        env: buildMinimalLocalChildEnvironment(),
+      }, (error, stdout, stderr) => {
+        const errorCode = (error as { code?: unknown } | null)?.code;
+        const exitCode = error
+          ? typeof errorCode === 'number' ? errorCode : null
+          : 0;
+        resolveResult({ exitCode, stdout: String(stdout), stderr: String(stderr) });
+      });
+    });
+  }
+}
+
+function safeProcessInteger(value: unknown, field: string): number {
+  const numeric = typeof value === 'string' && /^\d+$/.test(value) ? Number(value) : value;
+  if (!Number.isSafeInteger(numeric) || Number(numeric) < 0) throw new Error(`Ungueltiger Prozesswert ${field}.`);
+  return Number(numeric);
+}
+
+/** Computes aggregate RSS for the root and all descendants from one process-table snapshot. */
+export function summarizeProcessTree(rootPid: number, entries: readonly ProcessTableEntry[]): ProcessResourceUsage {
+  if (!Number.isSafeInteger(rootPid) || rootPid <= 0) throw new Error('Root-PID ist ungueltig.');
+  const byPid = new Map<number, ProcessTableEntry>();
+  const children = new Map<number, number[]>();
+  for (const entry of entries) {
+    const normalized = {
+      pid: safeProcessInteger(entry.pid, 'pid'),
+      parentPid: safeProcessInteger(entry.parentPid, 'parentPid'),
+      residentMemoryBytes: safeProcessInteger(entry.residentMemoryBytes, 'residentMemoryBytes'),
+    };
+    if (normalized.pid < 1 || byPid.has(normalized.pid)) throw new Error('Prozesstabelle enthaelt eine ungueltige oder doppelte PID.');
+    byPid.set(normalized.pid, normalized);
+    const siblings = children.get(normalized.parentPid) ?? [];
+    siblings.push(normalized.pid);
+    children.set(normalized.parentPid, siblings);
+  }
+  if (!byPid.has(rootPid)) throw new Error('Supervidierter Root-Prozess fehlt in der Prozesstabelle.');
+
+  const pending = [rootPid];
+  const visited = new Set<number>();
+  let residentMemoryBytes = 0;
+  while (pending.length > 0) {
+    const pid = pending.pop()!;
+    if (visited.has(pid)) continue;
+    visited.add(pid);
+    const entry = byPid.get(pid);
+    if (!entry) continue;
+    residentMemoryBytes += entry.residentMemoryBytes;
+    if (!Number.isSafeInteger(residentMemoryBytes)) throw new Error('Aggregierter Speicherwert ist ungueltig.');
+    pending.push(...(children.get(pid) ?? []));
+  }
+  return { residentMemoryBytes, childProcessCount: Math.max(0, visited.size - 1) };
+}
+
+const WINDOWS_PROCESS_TABLE_COMMAND = [
+  '-NoLogo', '-NoProfile', '-NonInteractive', '-Command',
+  '$ErrorActionPreference="Stop"; @(Get-CimInstance -ClassName Win32_Process | Select-Object ProcessId,ParentProcessId,WorkingSetSize) | ConvertTo-Json -Compress',
+] as const;
+
+function windowsSystemExecutable(name: 'powershell.exe' | 'taskkill.exe'): string {
+  const configuredRoot = process.env.SystemRoot ?? process.env.WINDIR;
+  const root = configuredRoot && win32.isAbsolute(configuredRoot) ? configuredRoot : 'C:\\Windows';
+  return name === 'powershell.exe'
+    ? win32.join(root, 'System32', 'WindowsPowerShell', 'v1.0', name)
+    : win32.join(root, 'System32', name);
+}
+
+function parseWindowsProcessTable(stdout: string): ProcessTableEntry[] {
+  const parsed = JSON.parse(stdout) as unknown;
+  const rows = Array.isArray(parsed) ? parsed : [parsed];
+  return rows.map((row) => {
+    if (!row || typeof row !== 'object') throw new Error('Windows-Prozesstabelle besitzt ein ungueltiges Format.');
+    const record = row as Record<string, unknown>;
+    return {
+      pid: safeProcessInteger(record.ProcessId, 'ProcessId'),
+      parentPid: safeProcessInteger(record.ParentProcessId, 'ParentProcessId'),
+      residentMemoryBytes: safeProcessInteger(record.WorkingSetSize, 'WorkingSetSize'),
+    };
+  }).filter((entry) => entry.pid > 0);
+}
+
+function processTreeIds(rootPid: number, entries: readonly ProcessTableEntry[]): number[] {
+  // Reuse the strict table validation before any PID is considered a kill
+  // target. The returned order is root-first and deterministic.
+  summarizeProcessTree(rootPid, entries);
+  const children = new Map<number, number[]>();
+  for (const entry of entries) {
+    const siblings = children.get(entry.parentPid) ?? [];
+    siblings.push(entry.pid);
+    children.set(entry.parentPid, siblings);
+  }
+  for (const siblings of children.values()) siblings.sort((left, right) => left - right);
+  const result: number[] = [];
+  const pending = [rootPid];
+  const visited = new Set<number>();
+  while (pending.length > 0) {
+    const pid = pending.shift()!;
+    if (visited.has(pid)) continue;
+    visited.add(pid); result.push(pid); pending.unshift(...(children.get(pid) ?? []));
+  }
+  return result;
+}
+
+async function snapshotWindowsProcessTree(
+  rootPid: number,
+  executor: ProcessTableCommandExecutor,
+): Promise<number[]> {
+  const result = await executor.run(windowsSystemExecutable('powershell.exe'), WINDOWS_PROCESS_TABLE_COMMAND, 5_000);
+  if (result.exitCode !== 0) throw new Error(`Windows-Prozessbaum konnte nicht gelesen werden: ${result.stderr.trim().slice(0, 512)}`);
+  return processTreeIds(rootPid, parseWindowsProcessTable(result.stdout));
+}
+
+function parsePosixProcessTable(stdout: string): ProcessTableEntry[] {
+  return stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).map((line) => {
+    const match = /^(\d+)\s+(\d+)\s+(\d+)$/.exec(line);
+    if (!match) throw new Error('POSIX-Prozesstabelle besitzt ein ungueltiges Format.');
+    const rssKiB = safeProcessInteger(match[3], 'rssKiB');
+    const residentMemoryBytes = rssKiB * 1024;
+    if (!Number.isSafeInteger(residentMemoryBytes)) throw new Error('POSIX-Speicherwert ist ungueltig.');
+    return {
+      pid: safeProcessInteger(match[1], 'pid'),
+      parentPid: safeProcessInteger(match[2], 'ppid'),
+      residentMemoryBytes,
+    };
+  }).filter((entry) => entry.pid > 0);
+}
+
+/** Host process-tree probe for Windows and POSIX/WSL. Unsupported hosts fail closed on first sample. */
+export class HostProcessTreeResourceProbe implements ResourceProbe {
+  constructor(
+    private readonly platform: NodeJS.Platform = process.platform,
+    private readonly executor: ProcessTableCommandExecutor = new SpawnProcessTableCommandExecutor(),
+  ) {}
+
+  async sample(rootPid: number): Promise<ProcessResourceUsage> {
+    const command = this.platform === 'win32'
+      ? { executable: windowsSystemExecutable('powershell.exe'), args: WINDOWS_PROCESS_TABLE_COMMAND }
+      : this.platform === 'linux'
+        ? { executable: '/usr/bin/ps', args: ['-axo', 'pid=,ppid=,rss='] as const }
+        : this.platform === 'darwin'
+          ? { executable: '/bin/ps', args: ['-axo', 'pid=,ppid=,rss='] as const }
+        : undefined;
+    if (!command) throw new Error(`ResourceProbe wird auf ${this.platform} nicht unterstuetzt.`);
+    const result = await this.executor.run(command.executable, command.args, 5_000);
+    if (result.exitCode !== 0) throw new Error(`Prozesstabelle konnte nicht gelesen werden: ${result.stderr.trim().slice(0, 512)}`);
+    const entries = this.platform === 'win32' ? parseWindowsProcessTable(result.stdout) : parsePosixProcessTable(result.stdout);
+    return summarizeProcessTree(rootPid, entries);
+  }
+}
+
 export function classifyProcessResourceUsage(
   usage: ProcessResourceUsage,
   limits: Pick<ProcessLimits, 'maxResidentMemoryBytes' | 'maxChildProcesses'>,
@@ -73,6 +242,7 @@ export interface ProcessLaunchSpec {
 
 export type ProcessTermination =
   | 'exit'
+  | 'crash'
   | 'signal'
   | 'cancelled'
   | 'timeout'
@@ -83,6 +253,12 @@ export type ProcessTermination =
   | 'resource_probe_error'
   | 'raw_log_error'
   | 'spawn_error';
+
+/** Natural exits are canonicalized independently from supervisor-requested termination. */
+export function classifyNaturalProcessTermination(exitCode: number | null, signal: NodeJS.Signals | null): 'exit' | 'crash' | 'signal' {
+  if (signal) return 'signal';
+  return exitCode === 0 ? 'exit' : 'crash';
+}
 
 export interface ProcessResult {
   termination: ProcessTermination;
@@ -227,7 +403,10 @@ class RotatingRawProcessLog {
 }
 
 export class ProcessSupervisor {
-  constructor(private readonly resourceProbe?: ResourceProbe) {}
+  constructor(
+    private readonly resourceProbe: ResourceProbe | null = new HostProcessTreeResourceProbe(),
+    private readonly processTableExecutor: ProcessTableCommandExecutor = new SpawnProcessTableCommandExecutor(),
+  ) {}
 
   start(spec: ProcessLaunchSpec, callbacks: ProcessCallbacks = {}): SupervisedProcess {
     ensureLaunchSpec(spec);
@@ -270,7 +449,7 @@ export class ProcessSupervisor {
     let inputBytes = 0;
     let requestedTermination: ProcessTermination | undefined;
     let terminationError: string | undefined;
-    let forceTimer: NodeJS.Timeout | undefined;
+    let terminationCleanup: Promise<void> | undefined;
     let lastResourceUsage: ProcessResourceUsage | undefined;
     let resourceProbeRunning = false;
     let settled = false;
@@ -278,16 +457,20 @@ export class ProcessSupervisor {
     const completion = new Promise<ProcessResult>((resolve) => { resolveCompletion = resolve; });
     let idleTimer: NodeJS.Timeout;
 
-    const killTree = async (force: boolean): Promise<void> => {
-      if (!child.pid || (!force && (child.exitCode !== null || child.killed))) return;
-      if (process.platform === 'win32') {
-        await new Promise<void>((resolveKill) => {
-          const killer = spawn('taskkill.exe', ['/pid', String(child.pid), '/t', ...(force ? ['/f'] : [])], {
+    const killWindowsTree = async (pid: number, force: boolean): Promise<void> => {
+      await new Promise<void>((resolveKill) => {
+          const killer = spawn(windowsSystemExecutable('taskkill.exe'), ['/pid', String(pid), '/t', ...(force ? ['/f'] : [])], {
             shell: false, windowsHide: true, stdio: 'ignore'
           });
           killer.once('error', () => resolveKill());
           killer.once('close', () => resolveKill());
-        });
+      });
+    };
+
+    const killTree = async (force: boolean): Promise<void> => {
+      if (!child.pid || (!force && (child.exitCode !== null || child.killed))) return;
+      if (process.platform === 'win32') {
+        await killWindowsTree(child.pid, force);
       } else {
         try { process.kill(-child.pid, force ? 'SIGKILL' : 'SIGTERM'); }
         catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error; }
@@ -295,12 +478,33 @@ export class ProcessSupervisor {
     };
 
     const requestTermination = async (kind: ProcessTermination, error?: string): Promise<void> => {
-      if (settled || requestedTermination) return;
+      if (requestedTermination) { await terminationCleanup; return; }
+      if (settled) return;
       requestedTermination = kind;
       terminationError = error;
-      await killTree(false);
-      forceTimer = setTimeout(() => { void killTree(true); }, limits.cancelGraceMs);
-      forceTimer.unref();
+      terminationCleanup = (async () => {
+        let windowsTree: number[] | undefined;
+        if (process.platform === 'win32' && child.pid) {
+          try { windowsTree = await snapshotWindowsProcessTree(child.pid, this.processTableExecutor); }
+          catch (snapshotError) {
+            // Without a trustworthy snapshot there is no safe way to find a
+            // re-parented descendant after the root exits. Fail closed by
+            // forcing taskkill /T while the root PID is still owned.
+            terminationError = `${terminationError ?? kind}; Prozessbaum-Snapshot fehlgeschlagen: ${(snapshotError as Error).message}`;
+            await killTree(true);
+            return;
+          }
+        }
+        await killTree(false);
+        await new Promise<void>((resolveGrace) => { setTimeout(resolveGrace, limits.cancelGraceMs); });
+        if (windowsTree) {
+          // A Windows root may exit during the grace period, after which
+          // taskkill /T on that root can no longer discover re-parented
+          // descendants. Force every validated snapshot PID, deepest first.
+          for (const pid of [...windowsTree].reverse()) await killWindowsTree(pid, true);
+        } else await killTree(true);
+      })();
+      await terminationCleanup;
     };
 
     const resetIdle = (): void => {
@@ -385,18 +589,16 @@ export class ProcessSupervisor {
     resourceTimer?.unref();
     resetIdle();
 
-    child.once('close', (exitCode, signal) => {
+    child.once('close', async (exitCode, signal) => {
       if (settled) return;
       settled = true;
       clearTimeout(wallTimer); clearTimeout(idleTimer); clearInterval(heartbeatTimer);
       if (resourceTimer) clearInterval(resourceTimer);
-      if (forceTimer) {
-        clearTimeout(forceTimer);
-        // A direct child may exit before a descendant does. One final forced
-        // tree cleanup preserves the cancel contract after the root close.
-        void killTree(true);
-      }
-      const termination = requestedTermination ?? (signal ? 'signal' : 'exit');
+      // Completion is not observable until the grace-period cleanup has
+      // finished. This prevents tests and callers from racing a surviving
+      // descendant after an early root exit.
+      await terminationCleanup;
+      const termination = requestedTermination ?? classifyNaturalProcessTermination(exitCode, signal as NodeJS.Signals | null);
       resolveCompletion({
         termination, exitCode, signal: signal as NodeJS.Signals | null,
         stdout: stdout.toString('utf8'), stderr: stderr.toString('utf8'),

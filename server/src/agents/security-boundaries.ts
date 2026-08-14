@@ -31,10 +31,21 @@ function normalizeForComparison(value: string, flavor: PathFlavor): string {
     : normalized;
 }
 
+function fullyQualifiedWindowsPath(value: string): boolean {
+  if (!win32.isAbsolute(value)) return false;
+  const root = win32.parse(value).root;
+  if (/^[A-Za-z]:[\\/]$/.test(root)) return true;
+  if (!root.startsWith('\\\\') || root.startsWith('\\\\?\\') || root.startsWith('\\\\.\\')) return false;
+  return root.split(/[\\/]+/).filter(Boolean).length === 2;
+}
+
 /** Lexical cross-platform containment check used in addition to realpath. */
 export function isPathWithin(root: string, candidate: string, flavor: PathFlavor = 'native'): boolean {
   const api = pathApi(flavor);
-  if (!api.isAbsolute(root) || !api.isAbsolute(candidate)) return false;
+  const windowsContract = flavor === 'win32' || (flavor === 'native' && process.platform === 'win32');
+  if (windowsContract) {
+    if (!fullyQualifiedWindowsPath(root) || !fullyQualifiedWindowsPath(candidate)) return false;
+  } else if (!api.isAbsolute(root) || !api.isAbsolute(candidate)) return false;
   const normalizedRoot = normalizeForComparison(root, flavor);
   const normalizedCandidate = normalizeForComparison(candidate, flavor);
   const rel = api.relative(normalizedRoot, normalizedCandidate);

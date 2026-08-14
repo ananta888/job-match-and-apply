@@ -2,7 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ProcessSupervisor } from './process-supervisor.js';
+import { classifyNaturalProcessTermination, ProcessSupervisor } from './process-supervisor.js';
 
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
@@ -10,6 +10,22 @@ afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root,
 async function root(): Promise<string> { const value = await mkdtemp(join(tmpdir(), 'supervisor-')); roots.push(value); return value; }
 
 describe('ProcessSupervisor', () => {
+  it('classifies regular exit, crash and signal distinctly', () => {
+    expect(classifyNaturalProcessTermination(0, null)).toBe('exit');
+    expect(classifyNaturalProcessTermination(7, null)).toBe('crash');
+    expect(classifyNaturalProcessTermination(null, 'SIGTERM')).toBe('signal');
+  });
+
+  it('reports a real non-zero provider exit as a crash', async () => {
+    const cwd = await root();
+    const result = await new ProcessSupervisor().start({
+      executable: process.execPath,
+      args: ['-e', 'process.exit(7)'],
+      cwd,
+    }).completion;
+    expect(result).toEqual(expect.objectContaining({ termination: 'crash', exitCode: 7, signal: null }));
+  });
+
   it('spawns without a shell and preserves arguments literally', async () => {
     const cwd = await root();
     const supervisor = new ProcessSupervisor();
@@ -64,7 +80,7 @@ describe('ProcessSupervisor', () => {
     }
   });
 
-  it.skipIf(process.platform === 'win32')('kills a stubborn descendant process when the direct child exits on cancellation', async () => {
+  it('kills a stubborn descendant process when the direct child exits on cancellation', async () => {
     const cwd = await root();
     let pidText = '';
     const handle = new ProcessSupervisor().start({

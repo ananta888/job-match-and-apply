@@ -7,7 +7,7 @@
     </div>
     <nav aria-label="Hauptnavigation">
       @for (item of nav; track item.id) {
-        <button type="button" [class.active]="section === item.id" (click)="select(item.id)">
+        <button type="button" [class.active]="section === item.id" [attr.aria-current]="section === item.id ? 'page' : null" (click)="select(item.id)">
           <span class="nav-icon" [attr.data-icon]="item.icon"></span>{{ item.label }}
         </button>
       }
@@ -145,6 +145,112 @@
             </article>
           }
         </section>
+        <section class="panel profile-setup" data-testid="application-profile-setup" aria-labelledby="profile-setup-heading">
+          <div class="panel-head"><div><span class="kicker">LOKALES ONBOARDING</span><h3 id="profile-setup-heading">Kandidaten- und Stilprofil vorbereiten</h3></div><button class="secondary compact" type="button" (click)="loadProfileSetup()">Status aktualisieren</button></div>
+          @if (profileSetup; as setup) {
+            <div class="setup-status-grid"><div><small>Kandidatenprofil</small><strong>{{ setup.candidateProfile === 'present' ? 'Vorhanden' : 'Fehlt' }}</strong></div><div><small>Stilprofil</small><strong>{{ setup.styleProfile === 'present' ? 'Vorhanden' : 'Fehlt' }}</strong></div><div><small>Freigegebene Fakten</small><strong>{{ setup.containsCandidateFacts ? 'Belegt' : 'Noch nicht belegt' }}</strong></div></div>
+            <p>{{ setup.note }}</p>
+            @if (!setup.initialized) {
+              <div class="warning-box"><strong>Nur leere Vorlagen</strong><p>Die Aktion kopiert ausschließlich repository-eigene Vorlagen in den privaten lokalen Profilbereich. Sie überschreibt nichts und erfindet keine Kandidatenfakten.</p></div>
+              <label class="explicit-confirmation"><input type="checkbox" [(ngModel)]="profileSetupConfirmed"><span>Leere Kandidaten- und Stilprofilvorlagen lokal anlegen.</span></label>
+              <button class="primary" type="button" (click)="initializeApplicationProfiles()" [disabled]="busy || !profileSetupConfirmed">Profile ausdrücklich initialisieren</button>
+            } @else if (!setup.containsCandidateFacts) {
+              <div class="info-box"><strong>Profile sind bereit, Fakten fehlen</strong><p>Importiere oder pflege unten belegte Claims. Suchpräferenzen werden niemals als Kandidatenfakten übernommen.</p></div>
+            } @else {
+              <div class="info-box ready"><strong>Evidence-Profil einsatzbereit</strong><p>Mindestens ein publizierbarer Claim besitzt eine lokale Evidenzreferenz.</p></div>
+            }
+          } @else { <p role="status">Setup-Status wird geladen …</p> }
+        </section>
+        @if (applicationStyleProfile; as styleView) {
+          @if (styleProfileDraft; as style) {
+            <section class="panel style-profile-editor" data-testid="style-profile-editor" aria-labelledby="style-profile-heading">
+              <div class="panel-head">
+                <div><span class="kicker">VERSIONIERTES STILPROFIL</span><h3 id="style-profile-heading">Schreibstil sicher konfigurieren</h3><p>Geschlossene Felder statt freier YAML- oder Pfadeingaben. Beispiele steuern den Stil, sind aber niemals Kandidatenbelege.</p></div>
+                <button class="secondary compact" type="button" (click)="loadApplicationStyleProfile()" [disabled]="styleProfileBusy">Revision neu laden</button>
+              </div>
+              <div class="style-contract-grid" aria-label="Stilprofil-Vertrag">
+                <div><small>Revision</small><strong>{{ styleView.revision }}</strong></div>
+                <div><small>SHA-256</small><code>{{ styleView.sha256 }}</code></div>
+                <div><small>Sprachbackend</small><strong>{{ styleView.languageBackend.backend }} · nur lokal</strong></div>
+                <div><small>Remote-Dienst</small><strong>{{ styleView.languageBackend.remoteServiceAllowed ? 'Erlaubt' : 'Gesperrt' }}</strong></div>
+              </div>
+
+              <details open>
+                <summary>Stimme und Grundstil</summary>
+                <div class="style-form-grid">
+                  <label>Sprache<input [(ngModel)]="style.language" maxlength="40" required></label>
+                  <label>Locale<input [(ngModel)]="style.locale" maxlength="40" required></label>
+                  <label>Ton<input data-testid="style-tone" [(ngModel)]="style.tone" maxlength="80" required></label>
+                  <label>Formellität<input [(ngModel)]="style.formality" maxlength="80" required></label>
+                  <label>Direktheit<input [(ngModel)]="style.directness" maxlength="80" required></label>
+                  <label>Satzlänge<input [(ngModel)]="style.sentenceLength" maxlength="80" required></label>
+                  <label>Technische Tiefe<input [(ngModel)]="style.technicalDepth" maxlength="80" required></label>
+                  <label>Enthusiasmus<input [(ngModel)]="style.enthusiasm" maxlength="80" required></label>
+                  <label>Selbstdarstellung<input [(ngModel)]="style.selfPromotion" maxlength="80" required></label>
+                  <label>Humor<input [(ngModel)]="style.humor" maxlength="80" required></label>
+                  <label>Personalisierung<select [(ngModel)]="style.personalizationDefault"><option value="conservative">Konservativ</option><option value="professional">Professionell</option><option value="personal">Persönlich</option></select></label>
+                </div>
+              </details>
+
+              <details>
+                <summary>Wortschatz und Muster</summary>
+                <p class="field-help">Je Zeile ein Eintrag; Leerzeilen werden entfernt, Duplikate blockiert.</p>
+                <div class="style-text-grid">
+                  <label>Bevorzugte Wörter<textarea data-testid="style-vocabulary-prefer" [(ngModel)]="styleVocabularyPreferText" rows="5" maxlength="200000"></textarea></label>
+                  <label>Zu vermeidende Wörter<textarea [(ngModel)]="styleVocabularyAvoidText" rows="5" maxlength="200000"></textarea></label>
+                  <label>Bevorzugte Muster<textarea [(ngModel)]="stylePreferredPatternsText" rows="5" maxlength="200000"></textarea></label>
+                  <label>Zu vermeidende Muster<textarea data-testid="style-avoid-patterns" [(ngModel)]="styleAvoidPatternsText" rows="5" maxlength="200000"></textarea></label>
+                </div>
+              </details>
+
+              <details>
+                <summary>Dokumentstile und Qualitätsgrenzen</summary>
+                <div class="style-document-grid">
+                  @for (kind of styleDocumentTypes; track kind) {
+                    <fieldset><legend>{{ styleDocumentTypeLabel(kind) }}</legend>
+                      <label>Perspektive<input [(ngModel)]="style.documentStyles[kind].perspective" maxlength="80" required></label>
+                      <label>Technikdichte<input [(ngModel)]="style.documentStyles[kind].technicalDensity" maxlength="80" required></label>
+                      <label>Max. Wörter pro Satz<input type="number" [(ngModel)]="style.documentStyles[kind].maxSentenceWords" min="10" max="100" required></label>
+                    </fieldset>
+                  }
+                </div>
+                <div class="style-form-grid">
+                  <label>Max. wiederholte Satzanfänge<input type="number" [(ngModel)]="style.qualityThresholds.maxRepeatedSentenceStarts" min="0" max="100"></label>
+                  <label>Max. Treffer verbotener Muster<input type="number" [(ngModel)]="style.qualityThresholds.maxAvoidPatternMatches" min="0" max="100"></label>
+                  <label>Review-Modus<select [(ngModel)]="style.reviewWorkflow.defaultMode"><option value="compact">Kompakt</option><option value="standard">Standard</option><option value="rigorous">Streng</option></select></label>
+                  <label>Max. Revisionszyklen<input type="number" [(ngModel)]="style.reviewWorkflow.maxRevisionCycles" min="1" max="5"></label>
+                  <label class="explicit-confirmation"><input type="checkbox" [(ngModel)]="style.reviewWorkflow.preferIndependentAgents"><span>Unabhängige Review-Agenten bevorzugen</span></label>
+                </div>
+              </details>
+
+              <details>
+                <summary>Geprüfte Stilbeispiele</summary>
+                <div class="style-example-heading"><p>Positivbeispiele</p><button class="secondary compact" type="button" (click)="addApprovedStyleExample()" [disabled]="style.approvedExamples.length >= 50">Beispiel ergänzen</button></div>
+                @for (example of style.approvedExamples; track $index) {
+                  <fieldset class="style-example"><legend>Positivbeispiel {{ $index + 1 }}</legend>
+                    <div class="style-form-grid"><label>ID<input [(ngModel)]="example.id" maxlength="120" pattern="[a-z0-9]+(?:-[a-z0-9]+)*" required></label><label>Dokumenttyp<select [(ngModel)]="example.documentType">@for (kind of styleExampleDocumentTypes; track kind) { <option [value]="kind">{{ styleDocumentTypeLabel(kind) }}</option> }</select></label><label>Quellenreferenz (optional)<input [(ngModel)]="example.sourceRef" maxlength="500"></label></div>
+                    <label>Beispieltext<textarea [(ngModel)]="example.text" rows="4" maxlength="20000" required></textarea></label><label>Notiz (optional)<textarea [(ngModel)]="example.notes" rows="2" maxlength="2000"></textarea></label>
+                    <button class="text-button" type="button" (click)="removeApprovedStyleExample($index)" [attr.aria-label]="'Positivbeispiel ' + ($index + 1) + ' entfernen'">Entfernen</button>
+                  </fieldset>
+                } @empty { <p class="field-help">Keine Positivbeispiele hinterlegt.</p> }
+                <div class="style-example-heading"><p>Ablehnungsbeispiele</p><button class="secondary compact" type="button" (click)="addRejectedStyleExample()" [disabled]="style.rejectedExamples.length >= 50">Beispiel ergänzen</button></div>
+                @for (example of style.rejectedExamples; track $index) {
+                  <fieldset class="style-example"><legend>Ablehnungsbeispiel {{ $index + 1 }}</legend>
+                    <div class="style-form-grid"><label>ID<input [(ngModel)]="example.id" maxlength="120" pattern="[a-z0-9]+(?:-[a-z0-9]+)*" required></label><label>Dokumenttyp<select [(ngModel)]="example.documentType">@for (kind of styleExampleDocumentTypes; track kind) { <option [value]="kind">{{ styleDocumentTypeLabel(kind) }}</option> }</select></label></div>
+                    <label>Beispieltext<textarea [(ngModel)]="example.text" rows="4" maxlength="20000" required></textarea></label><label>Ablehnungsgrund<textarea [(ngModel)]="example.reason" rows="2" maxlength="2000" required></textarea></label>
+                    <button class="text-button" type="button" (click)="removeRejectedStyleExample($index)" [attr.aria-label]="'Ablehnungsbeispiel ' + ($index + 1) + ' entfernen'">Entfernen</button>
+                  </fieldset>
+                } @empty { <p class="field-help">Keine Ablehnungsbeispiele hinterlegt.</p> }
+              </details>
+
+              <div class="style-save-bar">
+                <div><label class="explicit-confirmation"><input data-testid="style-save-confirmation" type="checkbox" [(ngModel)]="styleProfileConfirmed"><span>Ich speichere gegen Revision {{ styleView.revision }} und den vollständigen servergelieferten SHA-256.</span></label><p class="field-help">Bei parallelen Änderungen lehnt der Server den veralteten Stand ab. Nicht exponierte Profilfelder bleiben serverseitig erhalten.</p></div>
+                <button class="primary" data-testid="save-style-profile" type="button" (click)="saveApplicationStyleProfile()" [disabled]="styleProfileBusy || !styleProfileConfirmed">{{ styleProfileBusy ? 'Wird validiert …' : 'Versioniertes Stilprofil speichern' }}</button>
+              </div>
+              @if (styleProfileError) { <p class="approval-block-reason" role="alert">{{ styleProfileError }}</p> }
+            </section>
+          }
+        }
         <section class="panel" style="margin-top: 18px">
           <div class="panel-head"><div><span class="kicker">EVIDENCE-PROFIL</span><h3>Belegte Kandidatenclaims</h3></div><button class="secondary" (click)="loadCandidateProfile()">Profil prüfen</button></div>
           <p>Änderungen werden validiert und erst mit dem Speichern ausdrücklich bestätigt. Importierte Inhalte bleiben zunächst unbestätigte Vorschläge.</p>
@@ -176,7 +282,7 @@
           </section>
           <p class="runtime-note">{{ mcpRuntime?.note || 'Runtime-Status wird ausschließlich über GET /api/sources/runtime geprüft.' }}</p>
           <section class="mcp-managed-config" aria-labelledby="mcp-managed-config-heading"><h4 id="mcp-managed-config-heading">Serverseitig verwalteter Startvertrag</h4><p>Command, Argumente, State-Verzeichnis und Environment-Werte sind in Angular nicht bearbeitbar. Sichtbar bleiben nur nicht-geheime Metadaten.</p><dl><div><dt>Isolation</dt><dd>trusted-host</dd></div><div><dt>Konfigurierte Environment-Keys</dt><dd>@for (key of mcpConfiguredEnvironmentKeys(); track key) { <code>{{ key }}</code> } @empty { Keine }</dd></div></dl></section>
-          <section class="portal-permission" aria-labelledby="portal-permission-heading"><div><h4 id="portal-permission-heading">Explizite Portal-Freigabe</h4><p>Der aktuelle Wert bleibt absichtlich verborgen. Jede Änderung setzt ausschließlich <code>ALLOW_EXTERNAL_PORTALS</code> auf <code>1</code> oder <code>0</code>.</p></div><div class="portal-permission-actions"><button class="secondary" type="button" (click)="openPortalPermissionDialog('disable')" [disabled]="busy || !!portalPermissionUnavailableReason('disable')">Portalzugriff sperren</button><button class="primary" type="button" (click)="openPortalPermissionDialog('enable')" [disabled]="busy || !!portalPermissionUnavailableReason('enable')">Portalzugriff freigeben</button></div>
+          <section class="portal-permission" aria-labelledby="portal-permission-heading"><div><h4 id="portal-permission-heading">Explizite Portal-Freigabe</h4><p>Der aktuelle Wert bleibt absichtlich verborgen. Jede Änderung setzt ausschließlich <code>ALLOW_EXTERNAL_PORTALS</code> auf <code>1</code> oder <code>0</code>.</p></div><div class="portal-permission-actions"><button #portalPermissionDisableButton class="secondary" type="button" (click)="openPortalPermissionDialog('disable', portalPermissionDisableButton)" [disabled]="busy || !!portalPermissionUnavailableReason('disable')">Portalzugriff sperren</button><button #portalPermissionEnableButton class="primary" type="button" (click)="openPortalPermissionDialog('enable', portalPermissionEnableButton)" [disabled]="busy || !!portalPermissionUnavailableReason('enable')">Portalzugriff freigeben</button></div>
             @if (portalPermissionUnavailableReason('enable'); as reason) { <p class="approval-block-reason" role="status">Fail-closed: {{ reason }}</p> }
           </section>
           <div class="info-box config-save-guard"><strong>Verborgene Werte bleiben erhalten</strong><p>Normales Speichern sendet nur leere Platzhalter zusammen mit <code>configuredEnvironmentKeys</code>. Der Server bewahrt ausschließlich dort bereits vorhandene Werte und lehnt unbekannte oder nichtleere Platzhalter ab.</p></div>
@@ -185,7 +291,7 @@
 
         @if (portalPermissionIntent; as intent) {
           <div class="recovery-dialog-backdrop">
-            <dialog class="recovery-dialog portal-permission-dialog" open aria-modal="true" aria-labelledby="portal-dialog-title" aria-describedby="portal-dialog-description" (keydown.escape)="closePortalPermissionDialog()">
+            <dialog #portalPermissionDialogElement class="recovery-dialog portal-permission-dialog" aria-modal="true" aria-labelledby="portal-dialog-title" aria-describedby="portal-dialog-description" (cancel)="cancelPortalPermissionDialog($event)" (keydown.tab)="trapDialogFocus($event, portalPermissionDialogElement)">
               <span class="kicker">EXPLIZITE PORTAL-FREIGABE</span><h3 id="portal-dialog-title">Portalzugriff {{ intent === 'enable' ? 'freigeben' : 'sperren' }}</h3>
               <p id="portal-dialog-description">Es wird ausschließlich <code>ALLOW_EXTERNAL_PORTALS={{ intent === 'enable' ? '1' : '0' }}</code> an den lokalen Server gesendet. Command, Argumente und andere Environment-Werte sind nicht Teil einer freien Eingabe.</p>
               @if (intent === 'enable') { <div class="warning-box"><strong>Externer Portalzugriff</strong><p>Diese Berechtigung ermöglicht dem trusted-host Job-Search-MCP erlaubte Portalverbindungen. Login, Captcha, 2FA und jede spätere externe Aktion behalten ihre eigenen Grenzen.</p></div> }
@@ -204,9 +310,62 @@
             <article class="panel editor"><div class="editor-toolbar"><div class="segmented"><button [class.active]="documentType === 'cv'" (click)="documentType = 'cv'; prepareApplication()">Lebenslauf</button><button [class.active]="documentType === 'cover_letter'" (click)="documentType = 'cover_letter'; prepareApplication()">Anschreiben</button><button [class.active]="documentType === 'email'" (click)="documentType = 'email'; prepareApplication()">E-Mail</button></div><div><button class="secondary compact" (click)="analyzeApplication()">Evidence-Match</button> <button class="primary compact" (click)="createApplicationCase()">Fall anlegen</button></div></div>
               @if (draft) { <textarea [(ngModel)]="draft.content" aria-label="Bewerbungsentwurf"></textarea><div class="warnings">@for (warning of draft.warnings; track warning) { <p>◇ {{ warning }}</p> }</div> } @else { <div class="empty compact-empty"><span>✦</span><h3>Entwurf erstellen</h3><p>Der lokale Assistent formuliert eine sichere Basis ohne erfundene Erfahrung.</p><button class="primary" (click)="prepareApplication()">Entwurf erzeugen</button></div> }
             </article></section>
-            @if (matchAnalysis?.matchMatrix?.matches; as evidenceMatches) { <section class="panel" style="margin-top:18px"><div class="panel-head"><div><span class="kicker">CLAIM-MATRIX</span><h3>Belegtes Kandidatenmatching</h3><p>Dieser Coverage-Bericht ist kein ATS-Prozentscore.</p></div><button class="secondary compact" type="button" (click)="validateMatchMatrix()">Evidence prüfen</button></div>@for (item of evidenceMatches; track item.competency) { <div class="summary-row" [class.danger]="item.classification === 'gap'"><span>{{ item.classification === 'gap' ? '!' : '✓' }}</span><div><select [(ngModel)]="item.classification" aria-label="Match-Klassifikation"><option value="direct_match">direct_match</option><option value="transferable_match">transferable_match</option><option value="partial_match">partial_match</option><option value="gap">gap</option></select><p>{{ item.competency }} · {{ item.evidence_claim_ids.join(', ') || 'keine Evidence' }}</p><small>{{ item.rationale }}</small></div></div> }</section> }
-            @if (applicationCases.length) { <section class="panel" style="margin-top:18px"><span class="kicker">LOKALER WORKFLOW</span><h3>Bewerbungsfälle</h3>@for (item of applicationCases; track item.id) { <div class="summary-row"><span>▤</span><div style="flex:1"><small>{{ item.state }} · Revision {{ item.revision }}</small><p>{{ item.job.title }} bei {{ item.job.company }} · {{ item.identityMode }}</p></div>@if (nextApplicationState(item); as next) { <button class="secondary compact" type="button" (click)="advanceApplication(item)" [disabled]="busy">Weiter: {{ next }}</button> } @else if (item.identityMode === 'incognito') { <span class="status">Finalisierung gesperrt</span> }</div> }</section> }
+            @if (matchAnalysis?.matchMatrix?.matches; as evidenceMatches) { <section class="panel" style="margin-top:18px"><div class="panel-head"><div><span class="kicker">CLAIM-MATRIX</span><h3>Belegtes Kandidatenmatching</h3><p>Dieser Coverage-Bericht ist kein ATS-Prozentscore.</p></div><button class="secondary compact" type="button" (click)="validateMatchMatrix()">Evidence prüfen</button></div>@for (item of evidenceMatches; track item.competency) { <div class="summary-row" [class.danger]="item.classification === 'gap'"><span>{{ item.classification === 'gap' ? '!' : '✓' }}</span><div><select [(ngModel)]="item.classification" aria-label="Match-Klassifikation"><option value="direct_match">direct_match</option><option value="transferable_match">transferable_match</option><option value="partial_match">partial_match</option><option value="gap">gap</option></select><p>{{ item.competency }} · {{ item.evidence_claim_ids.join(', ') || 'keine Evidence' }}</p><small>{{ item.rationale }}</small></div></div> }@if (matchAnalysis?.matchMatrix?.unresolved_questions?.length) { <div class="warning-box" role="status"><strong>Vor dem Finalizer bewusst prüfen</strong><ul>@for (question of matchAnalysis?.matchMatrix?.unresolved_questions ?? []; track question) { <li>{{ question }}</li> }</ul><p>Die Multi-Agent-Kette akzeptiert dafür keine Vorabbestätigung: Das Nutzereingabe-Gate öffnet erst nach Evidence-, Author-, ATS- und Stil-Review.</p></div> }</section> }
         }
+            @if (applicationCases.length) {
+              <section class="panel application-cases" style="margin-top:18px"><span class="kicker">LOKALER WORKFLOW</span><h3>Bewerbungsfälle</h3>
+                @for (item of applicationCases; track item.id) {
+                  <div class="summary-row" [class.selected-case]="selectedApplicationCaseId === item.id"><span>▤</span><div class="summary-main"><small>{{ item.state }} · Fallrevision {{ item.revision }}</small><p>{{ item.job.title }} bei {{ item.job.company }} · {{ item.identityMode }}</p></div><button class="secondary compact" type="button" (click)="selectApplicationCase(item)">Werkstatt öffnen</button>@if (nextApplicationState(item); as next) { <button class="secondary compact" type="button" (click)="advanceApplication(item)" [disabled]="busy">Weiter: {{ next }}</button> } @else if (item.identityMode === 'incognito') { <span class="status">Finalisierung gesperrt</span> } @else if (item.state === 'review') { <span class="status">Pipeline-Revision erforderlich</span> } @else if (item.state === 'approved') { <span class="status ok">Exportbereit</span> }</div>
+                }
+              </section>
+            }
+            @if (selectedApplicationCase(); as application) {
+              <section class="panel pipeline-workbench" data-testid="case-pipeline-workbench" aria-labelledby="pipeline-workbench-heading">
+                <div class="panel-head"><div><span class="kicker">CASE-BOUND PIPELINE</span><h3 id="pipeline-workbench-heading">Geprüfte Dokumentrevisionen</h3><p>{{ application.job.title }} bei {{ application.job.company }}</p></div><div class="pipeline-case-state"><span class="status" [class.ok]="application.state === 'approved' || application.state === 'exported'">{{ application.state }}</span><small>Fallrevision {{ application.revision }}</small></div></div>
+                <div class="pipeline-contract-grid" aria-label="Pipeline-Bindung">
+                  <div><small>Identitätsmodus</small><strong>{{ application.identityMode }}</strong></div><div><small>Dokument</small><strong>{{ application.documentType }}</strong></div><div><small>Bindung</small><strong>Fall {{ application.id }}</strong></div>@if (application.approvedArtifactRevisionId) { <div><small>Freigegebene Revision</small><strong>{{ application.approvedArtifactRevisionId }}</strong></div><div><small>Freigabe-SHA-256</small><strong class="hash-value">{{ application.approvedArtifactSha256 }}</strong></div><div><small>Freigegeben</small><strong>{{ application.approvedAt | date:'medium' }}</strong></div> }
+                </div>
+                @if (application.identityMode === 'incognito') { <div class="warning-box" role="status"><strong>Finalisierung gesperrt</strong><p>Inkognito-Identitäten sind ausschließlich für Vorschau und UI-Tests erlaubt. Freigabe und Export bleiben serverseitig blockiert.</p></div> }
+                @if (application.state !== 'review' && application.state !== 'approved' && application.state !== 'exported') { <div class="info-box"><strong>Review-Status erforderlich</strong><p>Führe den lokalen Fallworkflow bis <code>review</code> fort. Erst dann kann der Server einen Pipeline-Nachweis ausstellen.</p></div> }
+
+                <div class="pipeline-inputs">
+                  <label>Annotierter Dokumenttext<textarea [ngModel]="pipelineAnnotatedContent" (ngModelChange)="setPipelineAnnotatedContent($event)" rows="10" placeholder="Finalen, belegten Text mit den Annotationen der Bewerbungspipeline einfügen"></textarea></label>
+                  <label>Iteration-/Review-Manifest<textarea [ngModel]="pipelineIterationManifest" (ngModelChange)="setPipelineIterationManifest($event)" rows="10" placeholder="Manifest der vollständigen Author-, Evidence-, ATS-, Recruiter- und Finalizer-Prüfung"></textarea></label>
+                </div>
+                <section class="language-check-panel" aria-labelledby="language-check-heading">
+                  <div><h4 id="language-check-heading">Lokale Sprachprüfung</h4><p>Der Check läuft lokal. Die Finalisierung wiederholt ihn serverseitig und bleibt bei fehlendem Backend fail-closed.</p></div>
+                  <button class="secondary" type="button" (click)="runLocalLanguageCheck()" [disabled]="languageCheckBusy || !pipelineAnnotatedContent.trim()">{{ languageCheckBusy ? 'Prüfung läuft …' : 'Text lokal prüfen' }}</button>
+                  @if (languageCheckResult; as check) {
+                    <div class="language-result" role="status" [class.ready]="check.available"><strong>{{ check.available ? 'Backend verfügbar' : 'Backend nicht verfügbar' }}</strong><span>{{ check.backend || 'kein Backend' }} · {{ check.issues.length }} Hinweis(e)</span>@if (check.disclosure) { <p>{{ check.disclosure }}</p> }</div>
+                    @if (check.issues.length) { <ul class="language-issues">@for (issue of check.issues; track $index) { <li><strong>{{ issue.ruleId || issue.kind || 'Hinweis' }}</strong><span>{{ issue.word || 'Textstelle prüfen' }}@if (issue.suggestions?.length) { · Vorschläge: {{ issue.suggestions?.join(', ') }} }</span></li> }</ul> }
+                  }
+                </section>
+                <div class="pipeline-primary-action"><button class="primary" type="button" (click)="finalizeSelectedApplicationCase()" [disabled]="busy || application.state !== 'review' || application.identityMode !== 'real' || !pipelineAnnotatedContent.trim() || !pipelineIterationManifest.trim()">Serverseitig finalisieren und Revision vorschlagen</button><small>Gesendet werden nur Fall-ID, annotierter Inhalt und Iterationsmanifest. Identität, Stelle und Dokumenttyp bindet der Server an den Fall.</small></div>
+
+                <section class="artifact-revision-list" aria-labelledby="artifact-revisions-heading">
+                  <div class="panel-head"><div><h4 id="artifact-revisions-heading">Unveränderliche Revisionen</h4><p>Entscheidungen binden sich an Revisions-ID, vollständigen SHA-256 und die bestätigte Anzahl lokaler Sprachhinweise.</p></div><button class="text-button" type="button" (click)="loadApplicationArtifacts(application.id)">Aktualisieren</button></div>
+                  @for (revision of artifactsFor(application); track revision.id) {
+                    <article class="artifact-revision" [attr.data-lifecycle]="revision.lifecycle">
+                      <div class="artifact-revision-head"><div><span class="status" [class.ok]="revision.lifecycle === 'approved' || revision.lifecycle === 'used'">{{ revision.lifecycle }}</span><strong>{{ revision.type }}</strong></div><small>{{ revision.createdAt | date:'medium' }}</small></div>
+                      <dl><div><dt>Revisions-ID</dt><dd><code>{{ revision.id }}</code></dd></div><div><dt>SHA-256</dt><dd><code class="hash-value">{{ revision.sha256 }}</code></dd></div><div><dt>Größe</dt><dd>{{ revision.bytes }} Bytes</dd></div></dl>
+                      @if (revision.pipelineProof; as proof) {
+                        <div class="pipeline-proof"><strong>Signierter Pipeline-Nachweis</strong><p>{{ proof.completedStages.length }} Stufen · {{ proof.languageCheck.backend }} · {{ proof.languageCheck.issueCount }} Sprachhinweis(e)</p>@if (proof.preparation) { <small>Vorbereitung gebunden: Stellenanalyse · valide Match-Matrix · Fragenreview</small> } @else { <small>Kompatibler älterer Nachweis ohne separaten Vorbereitungseintrag</small> }<small>Dokumenthash {{ proof.artifactSha256 }}</small></div>
+                      } @else { <p class="approval-block-reason" role="status">Nicht freigabefähig: Für diese Revision liegt kein serverseitiger Pipeline-Nachweis vor.</p> }
+                      @if (revision.lifecycle === 'proposed' && revision.pipelineProof) {
+                        <label class="explicit-confirmation"><input type="checkbox" [(ngModel)]="artifactReviewConfirmed[revision.id]"><span>Ich habe Revisions-ID, vollständigen SHA-256 und {{ revision.pipelineProof.languageCheck.issueCount }} Sprachhinweis(e) geprüft.</span></label>
+                        <div class="artifact-actions"><button class="secondary" type="button" (click)="reviewApplicationRevision(application, revision, 'rejected')" [disabled]="busy || !artifactReviewConfirmed[revision.id]">Exakte Revision ablehnen</button><button class="primary" type="button" (click)="reviewApplicationRevision(application, revision, 'approved')" [disabled]="busy || !artifactReviewConfirmed[revision.id]">Exakte Revision freigeben</button></div>
+                      }
+                      @if (revision.lifecycle === 'approved' && application.state === 'review') { <div class="artifact-actions"><button class="primary" type="button" (click)="approveApplicationCase(application, revision)" [disabled]="busy">Fall mit dieser geprüften Revision freigeben</button></div> }
+                      @if (revision.lifecycle === 'approved' && application.state === 'approved') {
+                        @if (applicationArtifactExportUnavailableReason(application, revision); as reason) { <p class="approval-block-reason" role="status">Export gesperrt: {{ reason }}</p> } @else { <div class="artifact-export"><label>Exportformat<select [(ngModel)]="artifactExportFormat[revision.id]"><option value="pdf">PDF</option><option value="docx">DOCX</option></select></label><label class="explicit-confirmation"><input type="checkbox" [(ngModel)]="artifactExportConfirmed[revision.id]"><span>Genau Revision <code>{{ revision.id }}</code> mit dem beim Fall-Approval gebundenen SHA-256 exportieren und als verwendet markieren.</span></label><button class="primary" type="button" (click)="exportApplicationRevision(application, revision)" [disabled]="busy || !artifactExportConfirmed[revision.id]">Hashgebundene Revision exportieren</button></div> }
+                      }
+                      @if (revision.lifecycle === 'used') { <p class="status ok">Für diesen Bewerbungsfall verwendet</p> }
+                    </article>
+                  } @empty { <div class="approval-empty"><strong>Noch keine Pipeline-Revision</strong><p>Freie Entwürfe werden nicht als freigabefähige Revision gespeichert. Finalisiere im Review-Status über die vollständige Pipeline.</p></div> }
+                </section>
+                @if (applicationExportResult; as result) { <div class="info-box ready" role="status"><strong>Export nachvollziehbar erzeugt</strong><p>{{ result.fileName }} · Revision {{ result.artifactRevisionId }} · SHA-256 {{ result.artifactSha256 }}</p></div> }
+              </section>
+            }
       }
       @if (section === 'crm') {
         <section class="page-intro"><div><span class="kicker">BEWERBUNGS-CRM</span><h2>Firmen, Stellen und Antworten</h2><p>Mehrere Bewerbungen beim selben Unternehmen bleiben getrennt, während Nachrichten, Termine, Absagen und verwendete Dokumentstände eindeutig zugeordnet werden.</p></div><div><button class="secondary" type="button" (click)="importLocalMailDrop()">SMTP-Ablage einlesen</button> <label class="secondary">EML importieren<input type="file" accept=".eml,message/rfc822" (change)="importEml($event)" hidden></label></div></section>
@@ -217,15 +376,15 @@
             @for (account of mailAccounts; track account.id) { <div class="summary-row"><span>@</span><div style="flex:1"><strong>{{ account.label }}</strong><small>{{ account.email }} · {{ account.host }}:{{ account.port }} · {{ account.enabled ? 'aktiv' : 'deaktiviert' }}</small></div><button class="secondary compact" type="button" (click)="testMail(account)" [disabled]="busy">Testen</button><button class="secondary compact" type="button" (click)="setMailAccountEnabled(account, !account.enabled)">{{ account.enabled ? 'Deaktivieren' : 'Aktivieren' }}</button><button class="secondary compact" type="button" (click)="syncMail(account)" [disabled]="busy || !account.enabled">Jetzt abrufen</button><button class="secondary compact" type="button" (click)="deleteMailAccount(account)">Löschen</button></div> }
           </article>
           <article class="panel"><span class="kicker">ZUORDNUNGS-INBOX</span><h3>{{ mailInbox.length }} ungeklärte Nachricht(en)</h3><p class="description">Automatische Treffer bleiben Vorschläge. Bei geringer oder mehrdeutiger Sicherheit entscheidet der Nutzer.</p>
-            @for (message of mailInbox; track message.id) { <div class="mail-card"><div class="panel-head"><strong>{{ message.subject || '(ohne Betreff)' }}</strong><span class="status">{{ message.responseKind }}</span></div><small>{{ message.from.join(', ') }} · {{ message.sentAt | date:'short' }}</small><p>{{ message.text | slice:0:220 }}</p><label>Bewerbungsfall<select [(ngModel)]="mailCorrelationTarget[message.id]"><option value="">Bitte wählen</option>@for (item of applicationCases; track item.id) { <option [value]="item.id">{{ item.job.company }} · {{ item.job.title }}</option> }</select></label><button class="secondary compact" type="button" (click)="confirmCorrelation(message.id)">Zuordnung bestätigen</button></div> } @empty { <p class="description">Keine ungeklärten Nachrichten vorhanden.</p> }
+            @for (message of mailInbox; track message.id) { <div class="mail-card"><div class="panel-head"><strong>{{ message.subject || '(ohne Betreff)' }}</strong><span class="status">{{ message.responseKind }}</span></div><small>{{ message.from.join(', ') }} · {{ message.sentAt | date:'short' }}</small><p>{{ message.text | slice:0:220 }}</p><label>Bewerbungsfall<select [(ngModel)]="mailCorrelationTarget[message.id]"><option value="">Bitte wählen</option>@for (item of applicationCases; track item.id) { <option [value]="item.id">{{ item.job.company }} · {{ item.job.title }}</option> }</select></label><div class="artifact-actions"><button class="secondary compact" type="button" (click)="openInboxMailAgentOrchestration(message)" [disabled]="!mailCorrelationTarget[message.id]">Gewählte Mail mit Agent triagieren</button><button class="secondary compact" type="button" (click)="confirmCorrelation(message.id)">Zuordnung bestätigen</button></div></div> } @empty { <p class="description">Keine ungeklärten Nachrichten vorhanden.</p> }
           </article>
         </section>
         <section class="company-grid">
           @for (company of companies; track company.key) { <article class="panel company-card"><div class="panel-head"><div><span class="kicker">UNTERNEHMEN</span><h3>{{ company.name }}</h3></div><span class="status ok">{{ company.applications.length }} Stelle(n)</span></div>
-            @for (application of company.applications; track application.id) { <section class="application-crm"><div class="panel-head"><div><strong>{{ application.job.title }}</strong><p>{{ application.job.location }} · {{ application.state }}</p></div>@if (draft?.jobId === application.job.id) { <button class="secondary compact" type="button" (click)="storeDraftRevision(application)">Aktuellen Entwurf speichern</button> }</div>
+            @for (application of company.applications; track application.id) { <section class="application-crm"><div class="panel-head"><div><strong>{{ application.job.title }}</strong><p>{{ application.job.location }} · {{ application.state }}</p></div><div class="crm-case-actions"><button class="secondary compact" type="button" (click)="select('applications'); selectApplicationCase(application)">In Werkstatt prüfen</button><button class="secondary compact" type="button" (click)="openCaseAgentWorkflow(application, 'employer-response-triage')">Mailtriage mit Agent</button><button class="secondary compact" type="button" (click)="openCaseAgentWorkflow(application, 'application-next-actions')">Nächste Schritte</button></div></div>
               <div class="chips">@for (event of application.tracking; track event.id) { <span class="chip">{{ event.status }} · {{ event.occurredAt | date:'shortDate' }}</span> }</div>
               @for (message of application.messages; track message.id) { <div class="summary-row"><span>✉</span><div><strong>{{ message.subject }}</strong><small>{{ message.responseKind }} · {{ message.sentAt | date:'short' }}</small>@for (event of message.calendarEvents; track event.title) { <p>Termin: {{ event.title }} · {{ event.start || 'Zeit aus Einladung prüfen' }} @if (event.location) { · {{ event.location }} }</p> }</div></div> }
-              @for (revision of application.artifacts; track revision.id) { <div class="summary-row"><span>▤</span><div style="flex:1"><strong>{{ revision.type }} · {{ revision.lifecycle }}</strong><small>{{ revision.createdAt | date:'short' }} · {{ revision.sha256.slice(0, 12) }}…</small></div>@if (revision.lifecycle !== 'used') { <button class="secondary compact" type="button" (click)="markRevisionUsed(application, revision)" [disabled]="application.identityMode === 'incognito'">Als verwendet markieren</button> }</div> }
+              @for (revision of application.artifacts; track revision.id) { <div class="summary-row"><span>▤</span><div style="flex:1"><strong>{{ revision.type }} · {{ revision.lifecycle }}</strong><small>{{ revision.createdAt | date:'short' }} · {{ revision.sha256 }}</small></div><span class="status">Nur über revisionsgebundene Werkstattaktionen</span></div> }
             </section> }
           </article> } @empty { <div class="empty"><span>◇</span><h3>Noch keine Firmenakte</h3><p>Lege aus einem Suchergebnis zuerst einen Bewerbungsfall an.</p></div> }
         </section>
@@ -234,6 +393,38 @@
         <section class="page-intro agent-intro">
           <div><span class="kicker">LOKALE AGENTENSTEUERUNG</span><h2>Eine sichere Oberfläche für alle Agenten</h2><p>Starte Codex, OpenCode, Claude und weitere Provider über einen einheitlichen Vertrag. Jeder Lauf ist einer klaren Aufgabe zugeordnet; Schreibzugriff, Netzwerk und sensible Aktionen bleiben sichtbar und bewusst steuerbar.</p></div>
           <div class="agent-intro-actions"><button class="secondary" type="button" (click)="loadAgentProviders(true)" [disabled]="agentBusy">Installationen prüfen</button><button class="secondary" type="button" (click)="refreshAgentRuns()" [disabled]="agentBusy">↻ Runs aktualisieren</button></div>
+        </section>
+
+        <section class="panel agent-config-profile" data-testid="agent-config-profile" aria-labelledby="agent-config-profile-heading">
+          <div class="panel-head"><div><span class="kicker">LOKALES SICHERHEITSPROFIL</span><h3 id="agent-config-profile-heading">Provider, Limits und Feature-Gates</h3><p>Der Browser bearbeitet nur den geschlossenen Serververtrag. Secrets, Commands und lokale Pfade sind weder sichtbar noch eingabefähig.</p></div><button class="secondary compact" type="button" (click)="loadAgentConfigProfile()" [disabled]="agentConfigProfileBusy">Profil neu laden</button></div>
+          @if (agentConfigProfile; as view) {
+            @if (agentConfigProfileDraft; as profile) {
+              <div class="agent-config-witness"><div><small>Aktives Profil</small><strong>{{ profile.profileId }}</strong></div><div><small>Quelle</small><strong>{{ view.source === 'primary' ? 'Primärprofil' : 'Last Known Good' }}</strong></div><div><small>Schema</small><strong>v{{ profile.schemaVersion }}@if (view.migratedFrom) { · migriert von v{{ view.migratedFrom }} }</strong></div><div><small>CAS-Stand</small><code>{{ view.profile.updatedAt }}</code></div></div>
+              @if (view.source === 'last_known_good') { <div class="warning-box" role="status"><strong>Last Known Good aktiv</strong><p>Das Primärprofil konnte nicht geladen werden. Änderungen bleiben möglich, werden aber ausschließlich gegen den angezeigten LKG-Zeitstand gespeichert.</p>@if (view.primaryError) { <code>{{ view.primaryError }}</code> }</div> }
+              <div class="agent-config-provider-list" aria-label="Providerregeln des aktiven Profils">
+                @for (provider of profile.providers; track provider.provider) {
+                  <fieldset class="agent-config-provider" [attr.data-provider-config]="provider.provider"><legend>{{ agentProviderName(provider.provider) }} · <code>{{ provider.provider }}</code></legend>
+                    <label class="explicit-confirmation"><input type="checkbox" [ngModel]="provider.enabled" (ngModelChange)="provider.enabled = $event; invalidateAgentConfigConfirmation()"><span>Provider lokal aktiviert</span></label>
+                    <div class="agent-config-provider-grid">
+                      <label>Runtime<select [ngModel]="provider.runtimeTarget" (ngModelChange)="setAgentConfigProviderRuntime(provider, $event)"><option value="windows">Windows</option><option value="wsl">WSL</option><option value="linux">Linux</option><option value="darwin">macOS</option></select></label>
+                      @if (provider.runtimeTarget === 'wsl') { <label>WSL-Distribution (optional)<input [ngModel]="provider.wslDistribution" (ngModelChange)="setAgentConfigWslDistribution(provider, $event)" maxlength="128" pattern="[A-Za-z0-9][A-Za-z0-9._-]*" placeholder="Ubuntu-24.04"></label> }
+                      <label>Sandbox<select [ngModel]="provider.sandbox" (ngModelChange)="provider.sandbox = $event; invalidateAgentConfigConfirmation()"><option value="read-only">Nur lesen</option><option value="workspace-write">Workspace schreiben</option></select></label>
+                      <label>Approval<select [ngModel]="provider.approvalMode" (ngModelChange)="provider.approvalMode = $event; invalidateAgentConfigConfirmation()"><option value="deny">Deny-by-default</option><option value="explicit">Explizite Freigabe</option></select></label>
+                    </div>
+                    <div class="agent-config-readonly"><span>Netzwerk: <strong>{{ provider.network === 'disabled' ? 'offline / gesperrt' : 'gespeicherte Regel: restricted; Runs bleiben derzeit offline' }}</strong></span><span>Modell: <strong>{{ provider.model || 'Providerstandard, nicht frei eingegeben' }}</strong></span><span>Runtime-Regel: <strong>{{ agentConfigRuntimeLabel(provider) }}</strong></span></div>
+                    <p class="agent-config-contract-note">Runtime und Sandbox werden vor dem Start serverseitig geprüft. Approval und Modell übersetzt ausschließlich der Server in die effektiven Run-Regeln; die Oberfläche behauptet daraus keine Werkzeugfreigabe.</p>
+                  </fieldset>
+                }
+              </div>
+              <div class="agent-config-lower-grid">
+                <fieldset><legend>Budget- und Telemetriegrenzen</legend><div class="agent-config-budget-grid"><label>Warnung bei %<input type="number" [ngModel]="profile.budgets.warningAtPercent" (ngModelChange)="profile.budgets.warningAtPercent = $event; invalidateAgentConfigConfirmation()" min="1" max="100"></label><label>Max. Tokens<input type="number" [ngModel]="profile.budgets.maxTotalTokens" (ngModelChange)="setAgentConfigBudget('maxTotalTokens', $event)" min="0"></label><label>Max. Toolaufrufe<input type="number" [ngModel]="profile.budgets.maxToolCalls" (ngModelChange)="setAgentConfigBudget('maxToolCalls', $event)" min="0"></label><label>Max. Laufzeit in ms<input type="number" [ngModel]="profile.budgets.maxRunDurationMs" (ngModelChange)="setAgentConfigBudget('maxRunDurationMs', $event)" min="0"></label><label>Hartes Kostenbudget<input data-testid="agent-config-cost-amount" type="text" inputmode="decimal" [ngModel]="agentConfigCostAmount" (ngModelChange)="setAgentConfigCostAmount($event)" maxlength="24" placeholder="z. B. 25,50"></label><label>ISO-Währung<input data-testid="agent-config-cost-currency" type="text" autocapitalize="characters" [ngModel]="agentConfigCostCurrency" (ngModelChange)="setAgentConfigCostCurrency($event)" maxlength="3" pattern="[A-Z]{3}" placeholder="EUR"></label></div><p class="agent-config-cost-summary" role="status">Quelle: geladenes Serverprofil; Eingaben bleiben bis zur CAS-Speicherung lokaler Entwurf · {{ agentConfigCostSummary() }}</p><p class="agent-config-contract-note">Laufzeit und optionales Kostenbudget sind harte serverseitige Obergrenzen. Token-/Toolwerte und Warnschwelle speisen derzeit die Budgettelemetrie und sind nicht als harter Abbruch ausgewiesen. Dezimalbeträge werden exakt in Währungs-Mikroeinheiten umgerechnet.</p></fieldset>
+                <fieldset><legend>Featureflags</legend><label class="agent-feature-toggle"><input data-testid="codex-app-server-toggle" type="checkbox" [ngModel]="profile.features.codexAppServerExperimental" (ngModelChange)="setCodexAppServerEnabled($event)"><span><strong>Codex App Server</strong><small>Standardmäßig aus; experimenteller Transport hinter explizitem Gate.</small></span></label><label class="agent-feature-toggle"><input data-testid="multi-agent-toggle" type="checkbox" [ngModel]="profile.features.multiAgentExperimental" (ngModelChange)="profile.features.multiAgentExperimental = $event; invalidateAgentConfigConfirmation()"><span><strong>Multi-Agent suggestion-only</strong><small>Darf aktiv bleiben; Abschalten blockiert neue Orchestrierungen.</small></span></label><label class="agent-feature-toggle readonly"><input type="checkbox" [checked]="profile.features.realtimeWebSocketExperimental" disabled><span><strong>Realtime WebSocket</strong><small>Schreibgeschützt; keine Aktivierung über diese Oberfläche.</small></span></label><label class="agent-feature-toggle readonly"><input type="checkbox" [checked]="profile.features.rawProviderLogs" disabled><span><strong>Raw Provider Logs</strong><small>Schreibgeschützt; sensible Rohlogs werden hier nie freigegeben.</small></span></label></fieldset>
+              </div>
+              @if (!view.profile.features.codexAppServerExperimental && profile.features.codexAppServerExperimental) { <div class="warning-box codex-opt-in"><strong>Experimenteller Codex-App-Server-Transport</strong><p>Nach Speicherung werden Provider-Discovery und Preflight neu ausgeführt. Bestehende Runs ändern sich nicht.</p><label class="explicit-confirmation"><input data-testid="codex-app-server-opt-in" type="checkbox" [(ngModel)]="agentCodexAppServerOptInConfirmed"><span>Ich aktiviere den Codex App Server bewusst für dieses lokale Profil.</span></label></div> }
+              <div class="agent-config-save"><div><label class="explicit-confirmation"><input data-testid="agent-config-save-confirmation" type="checkbox" [(ngModel)]="agentConfigProfileConfirmed"><span>Profiländerung exakt gegen CAS-Stand <code>{{ view.profile.updatedAt }}</code> speichern.</span></label><p>Bei einem zwischenzeitlich geänderten Profil antwortet der Server mit 409; der Browser überschreibt den neueren Stand nicht.</p></div><button class="primary" data-testid="save-agent-config-profile" type="button" (click)="saveAgentConfigProfile()" [disabled]="agentConfigProfileBusy || !!agentConfigProfileSaveUnavailableReason()">{{ agentConfigProfileBusy ? 'Wird geprüft …' : 'Sicherheitsprofil per CAS speichern' }}</button></div>
+            }
+          } @else { <div class="approval-empty"><strong>Sicherheitsprofil wird geladen</strong><p>Bis zur Serverantwort werden keine lokalen Profilwerte angenommen.</p></div> }
+          @if (agentConfigProfileError) { <p class="approval-block-reason" role="alert">{{ agentConfigProfileError }}</p> }
         </section>
 
         <section class="stats-grid agent-metrics" aria-label="Agent-Center-Status">
@@ -286,8 +477,8 @@
                 @if (agentRecoveryLeaseFor(recovery.runId); as localLease) {
                   <p class="recovery-local-lease"><strong>Dieser Browser hält die Lease-ID</strong><span>Operator {{ localLease.operatorId }} · läuft {{ localLease.expiresAt | date:'mediumTime' }} ab</span></p>
                   <div class="recovery-actions">
-                    <button class="secondary compact" type="button" (click)="openAgentRecoveryDialog(recovery, 'cleanup')" [disabled]="agentBusy || !!agentRecoveryActionUnavailableReason(recovery, 'cleanup')">Bereinigung prüfen</button>
-                    <button class="primary compact" type="button" (click)="openAgentRecoveryDialog(recovery, 'resume')" [disabled]="agentBusy || !!agentRecoveryActionUnavailableReason(recovery, 'resume')">Als neuen Run starten</button>
+                    <button #agentRecoveryCleanupButton class="secondary compact" type="button" (click)="openAgentRecoveryDialog(recovery, 'cleanup', agentRecoveryCleanupButton)" [disabled]="agentBusy || !!agentRecoveryActionUnavailableReason(recovery, 'cleanup')">Bereinigung prüfen</button>
+                    <button #agentRecoveryResumeButton class="primary compact" type="button" (click)="openAgentRecoveryDialog(recovery, 'resume', agentRecoveryResumeButton)" [disabled]="agentBusy || !!agentRecoveryActionUnavailableReason(recovery, 'resume')">Als neuen Run starten</button>
                   </div>
                   @if (agentRecoveryActionUnavailableReason(recovery, 'resume'); as reason) { <p class="approval-block-reason" role="status">Gesperrt: {{ reason }}</p> }
                 } @else {
@@ -301,7 +492,7 @@
 
         @if (agentRecoveryDialog; as dialog) {
           <div class="recovery-dialog-backdrop">
-            <dialog class="recovery-dialog" open aria-modal="true" aria-labelledby="recovery-dialog-title" aria-describedby="recovery-dialog-description" (keydown.escape)="closeAgentRecoveryDialog()">
+            <dialog #agentRecoveryDialogElement class="recovery-dialog" aria-modal="true" aria-labelledby="recovery-dialog-title" aria-describedby="recovery-dialog-description" (cancel)="cancelAgentRecoveryDialog($event)" (keydown.tab)="trapDialogFocus($event, agentRecoveryDialogElement)">
               <span class="kicker">EXPLIZITE OPERATORBESTÄTIGUNG</span>
               <h3 id="recovery-dialog-title">{{ dialog.decision === 'cleanup' ? 'Verwaisten Run bereinigen' : 'Neuen Prozess und neuen Run starten' }}</h3>
               <p id="recovery-dialog-description">Run <code>{{ dialog.runId }}</code> wird ausschließlich mit Lease-ID und erwarteter Revision <strong>#{{ dialog.expectedRevision }}</strong> entschieden.</p>
@@ -356,6 +547,94 @@
               </div>
             </article>
           } @empty { <div class="warning-box"><strong>Keine Provider erkannt</strong><p>Installiere mindestens eine unterstützte CLI und aktualisiere den Status. Das Center akzeptiert keine frei eingegebenen Executables.</p></div> }
+        </section>
+
+        <section class="panel orchestration-center" data-testid="agent-orchestration-center" aria-labelledby="orchestration-center-heading">
+          <div class="panel-head"><div><span class="kicker">MULTI-AGENT-WORKFLOWS</span><h3 id="orchestration-center-heading">Getrennte Rollen produktiv orchestrieren</h3><p>Der Server besitzt Scope, Abhängigkeiten, Budgets und Gates. Jeder Node läuft in einem eigenen Rollenkontext; alle Artefakte bleiben Vorschläge.</p></div><button class="secondary compact" type="button" (click)="refreshAgentOrchestrations()" [disabled]="agentOrchestrationBusy">Aktualisieren</button></div>
+          <div class="orchestration-layout">
+            <form class="orchestration-create" (ngSubmit)="createAgentOrchestration()" aria-label="Multi-Agent-Workflow starten">
+              <h4>Workflow serverseitig starten</h4>
+              <label>Versionierter Workflow<select name="orchestrationWorkflow" [ngModel]="agentOrchestrationForm.workflowId" (ngModelChange)="setAgentOrchestrationWorkflow($event)">@for (workflow of agentWorkflows; track workflow.id) { <option [value]="workflow.id">{{ workflow.title }} · v{{ workflow.version }}</option> }</select></label>
+              @if (agentOrchestrationWorkflow(); as workflow) { <div class="info-box"><strong>{{ workflow.title }}</strong><p>{{ workflow.description }}</p><small>Scope {{ workflow.requiredScope }} · ausschließlich Vorschläge · gesperrt: {{ workflow.prohibitedActions.join(', ') }}</small></div>@if (workflow.id === 'guided-job-analysis') { <div class="trusted-host-workflow-note"><strong>Getrennte Trusted-Host-Suche</strong><p>Die Jobsuche läuft vor der Orchestrierung im servereigenen Trusted-Host-MCP. Agenten bleiben offline/sandboxed.</p></div> } }
+              <div class="orchestration-field-grid"><label>Provider<select name="orchestrationProvider" [ngModel]="agentOrchestrationForm.providerId" (ngModelChange)="selectAgentOrchestrationProvider($event)">@for (provider of agentProviders; track provider.id) { <option [value]="provider.id" [disabled]="!provider.available">{{ provider.name }}</option> }</select></label><label>Installation<select name="orchestrationRuntime" [ngModel]="selectedAgentOrchestrationInstallationKey()" (ngModelChange)="selectAgentOrchestrationInstallation($event)">@for (installation of agentOrchestrationInstallations(); track agentInstallationKey(installation)) { <option [value]="agentInstallationKey(installation)" [disabled]="installation.support !== 'supported'">{{ agentRuntimeLabel(installation) }} · {{ installation.support }}</option> }</select></label></div>
+              <label>Expliziter Auftrag<textarea name="orchestrationPrompt" [ngModel]="agentOrchestrationForm.prompt" (ngModelChange)="setAgentOrchestrationPrompt($event)" rows="5" maxlength="65536" placeholder="Beschreibe das gewünschte Analyse- oder Review-Ergebnis. Externe Aktionen bleiben gesperrt."></textarea></label>
+              <label>Bewerbungsfall<select name="orchestrationCase" [ngModel]="agentOrchestrationForm.applicationCaseId" (ngModelChange)="setAgentOrchestrationApplicationCase($event)"><option [ngValue]="undefined">Kein Fall / Suchprofil-Scope</option>@for (application of applicationCases; track application.id) { <option [value]="application.id">{{ application.job.company }} · {{ application.job.title }} · {{ application.state }}</option> }</select></label>
+              @if (agentOrchestrationForm.applicationCaseId) {
+                @if (agentOrchestrationForm.mailId) { <div class="info-box"><strong>Explizit gewählte Inbox-Mail</strong><p>Nur Mail-ID <code>{{ agentOrchestrationForm.mailId }}</code> wird gesendet. Den untrusted Inhalt löst ausschließlich der Server auf; Angular echoet ihn nicht in den Auftrag.</p></div> }
+                @if (agentOrchestrationWorkflow()?.id === 'employer-response-triage' && !agentOrchestrationForm.mailId) { <div class="warning-box" role="status"><strong>Explizite Mailauswahl erforderlich</strong><p>Starte Employer-Triage über „Gewählte Mail mit Agent triagieren“ in der Firmen-/Inbox-Ansicht. Ohne serverauflösbare Mail-ID bleibt der Start gesperrt.</p></div> }
+                @if (agentOrchestrationWorkflow()?.id === 'evidence-application-package' || agentOrchestrationWorkflow()?.id === 'employer-response-triage') { <div class="info-box"><strong>Keine Vorabbestätigung</strong><p>{{ agentOrchestrationWorkflow()?.id === 'evidence-application-package' ? 'Der Finalizer pausiert nach Evidence-, Author-, ATS- und Stil-Review.' : 'Der Antwortentwurf pausiert nach Klassifikation und Zuordnungsvorschlag.' }} Erst dann kann das servergebundene Nutzereingabe-Gate bewusst bestätigt werden.</p></div> }
+              }
+              <button class="primary wide" type="submit" [disabled]="agentOrchestrationBusy || agentOrchestrationForm.prompt.trim().length < 3 || (agentOrchestrationWorkflow()?.id === 'employer-response-triage' && !agentOrchestrationForm.mailId)">{{ agentOrchestrationBusy ? 'Server prüft …' : 'Multi-Agent-Workflow starten' }}</button>
+              <p class="form-hint centered">Keine Workspace-Pfade, Identitäten, Claims oder Mailtexte werden vom Browser frei gesetzt. Der Server löst sie aus Workflow und Fall.</p>
+            </form>
+
+            <div class="orchestration-monitor">
+              <div class="orchestration-list" aria-label="Agentenorchestrierungen">
+                @for (orchestration of agentOrchestrations; track orchestration.id) { <button type="button" [class.selected]="selectedAgentOrchestration?.id === orchestration.id" [attr.aria-pressed]="selectedAgentOrchestration?.id === orchestration.id" (click)="selectAgentOrchestration(orchestration)"><span class="run-state" [attr.data-state]="orchestration.status"></span><span><strong>{{ orchestration.redactedSummary }}</strong><small>{{ agentOrchestrationStatusLabel(orchestration.status) }} · Revision {{ orchestration.revision }} · {{ orchestration.nodes.length }} Rollen</small></span></button> } @empty { <div class="approval-empty"><strong>Noch keine Multi-Agent-Orchestrierung</strong><p>Ein Start erzeugt eine serverseitig persistierte, redigierte Ablaufakte.</p></div> }
+              </div>
+              @if (selectedAgentOrchestration; as orchestration) {
+                <article class="orchestration-detail">
+                  <div class="panel-head"><div><span class="kicker">ORCHESTRIERUNGSSTATUS</span><h4>{{ orchestration.redactedSummary }}</h4><code>{{ orchestration.id }}</code></div><span class="status" [class.ok]="orchestration.status === 'succeeded'">{{ agentOrchestrationStatusLabel(orchestration.status) }}</span></div>
+                  <dl class="orchestration-meta"><div><dt>Workflow</dt><dd>{{ orchestration.workflowId }} · v{{ orchestration.workflowVersion }}</dd></div><div><dt>Provider</dt><dd>{{ agentProviderName(orchestration.providerId) }}</dd></div><div><dt>Scope</dt><dd>{{ orchestration.scope.identityMode }} · {{ orchestration.scope.applicationCaseId ? 'Bewerbungsfall' : 'Suchprofil/Workspace' }}</dd></div><div><dt>Budgetverbrauch</dt><dd>{{ formatDuration(orchestration.budget.wallTimeMs) }} · {{ orchestration.budget.tokens }} Tokens · {{ orchestration.budget.toolCalls }} Tools · {{ orchestration.budget.iterations }} Iterationen</dd></div><div><dt>Auftrags-Witness</dt><dd><code class="hash-value">{{ orchestration.promptSha256 }}</code></dd></div><div><dt>Vorschlagsartefakte</dt><dd>{{ orchestration.artifactRefs.length }} · ausschließlich proposed</dd></div></dl>
+                  @if (orchestration.resolvedGates.length) { <section class="orchestration-gate-audit" aria-label="Serverseitig aufgelöste Gates"><h4>Aufgelöste Gates</h4>@for (gate of orchestration.resolvedGates; track gate.nodeId + ':' + gate.gate) { <p><strong>{{ gate.nodeId }} · {{ agentOrchestrationGateLabel(gate.gate) }}</strong><span>{{ gate.authority }}</span><code class="hash-value">{{ gate.bindingSha256 }}</code></p> }</section> }
+                  @if ((orchestration.conflicts ?? []).length) {
+                    <section class="orchestration-conflicts" aria-labelledby="orchestration-conflicts-heading">
+                      <h4 id="orchestration-conflicts-heading">ATS-/Stil-Fan-in</h4>
+                      <p>Der Server stellt abweichende Reviewer-Artefakte einzeln gegenüber. Es gibt keine automatische Mehrheitsentscheidung.</p>
+                      @for (conflict of orchestration.conflicts ?? []; track conflict.id) {
+                        <article class="orchestration-conflict" [attr.data-state]="conflict.status" [attr.data-testid]="'orchestration-conflict-' + conflict.id">
+                          <div class="orchestration-conflict-head"><div><strong>{{ agentOrchestrationConflictStatusLabel(conflict.status) }}</strong><small>Ziel {{ conflict.targetNodeId }} · {{ conflict.kind }}</small></div><span class="status" [class.ok]="conflict.status !== 'unresolved'">{{ conflict.status }}</span></div>
+                          <p>Varianten-Witness</p><code class="hash-value conflict-witness">{{ conflict.variantsSha256 }}</code>
+                          <ul class="orchestration-conflict-variants" aria-label="Serverseitig gebundene Varianten">
+                            @for (variant of conflict.variants; track variant.artifactId) {
+                              <li>
+                                <div><strong>{{ variant.sourceRole }}</strong><small>{{ variant.sourceNodeId }} · {{ variant.outputRef }}</small></div>
+                                <dl><div><dt>Artefakt-ID</dt><dd><code>{{ variant.artifactId }}</code></dd></div><div><dt>SHA-256</dt><dd><code class="hash-value">{{ variant.sha256 }}</code></dd></div><div><dt>Run-ID</dt><dd><code>{{ variant.runId }}</code></dd></div></dl>
+                                <button class="text-button" type="button" (click)="openAgentRunFromOrchestration(variant.runId)">Varianten-Run öffnen</button>
+                              </li>
+                            }
+                          </ul>
+                          @if (conflict.status === 'unresolved' && conflict.requiresDomainResolution) {
+                            <fieldset class="orchestration-conflict-decision">
+                              <legend>Bewusste fachliche Entscheidung</legend>
+                              <label><input type="radio" [name]="'conflict-strategy-' + conflict.id" value="accept_complementary" [checked]="agentOrchestrationConflictStrategy(conflict) === 'accept_complementary'" (change)="setAgentOrchestrationConflictStrategy(conflict, 'accept_complementary')"><span><strong>Komplementär übernehmen</strong><small>Beide Reviewvarianten gehen als getrennte Hinweise an den Finalizer; dies genehmigt kein Artefakt.</small></span></label>
+                              <label><input type="radio" [name]="'conflict-strategy-' + conflict.id" value="select_variant" [checked]="agentOrchestrationConflictStrategy(conflict) === 'select_variant'" (change)="setAgentOrchestrationConflictStrategy(conflict, 'select_variant')"><span><strong>Eine Variante auswählen</strong><small>Nur die ausdrücklich gewählte, oben vollständig ausgewiesene Artefaktvariante wird verwendet.</small></span></label>
+                              @if (agentOrchestrationConflictStrategy(conflict) === 'select_variant') {
+                                <label class="conflict-variant-select">Gebundene Variante<select [ngModel]="agentOrchestrationConflictArtifactId(conflict)" (ngModelChange)="setAgentOrchestrationConflictArtifact(conflict, $event)"><option [ngValue]="undefined">Variante wählen</option>@for (variant of conflict.variants; track variant.artifactId) { <option [value]="variant.artifactId">{{ variant.sourceRole }} · {{ variant.outputRef }} · {{ variant.artifactId }}</option> }</select></label>
+                              }
+                              <label class="explicit-confirmation"><input type="checkbox" [ngModel]="agentOrchestrationConflictConfirmed[agentOrchestrationConflictKey(conflict)] === true" (ngModelChange)="setAgentOrchestrationConflictConfirmation(conflict, $event)"><span>Entscheidung für Orchestrierungsrevision {{ orchestration.revision }} und exakt den vollständigen Varianten-Witness bestätigen.</span></label>
+                              <code class="hash-value confirmation-witness">{{ conflict.variantsSha256 }}</code>
+                              <button class="primary" type="button" (click)="resolveAgentOrchestrationConflict(conflict)" [disabled]="agentOrchestrationBusy || !canResolveAgentOrchestrationConflict(conflict)">Konflikt revisionsgebunden auflösen</button>
+                            </fieldset>
+                          } @else if (conflict.status === 'resolved') {
+                            @if (conflict.resolution; as resolution) {
+                              <dl class="orchestration-conflict-resolution"><div><dt>Entscheidung</dt><dd>{{ resolution.strategy === 'accept_complementary' ? 'Komplementär übernommen' : 'Variante ausgewählt' }}</dd></div>@if (resolution.selectedArtifactId) { <div><dt>Ausgewähltes Artefakt</dt><dd><code>{{ resolution.selectedArtifactId }}</code></dd></div> }<div><dt>Gebundene Revision</dt><dd>{{ resolution.resolvedAgainstRevision }}</dd></div><div><dt>Lokaler Entscheider</dt><dd><code>{{ resolution.resolverId }}</code></dd></div><div><dt>Aufgelöst am</dt><dd>{{ resolution.resolvedAt | date:'medium' }}</dd></div><div><dt>Entscheidungsreferenz</dt><dd><code>{{ resolution.resolutionReference }}</code></dd></div><div><dt>Varianten-Witness</dt><dd><code class="hash-value">{{ resolution.variantsSha256 }}</code></dd></div></dl>
+                            } @else { <p class="approval-block-reason" role="status">Aufgelöster Konflikt ohne veröffentlichte Entscheidungsbindung; weitere Aktion bleibt gesperrt.</p> }
+                          } @else {
+                            <p class="conflict-equivalent-note">Die serverseitigen Varianten sind äquivalent; deshalb ist keine Nutzerentscheidung zulässig oder erforderlich.</p>
+                          }
+                        </article>
+                      }
+                    </section>
+                  }
+                  <ol class="orchestration-nodes" aria-label="Orchestrierungsrollen">
+                    @for (node of orchestration.nodes; track node.nodeId) { <li [attr.data-state]="node.status"><div><span class="run-state" [attr.data-state]="node.status"></span><strong>{{ node.role }}</strong><code>{{ node.nodeId }}</code><span class="status">{{ node.status }}</span></div><p>Abhängig von: {{ node.dependsOn.join(', ') || 'Startnode' }} · Versuche {{ node.attempts }}</p><p>Run-IDs: {{ node.runIds.join(', ') || 'noch keiner' }}</p>@if (latestAgentOrchestrationNodeRun(node); as nodeRunId) { <button class="text-button" type="button" (click)="openAgentRunFromOrchestration(nodeRunId)">Letzten Node-Run öffnen</button> }@if (node.reason) { <p class="approval-block-reason">{{ node.failureCategory || 'Blockiert' }}: {{ node.reason }}</p> }@for (artifact of node.artifacts; track artifact.artifactId) { <div class="orchestration-artifact"><span class="status">PROPOSED</span><code>{{ artifact.outputRef }}</code><small>{{ artifact.sha256 }}</small>@if (artifact.outputRef === 'package_proposal') { <p>Strikt validiertes <code>application-pipeline-package</code>. Nach menschlichem Review kann die bestehende Adopt-Route es erneut deterministisch prüfen und als fachliche Vorschlagsrevision anlegen.</p><button class="secondary compact" type="button" (click)="openAgentRunFromOrchestration(artifact.runId)">Node-Run für Review öffnen</button> } @else if (orchestration.workflowId === 'employer-response-triage' && artifact.outputRef === 'response_and_calendar_proposal') { <p>Strikt typisierter, quellen- und confidence-gebundener Mail-/Termin-/Antwortvorschlag. Eine Nutzerentscheidung ist erforderlich; Senden und Kalendereinträge bleiben gesperrt.</p><button class="secondary compact" type="button" (click)="openAgentRunFromOrchestration(artifact.runId)">Proposal im Node-Run prüfen</button> } @else if (orchestration.workflowId === 'application-next-actions' && artifact.outputRef === 'suggestions') { <p>Strikt typisierte, quellen- und confidence-gebundene nächste Schritte. Eine Nutzerentscheidung ist erforderlich; Statuswechsel, Reminder und Zusammenführungen bleiben gesperrt.</p><button class="secondary compact" type="button" (click)="openAgentRunFromOrchestration(artifact.runId)">Proposal im Node-Run prüfen</button> } @else { <p>Proposal-only; kein veröffentlichter fachlicher Übernahmepfad.</p><button class="secondary compact" type="button" (click)="openAgentRunFromOrchestration(artifact.runId)">Quell-Run prüfen</button> }</div> }</li> }
+                  </ol>
+                  @if (orchestration.unresolvedGates.length) {
+                    <section class="orchestration-gates"><h4>Offene Gates</h4>@for (gate of orchestration.unresolvedGates; track gate.nodeId + ':' + gate.gate) { <p><strong>{{ gate.nodeId }}</strong><span>{{ agentOrchestrationGateLabel(gate.gate) }}</span></p> }
+                      @if (agentOrchestrationHasGate('review_complete')) { <p class="approval-block-reason" role="status">Legacy-Review-Gate erkannt. Neue Evidence-Workflows prüfen keine vorhandene Revision vor dem Finalizer; das neue Paket durchläuft erst danach Artifact-Review, Adoption und fachliche Revisionsfreigabe.</p> }
+                      @if (agentOrchestrationHasGate('user_input')) { <label class="explicit-confirmation"><input type="checkbox" [(ngModel)]="agentOrchestrationUserInputConfirmed"><span>Die bisher erzeugten Vorschläge und – beim Evidence-Workflow – die offenen Match-Fragen wurden geprüft. Das Gate für exakt diese Fallrevision bewusst bestätigen.</span></label> }
+                      @if (agentOrchestrationHasGate('evidence_complete') || agentOrchestrationHasGate('approval')) { <p class="approval-block-reason" role="status">Evidence-/Approval-Gates können in dieser Route nicht vom Browser behauptet werden; sie benötigen serverseitige Autorität.</p> }
+                      <button class="primary" type="button" (click)="continueAgentOrchestration()" [disabled]="agentOrchestrationBusy">Nur offene Rollen fortsetzen</button>
+                    </section>
+                  }
+                  @if (['queued', 'running', 'waiting_for_gate'].includes(orchestration.status)) { <div class="orchestration-cancel"><label class="explicit-confirmation"><input type="checkbox" [(ngModel)]="agentOrchestrationCancelConfirmed"><span>Orchestrierung in exakt Revision {{ orchestration.revision }} abbrechen.</span></label><button class="danger-button" type="button" (click)="cancelAgentOrchestration()" [disabled]="agentOrchestrationBusy || !agentOrchestrationCancelConfirmed">Revisionsgebunden abbrechen</button></div> }
+                  @if (orchestration.failureReason) { <p class="approval-block-reason" role="status">{{ orchestration.failureReason }}</p> }
+                </article>
+              }
+            </div>
+          </div>
+          @if (agentOrchestrationError) { <p class="approval-block-reason orchestration-error" role="alert">{{ agentOrchestrationError }}</p> }
         </section>
 
         <section class="agent-workspace">
@@ -476,6 +755,49 @@
                   @for (entry of renderedAgentTimelineEntries(); track entry.key) { <li [attr.data-level]="entry.level" [attr.data-category]="agentEventCategory(entry.type)" [attr.data-event-sequence]="entry.sequence"><span class="event-marker"></span><div class="event-meta"><strong>{{ agentEventCategoryLabel(entry.type) }}</strong><span class="event-type">{{ entry.type }}</span><small>#{{ entry.sequence }}{{ entry.sequenceEnd > entry.sequence ? '–' + entry.sequenceEnd : '' }} · {{ entry.timestamp | date:'mediumTime' }} @if (entry.groupedCount > 1) { · {{ entry.groupedCount }} Deltas gruppiert }</small><button class="text-button event-copy" type="button" (click)="copyAgentTimelineEntry(entry)" [attr.aria-label]="'Event ' + entry.sequence + ' redigiert kopieren'">Redigiert kopieren</button></div><pre>{{ agentTimelineDisplayText(entry) }}</pre></li> } @empty { <li class="timeline-empty"><span class="event-marker"></span><div><strong>Keine passenden Events</strong><p>Der Run ist noch leer oder Suche und Filter schließen alle gespeicherten Events aus.</p></div></li> }
                 </ol>
               </section>
+
+              @if (agentArtifacts.length) {
+                <section class="agent-artifact-list" aria-labelledby="agent-artifacts-heading">
+                  <div class="panel-head"><div><span class="kicker">AGENTENARTEFAKTE</span><h3 id="agent-artifacts-heading">Revisionsgebundene Vorschläge</h3></div><button class="text-button" type="button" (click)="loadAgentArtifacts()">Aktualisieren</button></div>
+                  <div class="warning-box"><strong>Keine automatische Übernahme</strong><p>Freigabe bewertet nur die unveränderte Agentenartefakt-Revision. Ausschließlich ein freigegebenes, fallgebundenes <code>application-pipeline-package</code> für eine reale Identität kann anschließend serverseitig erneut geprüft und als vorgeschlagene fachliche Revision übernommen werden.</p></div>
+                  @for (artifact of agentArtifacts; track artifact.id) {
+                    <article class="agent-artifact" [attr.data-lifecycle]="artifact.lifecycle">
+                      <div class="artifact-revision-head"><div><span class="status" [class.ok]="artifact.lifecycle === 'approved' || artifact.lifecycle === 'used'">{{ artifact.lifecycle }}</span><strong>{{ artifact.kind }}</strong></div><small>Revision {{ artifact.revision }} · {{ artifact.bytes }} Bytes</small></div>
+                      @if (artifact.kind === 'employer-response-triage-proposal' || artifact.kind === 'application-next-actions-proposal') { <div class="typed-proposal-notice"><span class="status">PROPOSAL-ONLY</span><p>Quellen, Confidence und benötigte Nutzerentscheidung werden in der bewussten Inhaltsansicht ausgewiesen. Eine Lifecycle-Freigabe sendet, terminiert oder ändert nichts automatisch.</p></div> }
+                      <dl><div><dt>Artefakt-ID</dt><dd><code>{{ artifact.id }}</code></dd></div><div><dt>SHA-256</dt><dd><code class="hash-value">{{ artifact.sha256 }}</code></dd></div><div><dt>Provider</dt><dd>{{ artifact.provenance.provider }} {{ artifact.provenance.providerVersion }} · Adapter {{ artifact.provenance.adapterVersion }}</dd></div><div><dt>Workflow</dt><dd>{{ artifact.provenance.workflowId || 'kein Workflow' }} {{ artifact.provenance.workflowVersion || '' }} · {{ artifact.provenance.templateId }} {{ artifact.provenance.templateVersion }}</dd></div><div><dt>Fall / Stelle</dt><dd><code>{{ artifact.provenance.applicationCaseId || 'nicht gebunden' }}</code> · Fallrevision {{ artifact.provenance.applicationCaseRevision ?? 'nicht ausgewiesen' }} · Job {{ artifact.provenance.jobId || 'nicht ausgewiesen' }}</dd></div><div><dt>Firma / Identität</dt><dd>{{ artifact.provenance.companyKey || 'nicht ausgewiesen' }} · {{ artifact.provenance.identityMode }}</dd></div>@if (artifact.provenance.documentRevisionId) { <div><dt>Dokumentrevision</dt><dd><code>{{ artifact.provenance.documentRevisionId }}</code></dd></div> }@if (artifact.provenance.mailId) { <div><dt>Mailbindung</dt><dd><code>{{ artifact.provenance.mailId }}</code></dd></div> }@if (artifact.provenance.claimIds?.length || artifact.provenance.reviewIds?.length) { <div><dt>Evidence / Reviews</dt><dd>Claims: {{ artifact.provenance.claimIds?.join(', ') || 'keine' }} · Reviews: {{ artifact.provenance.reviewIds?.join(', ') || 'keine' }}</dd></div> }</dl>
+                      <div class="artifact-actions"><button class="secondary compact" type="button" (click)="viewAgentArtifact(artifact)" [disabled]="artifact.contentState === 'deleted'">Inhalt bewusst anzeigen</button></div>
+                      @if (artifact.lifecycle === 'proposed') {
+                        <label class="explicit-confirmation"><input type="checkbox" [(ngModel)]="agentArtifactReviewConfirmed[artifact.id]"><span>Ich bestätige Agentenartefakt <code>{{ artifact.id }}</code>, Revision {{ artifact.revision }} und den vollständigen SHA-256.</span></label>
+                        <div class="artifact-actions"><button class="secondary compact" type="button" (click)="reviewAgentArtifact(artifact, 'rejected')" [disabled]="agentBusy || !agentArtifactReviewConfirmed[artifact.id]">Revision ablehnen</button><button class="primary compact" type="button" (click)="reviewAgentArtifact(artifact, 'approved')" [disabled]="agentBusy || !agentArtifactReviewConfirmed[artifact.id]">Revision freigeben</button></div>
+                      }
+                      @if (artifact.lifecycle === 'approved') {
+                        @if (agentArtifactAdoptionReason(artifact); as reason) { <p class="approval-block-reason" role="status">Übernahme gesperrt: {{ reason }}</p> } @else {
+                          <label class="explicit-confirmation"><input type="checkbox" [(ngModel)]="agentArtifactAdoptionConfirmed[artifact.id]"><span>Ich bestätige die erneute deterministische Pipeline- und lokale Sprachprüfung. Das Ergebnis bleibt eine vorgeschlagene fachliche Revision.</span></label>
+                          <button class="primary compact" type="button" (click)="adoptAgentArtifact(artifact)" [disabled]="agentBusy || !agentArtifactAdoptionConfirmed[artifact.id]">In Pipeline erneut prüfen und als Vorschlag übernehmen</button>
+                        }
+                      }
+                    </article>
+                  }
+                  @if (adoptedDocumentRevisionId) { <div class="info-box ready" role="status"><strong>Fachliche Revision vorgeschlagen</strong><p>Revision {{ adoptedDocumentRevisionId }} wurde erzeugt. Freigabe, Fallgenehmigung und Export erfolgen ausschließlich in der Bewerbungswerkstatt über ihre eigenen Hash-Gates.</p><button class="secondary compact" type="button" (click)="select('applications')">Zur revisionsgebundenen Prüfung</button></div> }
+                  @if (agentArtifactContent; as content) { <div class="agent-artifact-content"><div class="panel-head"><div><strong>Inhaltsvorschau</strong><small>{{ content.mediaType }} · SHA-256 {{ content.sha256 }}</small></div><button class="text-button" type="button" (click)="closeAgentArtifactContent()">Schließen</button></div>
+                    @if (employerResponseTriageProposal; as projection) {
+                      <section class="typed-agent-proposal" data-testid="employer-response-triage-proposal" aria-labelledby="employer-proposal-heading"><span class="status">PROPOSAL-ONLY</span><h4 id="employer-proposal-heading">Antworten des Unternehmens einordnen</h4><p>Die ausgewählte untrusted Mail bleibt über <code>{{ projection.proposal.selectedMailId }}</code> gebunden. Vor Korrelation, Termin, Follow-up oder Antwort ist immer eine bewusste Nutzerentscheidung nötig; die UI führt nichts aus.</p><dl><div><dt>Klassifikation</dt><dd>{{ projection.proposal.classification }}</dd></div><div><dt>Confidence</dt><dd>{{ formatProposalConfidence(projection.proposal.confidence) }}</dd></div><div><dt>Projektions-Witness</dt><dd><code class="hash-value">{{ projection.sha256 }}</code></dd></div><div><dt>Quellen</dt><dd>@for (reference of projection.proposal.sourceReferences; track reference) { <code>{{ reference }}</code> }</dd></div></dl>
+                        @if (projection.proposal.caseCandidates.length) { <h5>Fallkandidaten – manuell bestätigen</h5><ul>@for (candidate of projection.proposal.caseCandidates; track candidate.caseId) { <li><strong>{{ candidate.caseId }} · {{ formatProposalConfidence(candidate.confidence) }}</strong><p>{{ candidate.reason }}</p><small>Quellen: {{ candidate.sourceReferences.join(', ') }}</small></li> }</ul> }
+                        @if (projection.proposal.appointment; as appointment) { <div class="proposal-option"><strong>Terminvorschlag – nicht eingetragen</strong><p>{{ appointment.start | date:'medium' }} bis {{ appointment.end | date:'medium' }} · {{ appointment.timeZone }} · {{ appointment.location }}</p><small>Quellen: {{ appointment.sourceReferences.join(', ') }}</small></div> }
+                        @if (projection.proposal.followUp; as followUp) { <div class="proposal-option"><strong>Follow-up – nicht geplant</strong><p>{{ followUp.dueAt | date:'medium' }} · {{ followUp.timeZone }} · {{ followUp.reason }}</p><small>Quellen: {{ followUp.sourceReferences.join(', ') }}</small></div> }
+                        @if (projection.proposal.replyDraft; as reply) { <div class="proposal-option"><strong>Antwortentwurf – nicht gesendet</strong><p>{{ reply.subject }} · {{ reply.language }}</p><pre>{{ reply.body }}</pre><small>Quellen: {{ reply.sourceReferences.join(', ') }}</small></div> }
+                      </section>
+                    }
+                    @if (applicationNextActionsProposal; as projection) {
+                      <section class="typed-agent-proposal" data-testid="application-next-actions-proposal" aria-labelledby="next-actions-proposal-heading"><span class="status">PROPOSAL-ONLY</span><h4 id="next-actions-proposal-heading">Firmenweite nächste Schritte</h4><p>Die Vorschläge sind an Firma <code>{{ projection.proposal.companyKey }}</code> und ausgewiesene Fälle/Quellen gebunden. Statusänderungen, Erinnerungen oder Fallzusammenführungen benötigen eine getrennte Nutzerentscheidung und werden hier nicht ausgeführt.</p><dl><div><dt>Projektions-Witness</dt><dd><code class="hash-value">{{ projection.sha256 }}</code></dd></div><div><dt>Vorschläge</dt><dd>{{ projection.proposal.suggestions.length }}</dd></div><div><dt>Konflikte</dt><dd>{{ projection.proposal.conflicts.length }}</dd></div></dl>
+                        <ul>@for (suggestion of projection.proposal.suggestions; track suggestion.id) { <li><strong>{{ suggestion.title }} · {{ formatProposalConfidence(suggestion.confidence) }}</strong><p>{{ suggestion.kind }} · Fall {{ suggestion.applicationCaseId }} · {{ suggestion.reason }}</p>@if (suggestion.dueAt) { <small>Vorgeschlagener Zeitpunkt: {{ suggestion.dueAt | date:'medium' }} · nicht geplant</small> }<small>Quellen: {{ suggestion.sourceReferences.join(', ') }}</small></li> }</ul>
+                        @if (projection.proposal.conflicts.length) { <h5>Konflikthinweise – manuell klären</h5><ul>@for (conflict of projection.proposal.conflicts; track conflict.id) { <li><strong>{{ conflict.kind }}</strong><p>Fälle {{ conflict.applicationCaseIds.join(', ') }} · {{ conflict.reason }}</p><small>Quellen: {{ conflict.sourceReferences.join(', ') }}</small></li> }</ul> }
+                      </section>
+                    }
+                    <details class="proposal-raw-json"><summary>Validierte JSON-Projektion anzeigen</summary><pre>{{ content.content }}</pre></details>
+                  </div> }
+                </section>
+              }
 
               @if (run.output || run.error) { <section class="agent-result" [class.result-error]="!!run.error"><div class="panel-head"><span class="kicker">{{ run.error ? 'FEHLER' : 'ERGEBNIS' }}</span><button class="text-button" type="button" (click)="copyAgentResult(run)">Ergebnis redigiert kopieren</button></div><pre>{{ run.error || run.output }}</pre>@if (run.output) { <div class="artifact-proposal"><span class="status">PROPOSAL-ONLY</span><p id="agent-artifact-promotion-reason">{{ agentArtifactPromotionReason() }}</p><button class="secondary compact" type="button" [disabled]="!agentArtifactPromotionAvailable(run)" aria-describedby="agent-artifact-promotion-reason">In validierte Dokumentrevision übernehmen</button></div> }</section> }
               @if (agentExportPreview) { <section class="agent-export"><div class="panel-head"><div><span class="kicker">EXPORT & REPLAY</span><h3>Portable, redigierte Run-Akte</h3></div><button class="text-button" type="button" (click)="agentExportPreview = undefined">Schließen</button></div><p>Die Vorschau enthält Run-Konfiguration, redigierte Events, Entscheidungen, Nutzung und Provenienz. Ein Replay startet nie automatisch.</p><pre>{{ agentExportPreview | json }}</pre></section> }

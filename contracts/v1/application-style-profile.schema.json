@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/job-match-and-apply/contracts/v1/application-style-profile.schema.json",
+  "title": "Closed editable application style profile v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract", "contractVersion", "revision", "sha256", "initialized", "profile", "languageBackend"],
+  "properties": {
+    "contract": { "const": "application-style-profile" },
+    "contractVersion": { "const": "1.0" },
+    "revision": { "type": "integer", "minimum": 0 },
+    "sha256": { "$ref": "#/$defs/sha256" },
+    "initialized": { "const": true },
+    "profile": { "$ref": "#/$defs/profile" },
+    "languageBackend": {
+      "type": "object", "additionalProperties": false,
+      "required": ["backend", "localOnly", "remoteServiceAllowed"],
+      "properties": {
+        "backend": { "const": "nspell" }, "localOnly": { "const": true }, "remoteServiceAllowed": { "const": false }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "text": { "type": "string", "minLength": 1, "maxLength": 2000, "pattern": "^[^\\u0000-\\u001f\\u007f]+$" },
+    "textList": { "type": "array", "maxItems": 100, "items": { "$ref": "#/$defs/text" } },
+    "documentStyle": {
+      "type": "object", "additionalProperties": false,
+      "required": ["perspective", "technicalDensity", "maxSentenceWords"],
+      "properties": {
+        "perspective": { "$ref": "#/$defs/text" },
+        "technicalDensity": { "$ref": "#/$defs/text" },
+        "maxSentenceWords": { "type": "integer", "minimum": 10, "maximum": 100 }
+      }
+    },
+    "approvedExample": {
+      "type": "object", "additionalProperties": false, "required": ["id", "documentType", "text"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+        "documentType": { "enum": ["cv", "cover_letter", "email", "linkedin", "interview"] },
+        "text": { "type": "string", "minLength": 1, "maxLength": 20000 },
+        "sourceRef": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "notes": { "type": "string", "minLength": 1, "maxLength": 2000 }
+      }
+    },
+    "rejectedExample": {
+      "type": "object", "additionalProperties": false, "required": ["id", "documentType", "text", "reason"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+        "documentType": { "enum": ["cv", "cover_letter", "email", "linkedin", "interview"] },
+        "text": { "type": "string", "minLength": 1, "maxLength": 20000 },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 2000 }
+      }
+    },
+    "profile": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "language", "locale", "tone", "formality", "directness", "sentenceLength", "technicalDepth",
+        "enthusiasm", "selfPromotion", "humor", "vocabulary", "preferredPatterns", "avoidPatterns",
+        "documentStyles", "personalizationDefault", "approvedExamples", "rejectedExamples",
+        "qualityThresholds", "reviewWorkflow"
+      ],
+      "properties": {
+        "language": { "$ref": "#/$defs/text" }, "locale": { "$ref": "#/$defs/text" },
+        "tone": { "$ref": "#/$defs/text" }, "formality": { "$ref": "#/$defs/text" },
+        "directness": { "$ref": "#/$defs/text" }, "sentenceLength": { "$ref": "#/$defs/text" },
+        "technicalDepth": { "$ref": "#/$defs/text" }, "enthusiasm": { "$ref": "#/$defs/text" },
+        "selfPromotion": { "$ref": "#/$defs/text" }, "humor": { "$ref": "#/$defs/text" },
+        "vocabulary": {
+          "type": "object", "additionalProperties": false, "required": ["prefer", "avoid"],
+          "properties": { "prefer": { "$ref": "#/$defs/textList" }, "avoid": { "$ref": "#/$defs/textList" } }
+        },
+        "preferredPatterns": { "$ref": "#/$defs/textList" }, "avoidPatterns": { "$ref": "#/$defs/textList" },
+        "documentStyles": {
+          "type": "object", "additionalProperties": false, "required": ["cv", "cover_letter", "email", "linkedin"],
+          "properties": {
+            "cv": { "$ref": "#/$defs/documentStyle" }, "cover_letter": { "$ref": "#/$defs/documentStyle" },
+            "email": { "$ref": "#/$defs/documentStyle" }, "linkedin": { "$ref": "#/$defs/documentStyle" }
+          }
+        },
+        "personalizationDefault": { "enum": ["conservative", "professional", "personal"] },
+        "approvedExamples": { "type": "array", "maxItems": 50, "items": { "$ref": "#/$defs/approvedExample" } },
+        "rejectedExamples": { "type": "array", "maxItems": 50, "items": { "$ref": "#/$defs/rejectedExample" } },
+        "qualityThresholds": {
+          "type": "object", "additionalProperties": false, "required": ["maxRepeatedSentenceStarts", "maxAvoidPatternMatches"],
+          "properties": {
+            "maxRepeatedSentenceStarts": { "type": "integer", "minimum": 0, "maximum": 100 },
+            "maxAvoidPatternMatches": { "type": "integer", "minimum": 0, "maximum": 100 }
+          }
+        },
+        "reviewWorkflow": {
+          "type": "object", "additionalProperties": false,
+          "required": ["defaultMode", "maxRevisionCycles", "preferIndependentAgents"],
+          "properties": {
+            "defaultMode": { "enum": ["compact", "standard", "rigorous"] },
+            "maxRevisionCycles": { "type": "integer", "minimum": 1, "maximum": 5 },
+            "preferIndependentAgents": { "type": "boolean" }
+          }
+        }
+      }
+    }
+  }
+}

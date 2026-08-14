@@ -15,8 +15,19 @@ describe('AgentRuntimeDiscovery', () => {
   it('marks only the contract-pinned Codex 0.147 line as supported', () => {
     const codex = BUILTIN_PROVIDER_DISCOVERY.find((entry) => entry.provider === 'codex-exec');
     expect(codex?.testedVersionPatterns.some((pattern) => pattern.test('codex-cli 0.147.0'))).toBe(true);
+    expect(codex?.testedVersionPatterns.some((pattern) => pattern.test('codex-cli 0.147.1'))).toBe(false);
     expect(codex?.testedVersionPatterns.some((pattern) => pattern.test('codex-cli 0.128.0'))).toBe(false);
     expect(codex?.testedVersionPatterns.some((pattern) => pattern.test('codex-cli 0.148.0'))).toBe(false);
+  });
+
+  it('marks only the exact conformance-tested OpenCode and Claude versions as supported', () => {
+    const opencode = BUILTIN_PROVIDER_DISCOVERY.find((entry) => entry.provider === 'opencode');
+    const claude = BUILTIN_PROVIDER_DISCOVERY.find((entry) => entry.provider === 'claude-cli');
+    expect(opencode?.testedVersionPatterns.some((pattern) => pattern.test('1.14.41'))).toBe(true);
+    expect(opencode?.testedVersionPatterns.some((pattern) => pattern.test('1.14.42'))).toBe(false);
+    expect(claude?.testedVersionPatterns.some((pattern) => pattern.test('2.1.232 (Claude Code)'))).toBe(true);
+    expect(claude?.testedVersionPatterns.some((pattern) => pattern.test('2.1.231 (Claude Code)'))).toBe(false);
+    expect(claude?.testedVersionPatterns.some((pattern) => pattern.test('2.1.232'))).toBe(false);
   });
 
   it('discovers WSL installations without shell interpolation and keeps untested versions visible', async () => {
@@ -31,7 +42,8 @@ describe('AgentRuntimeDiscovery', () => {
     };
     const found = await new AgentRuntimeDiscovery(executor).discoverWsl(definition);
     expect(found[0]).toEqual(expect.objectContaining({ distribution: 'Ubuntu', runtimeExecutable: '/usr/local/bin/synthetic-agent', support: 'untested' }));
-    expect(calls.every((call) => call.executable === 'wsl.exe')).toBe(true);
+    expect(calls.every((call) => call.executable === calls[0]?.executable)).toBe(true);
+    expect(calls[0]?.executable).toMatch(/^[A-Za-z]:\\.*\\wsl\.exe$/i);
     expect(calls[1]?.args).toEqual(['-d', 'Ubuntu', '--', 'bash', '-lc', 'command -v -- synthetic-agent']);
   });
 
@@ -45,6 +57,19 @@ describe('AgentRuntimeDiscovery', () => {
     expect(calls).toHaveLength(1);
   });
 
+  it('drops malformed WSL distribution names before constructing argv', async () => {
+    const calls: string[][] = [];
+    const executor: DiscoveryCommandExecutor = { async run(_executable, args) {
+      calls.push([...args]);
+      return args[0] === '--list'
+        ? { exitCode: 0, stdout: 'Ubuntu\nbad distribution\n--exec\n', stderr: '' }
+        : { exitCode: 1, stdout: '', stderr: '' };
+    } };
+    await new AgentRuntimeDiscovery(executor).discoverWsl(definition);
+    expect(calls).toHaveLength(2);
+    expect(calls[1]?.slice(0, 2)).toEqual(['-d', 'Ubuntu']);
+  });
+
   it('maps Windows paths using fixed wslpath arguments', async () => {
     const executor: DiscoveryCommandExecutor = { async run(_executable, args) {
       expect(args).toEqual(['-d', 'Ubuntu', '--', 'wslpath', '-a', '-u', 'C:\\Work']);
@@ -53,6 +78,10 @@ describe('AgentRuntimeDiscovery', () => {
     await expect(new AgentRuntimeDiscovery(executor).windowsPathToWsl('C:\\Work', 'Ubuntu')).resolves.toBe('/mnt/c/Work');
     await expect(new AgentRuntimeDiscovery(executor).windowsPathToWsl('/tmp/not-a-windows-path', 'Ubuntu'))
       .rejects.toThrow('Windows-Pfad muss absolut sein');
+    await expect(new AgentRuntimeDiscovery(executor).windowsPathToWsl('C:\\Work', '--exec'))
+      .rejects.toThrow('WSL-Distribution ist ungueltig');
+    await expect(new AgentRuntimeDiscovery(executor).windowsPathToWsl('C:\\Work', 'Ubuntu', 'wsl.exe'))
+      .rejects.toThrow('WSL-Host-Executable ist ungueltig');
   });
 
   it('uses the declared Windows path contract when discovery runs on another host', async () => {

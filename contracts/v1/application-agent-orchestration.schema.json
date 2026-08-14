@@ -1,0 +1,191 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/job-match-and-apply/contracts/v1/application-agent-orchestration.schema.json",
+  "title": "Persisted application multi-agent orchestration v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "id", "revision", "workflowId", "workflowVersion", "providerId",
+    "status", "producesSuggestionsOnly", "promptSha256", "redactedSummary", "scope",
+    "resolvedGates", "unresolvedGates", "nodes", "nodeRunIds", "artifactRefs", "budget",
+    "createdAt", "updatedAt"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "id": { "type": "string", "format": "uuid" },
+    "revision": { "type": "integer", "minimum": 0 },
+    "workflowId": { "$ref": "#/$defs/id" },
+    "workflowVersion": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+    "providerId": { "$ref": "#/$defs/id" },
+    "status": { "enum": ["queued", "running", "waiting_for_gate", "cancelling", "cancelled", "succeeded", "failed", "orphaned"] },
+    "producesSuggestionsOnly": { "const": true },
+    "promptSha256": { "$ref": "#/$defs/sha256" },
+    "redactedSummary": { "type": "string", "minLength": 1, "maxLength": 240, "pattern": "^[^\\u0000-\\u001f\\u007f]+$" },
+    "scope": { "$ref": "#/$defs/scope" },
+    "resolvedGates": { "type": "array", "items": { "$ref": "#/$defs/resolvedGate" } },
+    "unresolvedGates": { "type": "array", "items": { "$ref": "#/$defs/gate" } },
+    "nodes": { "type": "array", "minItems": 1, "maxItems": 32, "items": { "$ref": "#/$defs/node" } },
+    "nodeRunIds": {
+      "type": "object", "maxProperties": 32,
+      "propertyNames": { "$ref": "#/$defs/id" },
+      "additionalProperties": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/id" } }
+    },
+    "artifactRefs": { "type": "array", "items": { "$ref": "#/$defs/artifactRef" } },
+    "conflicts": {
+      "type": "array", "maxItems": 32,
+      "items": { "$ref": "#/$defs/conflict" }
+    },
+    "budget": { "$ref": "#/$defs/budget" },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "updatedAt": { "type": "string", "format": "date-time" },
+    "finishedAt": { "type": "string", "format": "date-time" },
+    "failureReason": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_.:-]{0,239}$" },
+    "recovery": {
+      "type": "object", "additionalProperties": false,
+      "required": ["recoveredAt", "processAdoptionAllowed", "reason"],
+      "properties": {
+        "recoveredAt": { "type": "string", "format": "date-time" },
+        "processAdoptionAllowed": { "const": false },
+        "reason": { "const": "server_restart_no_pid_adoption" }
+      }
+    }
+  },
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$" },
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "gateName": { "enum": ["user_input", "approval", "evidence_complete", "review_complete"] },
+    "scope": {
+      "type": "object", "additionalProperties": false, "required": ["identityMode"],
+      "properties": {
+        "applicationCaseId": { "$ref": "#/$defs/id" },
+        "applicationCaseRevision": { "type": "integer", "minimum": 0 },
+        "jobId": { "$ref": "#/$defs/id" },
+        "companyKey": { "$ref": "#/$defs/id" },
+        "mailId": { "$ref": "#/$defs/id" },
+        "documentRevisionId": { "$ref": "#/$defs/id" },
+        "workspaceRootId": { "$ref": "#/$defs/id" },
+        "identityMode": { "enum": ["none", "real", "incognito"] }
+      },
+      "dependentRequired": { "applicationCaseId": ["applicationCaseRevision"] }
+    },
+    "gate": {
+      "type": "object", "additionalProperties": false, "required": ["nodeId", "gate"],
+      "properties": { "nodeId": { "$ref": "#/$defs/id" }, "gate": { "$ref": "#/$defs/gateName" } }
+    },
+    "resolvedGate": {
+      "type": "object", "additionalProperties": false,
+      "required": ["nodeId", "gate", "authority", "bindingSha256"],
+      "properties": {
+        "nodeId": { "$ref": "#/$defs/id" },
+        "gate": { "$ref": "#/$defs/gateName" },
+        "authority": { "enum": ["server_evidence", "server_revision_confirmation"] },
+        "bindingSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "artifactRef": {
+      "type": "object", "additionalProperties": false,
+      "required": ["outputRef", "artifactId", "runId", "sha256", "lifecycle"],
+      "properties": {
+        "outputRef": { "$ref": "#/$defs/id" },
+        "artifactId": { "type": "string", "format": "uuid" },
+        "runId": { "$ref": "#/$defs/id" },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "lifecycle": { "const": "proposed" }
+      }
+    },
+    "node": {
+      "type": "object", "additionalProperties": false,
+      "required": ["nodeId", "role", "dependsOn", "status", "attempts", "runIds", "inputDigests", "artifacts"],
+      "properties": {
+        "nodeId": { "$ref": "#/$defs/id" },
+        "role": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "dependsOn": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/id" } },
+        "status": { "enum": ["pending", "queued", "running", "retrying", "succeeded", "failed", "cancelled", "policy_blocked", "skipped", "orphaned"] },
+        "attempts": { "type": "integer", "minimum": 0 },
+        "runIds": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/id" } },
+        "inputDigests": {
+          "type": "object", "propertyNames": { "$ref": "#/$defs/id" },
+          "additionalProperties": { "$ref": "#/$defs/sha256" }
+        },
+        "artifacts": { "type": "array", "items": { "$ref": "#/$defs/artifactRef" } },
+        "budget": { "$ref": "#/$defs/budget" },
+        "failureCategory": { "type": "string", "maxLength": 128 },
+        "reason": { "type": "string", "maxLength": 240 }
+      }
+    },
+    "conflictVariant": {
+      "type": "object", "additionalProperties": false,
+      "required": ["sourceNodeId", "sourceRole", "outputRef", "runId", "artifactId", "sha256"],
+      "properties": {
+        "sourceNodeId": { "$ref": "#/$defs/id" },
+        "sourceRole": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "outputRef": { "$ref": "#/$defs/id" },
+        "runId": { "$ref": "#/$defs/id" },
+        "artifactId": { "type": "string", "format": "uuid" },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "conflictResolution": {
+      "type": "object", "additionalProperties": false,
+      "required": ["strategy", "resolverId", "resolutionReference", "resolvedAt", "resolvedAgainstRevision", "variantsSha256"],
+      "properties": {
+        "strategy": { "enum": ["accept_complementary", "select_variant"] },
+        "resolverId": { "$ref": "#/$defs/id" },
+        "resolutionReference": { "$ref": "#/$defs/id" },
+        "selectedArtifactId": { "type": "string", "format": "uuid" },
+        "resolvedAt": { "type": "string", "format": "date-time" },
+        "resolvedAgainstRevision": { "type": "integer", "minimum": 0 },
+        "variantsSha256": { "$ref": "#/$defs/sha256" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "strategy": { "const": "select_variant" } }, "required": ["strategy"] },
+          "then": { "required": ["selectedArtifactId"] }
+        },
+        {
+          "if": { "properties": { "strategy": { "const": "accept_complementary" } }, "required": ["strategy"] },
+          "then": { "not": { "required": ["selectedArtifactId"] } }
+        }
+      ]
+    },
+    "conflict": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "targetNodeId", "kind", "status", "requiresDomainResolution", "variantsSha256", "variants"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "targetNodeId": { "$ref": "#/$defs/id" },
+        "kind": { "const": "ats_style_fan_in" },
+        "status": { "enum": ["equivalent", "unresolved", "resolved"] },
+        "requiresDomainResolution": { "type": "boolean" },
+        "variantsSha256": { "$ref": "#/$defs/sha256" },
+        "variants": { "type": "array", "minItems": 2, "items": { "$ref": "#/$defs/conflictVariant" } },
+        "resolution": { "$ref": "#/$defs/conflictResolution" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "status": { "const": "equivalent" } }, "required": ["status"] },
+          "then": { "properties": { "requiresDomainResolution": { "const": false } }, "not": { "required": ["resolution"] } }
+        },
+        {
+          "if": { "properties": { "status": { "const": "unresolved" } }, "required": ["status"] },
+          "then": { "properties": { "requiresDomainResolution": { "const": true } }, "not": { "required": ["resolution"] } }
+        },
+        {
+          "if": { "properties": { "status": { "const": "resolved" } }, "required": ["status"] },
+          "then": { "properties": { "requiresDomainResolution": { "const": false } }, "required": ["resolution"] }
+        }
+      ]
+    },
+    "budget": {
+      "type": "object", "additionalProperties": false,
+      "required": ["wallTimeMs", "tokens", "costMicros", "toolCalls", "iterations"],
+      "properties": {
+        "wallTimeMs": { "type": "integer", "minimum": 0 },
+        "tokens": { "type": "integer", "minimum": 0 },
+        "costMicros": { "type": "integer", "minimum": 0 },
+        "toolCalls": { "type": "integer", "minimum": 0 },
+        "iterations": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

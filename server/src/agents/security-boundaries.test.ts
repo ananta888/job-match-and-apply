@@ -21,6 +21,9 @@ describe('path containment', () => {
     expect(isPathWithin('C:\\Work\\Repo', 'c:\\work\\repo\\src\\a.ts', 'win32')).toBe(true);
     expect(isPathWithin('C:\\Work\\Repo', 'C:\\Work\\Repository\\a.ts', 'win32')).toBe(false);
     expect(isPathWithin('C:\\Work\\Repo', 'C:\\Work\\Repo\\..\\secret.txt', 'win32')).toBe(false);
+    expect(isPathWithin('C:\\Work\\Repo', '\\Work\\Repo\\src\\a.ts', 'win32')).toBe(false);
+    expect(isPathWithin('C:\\Work\\Repo', '\\\\?\\C:\\Work\\Repo\\src\\a.ts', 'win32')).toBe(false);
+    expect(isPathWithin('\\\\server\\share\\Repo', '\\\\SERVER\\SHARE\\repo\\src\\a.ts', 'win32')).toBe(true);
     expect(isPathWithin('/work/repo', '/work/repo/src/a.ts', 'posix')).toBe(true);
     expect(isPathWithin('/work/repo', '/work/repository/a.ts', 'posix')).toBe(false);
   });

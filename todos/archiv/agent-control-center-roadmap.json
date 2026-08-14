@@ -67,20 +67,20 @@
     {
       "id": "codex-app-server",
       "maturity_target": "experimental",
-      "transport": "stdio oder lokaler WebSocket",
-      "note": "Feature-Flag fuer interaktive Threads; stabiler exec-Fallback bleibt verpflichtend."
+      "transport": "stdio",
+      "note": "Experimenteller nativer stdio-Threadadapter mit Dynamic Tools; der getrennte lokale Control-Center-WebSocket ist kein Providertransport und exec bleibt der Rollback."
     },
     {
       "id": "opencode",
       "maturity_target": "production",
       "transport": "opencode run --format json; spaeter optional ACP nd-JSON",
-      "note": "Versionserkennung und Contract-Fixtures statt Textannahmen; kein --auto."
+      "note": "Exakt 1.14.41 ueber WSL/Bubblewrap read-only und versionierte Conformance; kein --auto und keine Root-Tools."
     },
     {
       "id": "claude-cli",
       "maturity_target": "production",
       "transport": "print mode mit stream-json",
-      "note": "Plan-Permission-Modus und Sitzungsisolation; kein bypassPermissions."
+      "note": "Exakt 2.1.232 im Plan-/Read-Modus mit leerem MCP-Vertrag; keine bypassPermissions und keine Root-Tools."
     },
     {
       "id": "generic-jsonl",
@@ -108,7 +108,7 @@
       "used_for": [
         "CLI-Reifegrade",
         "codex app-server",
-        "stdio- und WebSocket-Transport"
+        "nativer stdio-Transport und interaktiver Protokollvertrag"
       ]
     },
     {
@@ -208,7 +208,7 @@
         "AGENT-007",
         "AGENT-008"
       ],
-      "status": "in_progress"
+      "status": "done"
     },
     {
       "id": "M3",
@@ -219,7 +219,7 @@
         "AGENT-011",
         "AGENT-012"
       ],
-      "status": "in_progress"
+      "status": "done"
     },
     {
       "id": "M4",
@@ -230,7 +230,7 @@
         "AGENT-015",
         "AGENT-016"
       ],
-      "status": "in_progress"
+      "status": "done"
     },
     {
       "id": "M5",
@@ -241,7 +241,7 @@
         "AGENT-019",
         "AGENT-020"
       ],
-      "status": "in_progress"
+      "status": "done"
     },
     {
       "id": "M6",
@@ -252,7 +252,7 @@
         "AGENT-023",
         "AGENT-024"
       ],
-      "status": "in_progress"
+      "status": "done"
     },
     {
       "id": "M7",
@@ -263,7 +263,7 @@
         "AGENT-027",
         "AGENT-028"
       ],
-      "status": "in_progress"
+      "status": "done"
     },
     {
       "id": "M8",
@@ -274,7 +274,7 @@
         "AGENT-031",
         "AGENT-032"
       ],
-      "status": "in_progress"
+      "status": "done"
     },
     {
       "id": "M9",
@@ -285,7 +285,7 @@
         "AGENT-035",
         "AGENT-036"
       ],
-      "status": "in_progress"
+      "status": "done"
     },
     {
       "id": "M10",
@@ -296,7 +296,7 @@
         "AGENT-039",
         "AGENT-040"
       ],
-      "status": "in_progress"
+      "status": "done"
     },
     {
       "id": "M11",
@@ -307,7 +307,7 @@
         "AGENT-043",
         "AGENT-044"
       ],
-      "status": "in_progress"
+      "status": "done"
     },
     {
       "id": "M12",
@@ -318,7 +318,7 @@
         "AGENT-047",
         "AGENT-048"
       ],
-      "status": "in_progress"
+      "status": "done"
     },
     {
       "id": "M13",
@@ -329,7 +329,7 @@
         "AGENT-051",
         "AGENT-052"
       ],
-      "status": "in_progress"
+      "status": "done"
     },
     {
       "id": "M14",
@@ -340,7 +340,7 @@
         "AGENT-055",
         "AGENT-056"
       ],
-      "status": "in_progress"
+      "status": "done"
     }
   ],
   "tasks": [
@@ -440,10 +440,10 @@
       "title": "Robusten lokalen ProcessSupervisor implementieren",
       "type": "runtime",
       "target_repository": "root",
-      "status": "partial",
+      "status": "done",
       "priority": "high",
       "risk": "high",
-      "progress_percent": 90,
+      "progress_percent": 100,
       "dependencies": [
         "AGENT-002",
         "AGENT-003"
@@ -457,6 +457,9 @@
         "Browserinput kann weder Executable noch freie Kommandoargumente einschleusen.",
         "Cancel beendet nach Grace Period den vollstaendigen Kindprozessbaum.",
         "Crash, Signal, Timeout und regulaerer Exit werden kanonisch unterschieden."
+      ],
+      "verification_evidence": [
+        "Abschluss 2026-08-14: shell:false-Prozessaufsicht, begrenzte Streams/Rohlogs, Ressourcenlimits sowie echter Windows-Descendant-Cancel sind in den Supervisor- und Fake-CLI-Suiten gruen."
       ]
     },
     {
@@ -464,10 +467,10 @@
       "title": "Windows-, WSL2- und Pfadabstraktion bereitstellen",
       "type": "runtime",
       "target_repository": "root",
-      "status": "partial",
+      "status": "done",
       "priority": "high",
       "risk": "high",
-      "progress_percent": 90,
+      "progress_percent": 100,
       "dependencies": [
         "AGENT-005"
       ],
@@ -480,6 +483,9 @@
         "Ein Run verwendet nur vorab validierte Workspace-Wurzeln.",
         "UNC-, Symlink-, Junction- und Case-Normalisierung verhindern Workspace-Ausbruch.",
         "Gleiche Contract-Fixtures laufen unter Windows und Ubuntu/WSL2."
+      ],
+      "verification_evidence": [
+        "Abschluss 2026-08-14: Windows-/WSL-Discovery, kanonische Pfade, UNC-/Case-/Symlink-Negativtests und die Windows-/Ubuntu-CI-Matrix sind verifiziert."
       ]
     },
     {
@@ -559,10 +565,10 @@
       "title": "Codex-App-Server als experimentellen interaktiven Adapter kapseln",
       "type": "provider",
       "target_repository": "root",
-      "status": "partial",
+      "status": "done",
       "priority": "high",
       "risk": "high",
-      "progress_percent": 90,
+      "progress_percent": 100,
       "dependencies": [
         "AGENT-009",
         "AGENT-004"
@@ -576,6 +582,9 @@
         "Nicht-lokale unverschluesselte Listener werden abgelehnt.",
         "Protokollaenderungen koennen nur diesen Adapter deaktivieren, nicht das Agent Center.",
         "Die UI kennzeichnet experimentelle Sitzungen und Fallbacks eindeutig."
+      ],
+      "verification_evidence": [
+        "Abschluss 2026-08-14: Codex App Server ist als nativer stdio-Adapter mit Turn, Resume, Steer, Input, Approval, Cancel, Dynamic Tools und exec-Fallback versionsgenau getestet."
       ]
     },
     {
@@ -583,10 +592,10 @@
       "title": "OpenCode-Adapter mit versionierten Fixtures implementieren",
       "type": "provider",
       "target_repository": "root",
-      "status": "partial",
+      "status": "done",
       "priority": "high",
       "risk": "high",
-      "progress_percent": 80,
+      "progress_percent": 100,
       "dependencies": [
         "AGENT-001",
         "AGENT-005",
@@ -601,6 +610,9 @@
         "Der Adapter parst keine farbige Terminaldarstellung als autoritative Daten.",
         "Fehlende strukturierte Capabilities werden transparent degradiert oder blockiert.",
         "Authentifizierung und Providerkonfiguration bleiben ausserhalb versionierter Projektdateien."
+      ],
+      "verification_evidence": [
+        "Abschluss 2026-08-14: OpenCode 1.14.41 ist ueber exakte JSON-Fixtures, WSL/Bubblewrap read-only und negative Conformance-Faelle freigegeben; andere Versionen blockieren."
       ]
     },
     {
@@ -608,10 +620,10 @@
       "title": "Claude-CLI-Adapter und generisches Erweiterungs-SDK bereitstellen",
       "type": "provider",
       "target_repository": "root",
-      "status": "partial",
+      "status": "done",
       "priority": "high",
       "risk": "high",
-      "progress_percent": 80,
+      "progress_percent": 100,
       "dependencies": [
         "AGENT-001",
         "AGENT-005",
@@ -626,6 +638,9 @@
         "Claude-spezifische Permission-Modi werden auf engere kanonische Policies abgebildet.",
         "Ein Drittadapter kann ohne Aenderung der Domain- oder Angular-Komponenten registriert werden.",
         "Unsignierte oder nicht erlaubte Adaptermanifeste werden nicht automatisch ausgefuehrt."
+      ],
+      "verification_evidence": [
+        "Abschluss 2026-08-14: Claude Code 2.1.232 ist mit stream-json, Plan/Read, leerem MCP-Vertrag, WSL/Bubblewrap und versionsgenauer Conformance freigegeben."
       ]
     },
     {
@@ -633,10 +648,10 @@
       "title": "Root-Anwendung als eingeschraenkten lokalen MCP-Server exponieren",
       "type": "mcp",
       "target_repository": "root",
-      "status": "partial",
+      "status": "done",
       "priority": "high",
       "risk": "high",
-      "progress_percent": 85,
+      "progress_percent": 100,
       "dependencies": [
         "AGENT-002",
         "AGENT-017"
@@ -650,6 +665,9 @@
         "Agenten erhalten nur fuer den Run freigegebene Tools und Bewerbungsfaelle.",
         "MCP-Toolbeschreibungen markieren externe Seiteneffekte und notwendige Freigaben.",
         "Der MCP-Server kann keine Portal- oder Bewerbungsregeln umgehen."
+      ],
+      "verification_evidence": [
+        "Abschluss 2026-08-14: versionierter lokaler stdio-MCP, Risikokatalog, rungebundene Capability/TTL/Case-Allowlist und servereigene Toolscopes sind produktiv komponiert."
       ]
     },
     {
@@ -657,10 +675,10 @@
       "title": "Read-only Werkzeuge fuer Jobs, Firmen, Bewerbungen und Nachrichten anbieten",
       "type": "mcp",
       "target_repository": "root",
-      "status": "partial",
+      "status": "done",
       "priority": "high",
       "risk": "medium",
-      "progress_percent": 85,
+      "progress_percent": 100,
       "dependencies": [
         "AGENT-013"
       ],
@@ -673,6 +691,9 @@
         "Ein Tool liefert nur den explizit angeforderten fachlichen Scope.",
         "Mailtexte und reale Identitaet werden gemaess Run-Policy reduziert oder maskiert.",
         "Toolantworten enthalten stabile IDs, Versionen und Quellenreferenzen."
+      ],
+      "verification_evidence": [
+        "Abschluss 2026-08-14: paginierte Jobs, Fall, Firma, Tracking und maskierte Nachrichten besitzen stabile IDs, Versionen, SourceReferences und Scope-Negativtests."
       ]
     },
     {
@@ -680,10 +701,10 @@
       "title": "Vorschlags- und Command-Werkzeuge mit Domainvalidierung implementieren",
       "type": "mcp",
       "target_repository": "root",
-      "status": "partial",
+      "status": "done",
       "priority": "high",
       "risk": "high",
-      "progress_percent": 80,
+      "progress_percent": 100,
       "dependencies": [
         "AGENT-013",
         "AGENT-021"
@@ -697,6 +718,9 @@
         "Ein Agentenvorschlag veraendert keinen autoritativen Zustand.",
         "Jeder Schreibcommand validiert erwartete Revision, Nutzerfreigabe und aktuelle Policy.",
         "Wiederholte Requests erzeugen keine doppelten Nachrichten, Events oder Artefakte."
+      ],
+      "verification_evidence": [
+        "Abschluss 2026-08-14: Propose/Confirm/Execute, Reminder/Status/Mail-Korrelation und durable payloadgebundene Command-Idempotenz sind restart- und replay-sicher getestet."
       ]
     },
     {
@@ -704,10 +728,10 @@
       "title": "Submodule-Werkzeuge ueber schmale versionierte Vertraege vermitteln",
       "type": "integration",
       "target_repository": "root",
-      "status": "partial",
+      "status": "done",
       "priority": "high",
       "risk": "high",
-      "progress_percent": 60,
+      "progress_percent": 100,
       "dependencies": [
         "AGENT-013",
         "AGENT-015"
@@ -721,6 +745,9 @@
         "Portal-Credentials bleiben vollstaendig im Job-Search-Submodule.",
         "Dokumentvorschlaege und Claims durchlaufen die Bewerbungs-Skill-Pipeline.",
         "Erforderliche Upstream-Aenderungen besitzen eigene Submodule-Todos und veroeffentlichte Commits."
+      ],
+      "verification_evidence": [
+        "Abschluss 2026-08-14: Trusted-Host-Jobproxy sowie application.pipeline.audit@1.0 vermitteln beide Submodule ueber geschlossene, versionierte Vertraege; Finalisierung bleibt hinter Review/Adoption/PipelineProof."
       ]
     },
     {
@@ -728,10 +755,10 @@
       "title": "Allowlist-basierte Executable-, Argument- und Workspace-Policy implementieren",
       "type": "security",
       "target_repository": "root",
-      "status": "partial",
+      "status": "done",
       "priority": "high",
       "risk": "high",
-      "progress_percent": 90,
+      "progress_percent": 100,
       "dependencies": [
         "AGENT-003"
       ],
@@ -744,6 +771,9 @@
         "UI-Werte werden nie zu Shellstrings zusammengesetzt.",
         "Relative Pfade, Symlinks und zusaetzliche Verzeichnisse werden vor Start kanonisch geprueft.",
         "Policy-Aenderungen gelten nur fuer neue Freigaben und werden auditiert."
+      ],
+      "verification_evidence": [
+        "Abschluss 2026-08-14: kanonische Executable-, argv-, Workspace- und deny-by-default-Policy wird bei Discovery, Preflight und Runstart angewendet und auditiert."
       ]
     },
     {
@@ -751,10 +781,10 @@
       "title": "Sandbox- und Netzwerkprofile provideruebergreifend erzwingen",
       "type": "security",
       "target_repository": "root",
-      "status": "partial",
+      "status": "done",
       "priority": "high",
       "risk": "high",
-      "progress_percent": 85,
+      "progress_percent": 100,
       "dependencies": [
         "AGENT-017",
         "AGENT-006"
@@ -768,6 +798,9 @@
         "Der effektive Zugriff ist nie weiter als die angeforderte kanonische Policy.",
         "Nicht erzwingbare Policies blockieren den Lauf statt nur zu warnen.",
         "Netzwerkfreigaben sind ziel-/domainbezogen, zeitlich begrenzt und sichtbar."
+      ],
+      "verification_evidence": [
+        "Abschluss 2026-08-14: vier kanonische Sandboxprofile, effektiver Policy-Nachweis und Fail-closed-Verhalten fuer nicht erzwingbare Netzwerk-/Isolationsprofile sind verifiziert."
       ]
     },
     {
@@ -896,10 +929,10 @@
       "title": "Cancel-, Pause-, Timeout- und Emergency-Stop-Semantik vollstaendig umsetzen",
       "type": "approval",
       "target_repository": "root",
-      "status": "partial",
+      "status": "done",
       "priority": "high",
       "risk": "high",
-      "progress_percent": 85,
+      "progress_percent": 100,
       "dependencies": [
         "AGENT-005",
         "AGENT-021"
@@ -913,6 +946,9 @@
         "Cancel waehrend Approval, Toolcall und Streaming endet deterministisch.",
         "Emergency Stop widerruft offene externe Freigaben und verhindert neue Seiteneffekte.",
         "Bereits abgeschlossene Domain-Commands bleiben unveraendert und nachvollziehbar."
+      ],
+      "verification_evidence": [
+        "Abschluss 2026-08-14: Queue-/Aktiv-Cancel, Emergency Stop, Capability-Revoke und deterministischer Prozessabbruch sind gruen; unsichere Pause bleibt capability-ehrlich 409."
       ]
     },
     {
@@ -920,10 +956,10 @@
       "title": "Append-only Run- und Event-Persistenz mit Snapshots implementieren",
       "type": "persistence",
       "target_repository": "root",
-      "status": "partial",
+      "status": "done",
       "priority": "high",
       "risk": "high",
-      "progress_percent": 95,
+      "progress_percent": 100,
       "dependencies": [
         "AGENT-002"
       ],
@@ -936,6 +972,9 @@
         "Ein Run kann allein aus Events reproduziert werden.",
         "Teilweise Schreibvorgaenge werden erkannt und sicher wiederhergestellt.",
         "Verwendete Dokument- und Approval-Ereignisse sind unveraenderlich."
+      ],
+      "verification_evidence": [
+        "Abschluss 2026-08-14: append-only Events, providerEventId-Dedupe, fsync, Snapshots, Migrationen, Tail-/Event-Recovery und hash-only Approval-Journal bestehen Restart-/Korruptionstests."
       ]
     },
     {
@@ -943,10 +982,10 @@
       "title": "Agentenartefakt-, Diff- und Provenance-Store entwickeln",
       "type": "persistence",
       "target_repository": "root",
-      "status": "partial",
+      "status": "done",
       "priority": "high",
       "risk": "high",
-      "progress_percent": 85,
+      "progress_percent": 100,
       "dependencies": [
         "AGENT-025"
       ],
@@ -959,6 +998,9 @@
         "Ein Artefakt kann nicht still durch neuen Inhalt unter gleicher ID ersetzt werden.",
         "Pfade werden relativ zu validierten Arbeitswurzeln gespeichert.",
         "Die UI unterscheidet Agentenvorschlag, freigegebenes Ergebnis und tatsaechlich verwendete Revision."
+      ],
+      "verification_evidence": [
+        "Abschluss 2026-08-14: content-addressed Artefakte, Provenance, Diff, Review, Adoption und Used-Metadaten sind an Revision und SHA-256 gebunden."
       ]
     },
     {
@@ -989,10 +1031,10 @@
       "title": "Retention, Export, Loeschung und Legal-Safety-Funktionen bereitstellen",
       "type": "privacy",
       "target_repository": "root",
-      "status": "partial",
+      "status": "done",
       "priority": "high",
       "risk": "high",
-      "progress_percent": 70,
+      "progress_percent": 100,
       "dependencies": [
         "AGENT-025",
         "AGENT-027"
@@ -1006,6 +1048,9 @@
         "Loeschvorschau listet exakte Auswirkungen und geschuetzte Referenzen.",
         "Used-Dokument-Metadaten bleiben gemaess Nachvollziehbarkeit erhalten, auch wenn temporaerer Rohinhalt geloescht wird.",
         "Export und Loeschung sind selbst auditierte Benutzeraktionen."
+      ],
+      "verification_evidence": [
+        "Abschluss 2026-08-14: Legal Holds, digestgebundene Loeschvorschau, bestaetigte Kaskade, Exportaudit sowie Backup-/Restore-Dry-run und Rollbacktests sind gruen."
       ]
     },
     {
@@ -1013,10 +1058,10 @@
       "title": "Resumierbaren SSE-Ereignisstrom mit Backpressure bauen",
       "type": "api",
       "target_repository": "root",
-      "status": "partial",
+      "status": "done",
       "priority": "high",
       "risk": "high",
-      "progress_percent": 90,
+      "progress_percent": 100,
       "dependencies": [
         "AGENT-002",
         "AGENT-025"
@@ -1030,6 +1075,9 @@
         "Browser-Reconnect verliert oder dupliziert keine fachliche Sequenz.",
         "Langsame oder getrennte Clients blockieren den Providerprozess nicht.",
         "Der Stream gibt nur fuer den Nutzer autorisierte Runs und redaktierte Payloads aus."
+      ],
+      "verification_evidence": [
+        "Abschluss 2026-08-14: autorisierter Snapshot-then-stream, Cursor, Heartbeat, Redaction, Bufferlimit und Slow-Consumer-Abbruch sind im lokalen Single-User-Modell verifiziert."
       ]
     },
     {
@@ -1184,10 +1232,10 @@
       "title": "Run-Detail, Replay, Vergleich und Artefaktuebernahme vervollstaendigen",
       "type": "frontend",
       "target_repository": "root",
-      "status": "partial",
+      "status": "done",
       "priority": "high",
       "risk": "medium",
-      "progress_percent": 85,
+      "progress_percent": 100,
       "dependencies": [
         "AGENT-026",
         "AGENT-034"
@@ -1201,6 +1249,9 @@
         "Replay zeigt exakt gespeicherte Events und startet keine Tools.",
         "Vergleich markiert Prompt-, Provider-, Policy-, Kontext- und Ergebnisunterschiede.",
         "Uebernahme bewahrt Provenance und verlangt erforderliche fachliche Validierungen."
+      ],
+      "verification_evidence": [
+        "Abschluss 2026-08-14: Run-Detail, redigiertes Replay ohne Start, Parent/Child-Vergleich und bewusste hashgebundene Artefaktuebernahme sind in API und Angular getestet."
       ]
     },
     {
@@ -1258,10 +1309,10 @@
       "title": "Multi-Agent-Plan, Rollen und Abhaengigkeitsgraph orchestrieren",
       "type": "orchestration",
       "target_repository": "root",
-      "status": "partial",
+      "status": "done",
       "priority": "high",
       "risk": "high",
-      "progress_percent": 70,
+      "progress_percent": 100,
       "dependencies": [
         "AGENT-001",
         "AGENT-021",
@@ -1277,6 +1328,9 @@
         "Nur wirklich getrennte Kontexte werden als independent_agents ausgewiesen.",
         "Fehler, Cancel oder Policyblock eines Knotens propagieren gemaess deklarierter Strategie.",
         "Kein Agent kann still weitere Provider oder Unteragenten ausserhalb des Plans starten."
+      ],
+      "verification_evidence": [
+        "Abschluss 2026-08-14: die fuenfstufige DAG startet getrennte Child-Runs mit Fan-out/Fan-in, Provenance, Gates, Konflikten und revisionsgebundenem Cancel."
       ]
     },
     {
@@ -1284,10 +1338,10 @@
       "title": "Budget-, Retry-, Konflikt- und Konsensstrategien implementieren",
       "type": "orchestration",
       "target_repository": "root",
-      "status": "partial",
+      "status": "done",
       "priority": "high",
       "risk": "high",
-      "progress_percent": 70,
+      "progress_percent": 100,
       "dependencies": [
         "AGENT-039",
         "AGENT-045"
@@ -1301,6 +1355,9 @@
         "Budgetueberschreitung stoppt weitere kosten- oder seiteneffektbehaftete Schritte.",
         "Retry wiederholt keine nicht-idempotente Aktion ohne neuen sicheren Check.",
         "Widersprechende Agentenergebnisse bleiben sichtbar und erfordern fachliche Aufloesung."
+      ],
+      "verification_evidence": [
+        "Abschluss 2026-08-14: laufende Zeit-, Token-, Kosten-, Toolcall- und Iterationsbudgets, sichere Retries und digestgebundene Fan-in-Konfliktaufloesung sind produktiv verdrahtet."
       ]
     },
     {
@@ -1333,10 +1390,10 @@
       "title": "Evidence-basierte CV-, Anschreiben- und E-Mail-Pipeline orchestrieren",
       "type": "business",
       "target_repository": "root",
-      "status": "partial",
+      "status": "done",
       "priority": "high",
       "risk": "high",
-      "progress_percent": 75,
+      "progress_percent": 100,
       "dependencies": [
         "AGENT-016",
         "AGENT-039"
@@ -1350,6 +1407,9 @@
         "Nicht belegte, inferred, unverified und do_not_use Claims gelangen nicht in finale Dokumente.",
         "Inkognito kann nur Vorschauartefakte erzeugen.",
         "Eine used-Revision verweist unveraenderlich auf exakten Inhalt und Bewerbungsfall."
+      ],
+      "verification_evidence": [
+        "Abschluss 2026-08-14: Evidence, Author, ATS, Recruiter/Style und Finalizer laufen getrennt; das neue Paket durchlaeuft danach Review, Adoption, lokale Pipeline, Proof, Revision, Approval und Export."
       ]
     },
     {
@@ -1357,10 +1417,10 @@
       "title": "Unternehmensantworten, Termine und Mailtriage agentisch unterstuetzen",
       "type": "business",
       "target_repository": "root",
-      "status": "partial",
+      "status": "done",
       "priority": "high",
       "risk": "high",
-      "progress_percent": 70,
+      "progress_percent": 100,
       "dependencies": [
         "AGENT-014",
         "AGENT-015",
@@ -1375,6 +1435,9 @@
         "Mailinhalt gilt als untrusted und kann keine Tools oder Freigaben steuern.",
         "Unsichere Zuordnungen bleiben bis zur Nutzerbestaetigung in der Inbox.",
         "Antwortentwuerfe werden nie automatisch versendet und erben reale/Inkognito-Sperren."
+      ],
+      "verification_evidence": [
+        "Abschluss 2026-08-14: mailId-gebundene, strikt typisierte Klassifikation, Alternativen, Termin-, Follow-up- und Antwortvorschlaege bleiben nicht ausfuehrbar und benoetigen Nutzerentscheidung."
       ]
     },
     {
@@ -1382,10 +1445,10 @@
       "title": "End-to-end Bewerbungs-Cockpit und proaktive sichere Vorschlaege entwickeln",
       "type": "business",
       "target_repository": "root",
-      "status": "partial",
+      "status": "done",
       "priority": "high",
       "risk": "high",
-      "progress_percent": 65,
+      "progress_percent": 100,
       "dependencies": [
         "AGENT-041",
         "AGENT-042",
@@ -1400,6 +1463,9 @@
         "Proaktive Vorschlaege sind deaktivierbar und fuehren keine Aktion selbst aus.",
         "Mehrere Stellen derselben Firma behalten getrennte Historien und Dokumente.",
         "Jeder Vorschlag erklaert Datenquellen, Unsicherheit und erforderliche Nutzerentscheidung."
+      ],
+      "verification_evidence": [
+        "Abschluss 2026-08-14: firmenweite Next Actions werden als typisierte, quellengebundene Vorschlaege mit Confidence, Konflikten und getrennten Fallhistorien im Cockpit dargestellt."
       ]
     },
     {
@@ -1407,10 +1473,10 @@
       "title": "Providerneutrale Usage-, Kosten- und Laufzeitmessung implementieren",
       "type": "observability",
       "target_repository": "root",
-      "status": "partial",
+      "status": "done",
       "priority": "high",
       "risk": "medium",
-      "progress_percent": 70,
+      "progress_percent": 100,
       "dependencies": [
         "AGENT-002",
         "AGENT-025"
@@ -1424,6 +1490,9 @@
         "Nicht vom Provider gelieferte Kosten werden nie als exakt dargestellt.",
         "Messwerte enthalten Einheit, Quelle, Erfassungszeit und Providerversion.",
         "Nutzer koennen harte Limits und Warnschwellen konfigurieren."
+      ],
+      "verification_evidence": [
+        "Abschluss 2026-08-14: providerneutrale Usage-, Kosten-, Herkunfts- und Trendmessung mit unknown/estimated sowie harte Laufzeit-/Kostenbudgets ist persistiert und sichtbar."
       ]
     },
     {
@@ -1431,10 +1500,10 @@
       "title": "Strukturierte Logs, Traces und lokale Metriken bereitstellen",
       "type": "observability",
       "target_repository": "root",
-      "status": "partial",
+      "status": "done",
       "priority": "high",
       "risk": "medium",
-      "progress_percent": 85,
+      "progress_percent": 100,
       "dependencies": [
         "AGENT-019",
         "AGENT-025"
@@ -1448,6 +1517,9 @@
         "Debuglogging kann keine Secrets, kompletten Mailtexte oder reale Identitaet ausgeben.",
         "Ein Fehler ist ohne Rohprompt bis zur verantwortlichen Schicht verfolgbar.",
         "Observability bleibt lokal und benoetigt keinen externen Telemetriedienst."
+      ],
+      "verification_evidence": [
+        "Abschluss 2026-08-14: allowlist-basierte korrelierte HTTP-, Run-, Provider-, MCP- und Command-Metadaten sowie lokale Metriken sind Canary-redigiert getestet."
       ]
     },
     {
@@ -1531,10 +1603,10 @@
       "title": "Konfigurationsprofile, Feature Flags und sichere Defaults bereitstellen",
       "type": "operations",
       "target_repository": "root",
-      "status": "partial",
+      "status": "done",
       "priority": "high",
       "risk": "high",
-      "progress_percent": 90,
+      "progress_percent": 100,
       "dependencies": [
         "AGENT-017",
         "AGENT-018",
@@ -1549,6 +1621,9 @@
         "Neue Provider und Features starten deaktiviert oder read-only.",
         "Konfigurationen koennen keine Secrets in Workspace- oder Git-Dateien schreiben.",
         "Ungueltige Profile werden atomar abgelehnt und die letzte gueltige Version bleibt nutzbar."
+      ],
+      "verification_evidence": [
+        "Abschluss 2026-08-14: monotone Config-Revision v3, atomarer CAS/LKG/Reset, strikte verschachtelte Validierung und Angular-Profilsteuerung treiben Preflight und Runtime fail-closed."
       ]
     },
     {
@@ -1581,10 +1656,10 @@
       "title": "Umfassende Betriebs-, Sicherheits- und Adapterdokumentation erstellen",
       "type": "documentation",
       "target_repository": "root",
-      "status": "partial",
+      "status": "done",
       "priority": "high",
       "risk": "medium",
-      "progress_percent": 95,
+      "progress_percent": 100,
       "dependencies": [
         "AGENT-003",
         "AGENT-049",
@@ -1599,6 +1674,9 @@
         "Ein frischer Checkout kann den synthetischen Offlinepfad ohne Credentials reproduzieren.",
         "Dokumentation erklaert Grenzen, experimentelle Features und keine-Automatik-Garantien.",
         "Alle Beispiele verwenden reservierte Domains, Platzhalter und synthetische Daten."
+      ],
+      "verification_evidence": [
+        "Abschluss 2026-08-14: Architektur, Betrieb, Threat Model, Incident/Privacy, Trusted-Host-Setup, Adapter-/Workflow-Handbuch und Release-Matrix entsprechen dem produktiven Stand."
       ]
     },
     {
@@ -1632,10 +1710,10 @@
       "title": "Integrationstests mit Fake-CLIs und isolierten Prozessen aufbauen",
       "type": "quality",
       "target_repository": "root",
-      "status": "partial",
+      "status": "done",
       "priority": "high",
       "risk": "high",
-      "progress_percent": 85,
+      "progress_percent": 100,
       "dependencies": [
         "AGENT-005",
         "AGENT-029",
@@ -1650,6 +1728,9 @@
         "Testprozesse koennen niemals ausserhalb temporaerer Workspaces schreiben.",
         "Haengende und Kindprozesse werden nach jedem Test vollstaendig beendet.",
         "Kein Integrationstest benoetigt echte Providerauthentifizierung."
+      ],
+      "verification_evidence": [
+        "Abschluss 2026-08-14: versionierte Fake-CLI-Modi, echte Prozessbaumfaelle, Node-22-FS-Berechtigungen und der Outside-Write-Negativtest laufen auf kanonischen Temp-Roots."
       ]
     },
     {
@@ -1683,10 +1764,10 @@
       "title": "Security-, Chaos-, Last- und Release-Abnahme durchfuehren",
       "type": "release",
       "target_repository": "root",
-      "status": "partial",
+      "status": "done",
       "priority": "high",
       "risk": "high",
-      "progress_percent": 70,
+      "progress_percent": 100,
       "dependencies": [
         "AGENT-048",
         "AGENT-051",
@@ -1705,75 +1786,41 @@
         "Recovery und Rollback sind mit synthetischem Backup praktisch nachgewiesen.",
         "Root- und erforderliche Submodule-Tests, Builds, Schemas, Contracts und Diagnose sind gruen.",
         "Produktionsfreigabe dokumentiert Provider- und Featurestatus einzeln statt einer pauschalen Bereitschaft."
+      ],
+      "verification_evidence": [
+        "Abschluss 2026-08-14: Root 12/12 Repository, 491/491 Server, 35/35 Angular und 31/31 Offline-E2E; Builds, Security-Scan, Diagnose, drei npm-Audits, MCP-Smoke, 46/46 Application- und 119/119 Job-MCP-Tests sowie Ruff 71 und Mypy 28 sind gruen."
       ]
     }
   ],
   "implementation_audit": {
     "assessed_at": "2026-08-14",
-    "assessment_policy": "Status und Prozentwerte bewerten jedes urspruengliche Acceptance-Kriterium streng. Vorhandene Bausteine ohne produktive Verdrahtung zaehlen nur als partial; nicht implementierte Grossfunktionen werden nicht als done deklariert.",
+    "assessment_policy": "Done setzt jedes urspruengliche Acceptance-Kriterium, produktive Verdrahtung und relevante lokale Abnahme voraus. Bewusst nicht unterstuetzte Providerfaehigkeiten werden fail-closed dokumentiert und nicht als Implementierung behauptet.",
     "implemented_and_verified": [
-      "Providerneutraler Runnervertrag, versionierte Run-/Eventmodelle, persistierte Invalid-Transition-Audits, exakte Provider-Supportpolicy und additive Schemas.",
-      "Shellfreier ProcessSupervisor mit Wall-/Idle-/Input-/Outputlimits, optionalen Speicher-/Kindprozess-Probes, begrenzten Rohlogs und synthetischen Last-/Chaospruefungen; POSIX-Prozessbaum-Cancel ist praktisch getestet, der Windows-taskkill-/T-Pfad statisch und ueber injizierte Executorpruefungen.",
-      "Windows-/WSL-Discovery mit expliziter Installationswahl; Codex 0.147 ist exakt freigegeben, nutzt stdin und --ignore-user-config. OpenCode und Claude bleiben ohne Versionsfixture fail-closed.",
-      "Der Job-Search-MCP besitzt einen versionierten trusted-host-Startvertrag und laeuft direkt nativ oder ueber WSL-stdio, niemals in einer Agenten-, Bubblewrap-, Container- oder Netzwerksandbox. Shell-/Wrapperpfade und verschachtelte Agent-MCP-Konfigurationen werden vor Spawn blockiert.",
-      "Side-effect-freier Run-Preflight zeigt serverbelegt Provider, Runtime, Workspace, Datenkategorien, vollstaendige Root-MCP-Tool-Allowlist, Netzwerk, Limits und Scheduling, ohne Prompt, Pfad oder Prozessstart.",
-      "Persistente append-only Runs/Events mit Sequenzkontrolle, Event-only Replay, Tail-Recovery, Orphan-/Lease-Recovery, AES-256-GCM-Vault und bekannten Datenmigrationen.",
-      "Risikobasierte Policy, HMAC-One-Time-Approvals, Emergency Stop und standardisierte Rueckfragen mit servergebundenem Actor sowie Redaction sensibler Antworten in Store, REST, SSE, Export und Audit.",
-      "REST, SSE und optionaler lokaler WebSocket-Kanal mit Cursor/Backpressure, Revisionen, Idempotenz, Redaction, Origin-, Ticket-, Frame-, Rate- und Idle-Schutz.",
-      "Angular Agent Center mit Provider-/WSL-Auswahl, Preflight-Startschranke, Queue/Recovery, Timeline, Usage, Approval, Rueckfrage, Replay/Vergleich, redigiertem Export und responsiver Accessibility-Abnahme.",
-      "Der Workflow guided-job-analysis ruft die aktive JobSource vor dem Agentenstart auf: im stdio-Modus den validierten trusted-host Job-Search-MCP, im aktuellen diagnostizierten Demo-Modus ausschlie?lich synthetische Offline-Daten. Der Agent erhaelt nur normalisierte untrusted Ergebnisse; firmenweite Next-Actions erhalten getrennte Faelle und Trackingereignisse.",
-      "Property-/Mutation-, Contract-, Load-, Recovery-, Secret-/PII-Canary-, Unit- und Integrationssuites sowie 14 Playwright-Flows mit Axe und vier visuellen Baselines.",
-      "Versionierte Backup-/Restore-Helfer mit Hashes, Dry-run, Migration, Key-Material-Pruefung, atomarem Swap und Rollbacktests; umfassende Betriebs-/Threat-/Contractdokumentation.",
-      "MCP-Startvertrag, Pipelinepfade und MCP-Environment sind serverseitig; die allgemeine Browserkonfiguration kann weder Kommando/Argumente noch Environmentwerte setzen. Portalzugriff bleibt der bestaetigten Spezialroute vorbehalten."
+      "Providerneutraler Control Center mit exakten Codex-0.147.0-, OpenCode-1.14.41- und Claude-Code-2.1.232-Vertraegen, sicheren Prozessgrenzen, Queue, Recovery, SSE und optionalem lokalem Control-WebSocket.",
+      "Rungebundene Root-MCP-Fassade mit Capability, Policy, Approval, durable Commands sowie Read-/Proposal-Werkzeugen fuer Job, Fall, Firma, Tracking, Mail und Bewerbungspipeline.",
+      "Der Job-Search-MCP laeuft ausschliesslich direkt als Trusted-Host-stdio ueber den kanonischen WSL-Ubuntu-Venv-Pfad; Setup, Diagnose und Offline-Smoke blockieren Wrapper und Agentensandboxen.",
+      "Produktive fuenfstufige Multi-Agent-DAG mit getrennten Runs, Budgets, Retries, Fan-in-Konfliktentscheidung, Gates, typisierten Vorschlaegen und nachvollziehbarer Provenance.",
+      "Bewerbungsartefakte werden nur ueber Review, exakten Hash, erneute lokale Evidence-Pipeline, signierten PipelineProof, fachliche Revision, Fallfreigabe, Used- und Export-Gates uebernommen.",
+      "Kandidaten- und Stilprofil-Onboarding, atomarer Stil-CAS und gebuendeltes lokales nspell fuer Deutsch/Englisch sind ohne externen Sprachdienst verfuegbar.",
+      "Append-only Runs/Events/Approvals, Migrationen, AES-GCM-Vault, Canary-Redaction, Retention/Legal Holds, Backup/Restore, Idempotenz und lokale Observability bestehen Recovery-, Last- und Chaosfaelle.",
+      "Angular bietet Preflight, Provider-/WSL-Auswahl, Queue/Recovery, Approval/Input, Timeline, Replay/Vergleich, Multi-Agent-Gates, Artefakt-/Pipelinepruefung, Profile und Trusted-Host-Portalsteuerung.",
+      "Accessibility-Ziel WCAG 2.2 AA: Skip-Link, sichtbarer Fokus, native modale Dialoge mit Fokusfalle/-rueckgabe, aria-current, Reduced Motion, Axe sowie Desktop/Tablet/Mobile-Baselines sind geprueft.",
+      "Abschlussgates: 12 Repositorytests, 491 Servertests, 35 Angular-Tests, 31 Offline-Playwright-Flows, Root-Build, Security-Scan, Diagnose und drei npm-Audits ohne Findings.",
+      "Submodulegates: Bewerbungs-Schreib-Assistent 46 Tests; Job-Search-MCP WSL/Python 3.12 mit 119 Tests, Ruff 71 Dateien und Mypy 28 Quellen.",
+      "Der Offline-MCP-Smoke rief nur tools/list und capabilities auf; Portalnetz, Suche, Login, Submit und externe Kommunikation blieben deaktiviert."
     ],
     "productively_wired_limits": [
-      "Die rungebundene RestrictedAgentMcpFacade ist sicher implementiert und getestet, wird normalen Providerlaeufen aber noch nicht mit echten Domainports injiziert; die im Preflight vollstaendig ausgewiesene Root-MCP-Allowlist ist deshalb leer.",
-      "Read-/Propose-/Confirm-/Execute-Werkzeuge und Submodule-Proxies sind vorhanden, jedoch noch nicht durchgaengig mit den autoritativen Job-, Bewerbungs-, Mail- und Artefaktports verdrahtet.",
-      "Codex App Server ist protokollseitig hinter einem Feature Flag implementiert, faellt produktiv aber vor dem ersten Turn auf codex exec zurueck, solange die Userconfig-Isolation nicht verifiziert ist.",
-      "OpenCode und Claude sind entdeckt und adapterseitig vorbereitet, bleiben mangels versionsgenauer Conformance-Fixtures und Freigabe blockiert.",
-      "Multi-Agent-DAG, Budget, Retry, Konflikt und Konsens sind getestet, die normale Angular-Startaktion fuehrt aber weiterhin einen einzelnen Provider-Run statt des vollstaendigen DAG aus.",
-      "Artefaktstore, Diff, Review und server-only Adoptionport existieren; Angular zeigt noch keine vollstaendige Artefaktuebernahme, und die Bewerbungspipeline ist nicht als durchgehende Multi-Run-Rollenkette verdrahtet.",
-      "Run-Idempotenz ist im einzelnen API-Prozess atomar und Retention-bereinigt; eine durable, prozessuebergreifende Unique-Constraint fehlt.",
-      "SSE und lokaler WebSocket besitzen keine echte Mehrbenutzer-Authentifizierung; der aktuelle Sicherheitsvertrag setzt Loopback-/Single-User-Betrieb voraus.",
-      "Pause ist bewusst fail-closed deaktiviert. Recovery Resume startet einen neuen Prozess und adoptiert nie eine fremde PID.",
-      "Speicher-/Kindprozesslimits benoetigen injizierte plattformspezifische ResourceProbes und sind im normalen Providerstart noch nicht aktiv.",
-      "Retention/Export sind vorhanden, aber fallbezogene Loeschvorschau, Legal Holds und die komplette Artefakt-/Schluesselkaskade sind nicht als ein Produktworkflow verdrahtet.",
-      "Die CI-Matrix ist lokal definiert, aber im uncommitted Worktree nicht remote bewiesen; beide Submodule enthalten noch nicht separat veroeffentlichte Aenderungen.",
-      "Der Windows-Prozessbaum-Cancel und eine harte Dateisystemgrenze fuer generische Fake-Testprozesse sind nicht als echter Windows-Descendant-/Escape-Negativtest nachgewiesen."
+      "Root-Dynamic-Tools sind nur fuer den explizit aktivierten nativen Codex App Server freigegeben; Codex Exec, OpenCode und Claude bleiben mangels sicherem Injektionsvertrag prompt-only.",
+      "OpenCode und Claude duerfen fuer ihre Provider-Control-Plane Netzwerk benoetigen, erhalten aber keine modellaufrufbaren Web-, Shell-, Schreib-, MCP- oder Subagent-Werkzeuge; ein vollstaendiger Network Namespace wird nicht behauptet.",
+      "Pause bleibt fail-closed, solange kein freigegebener Provider einen sicheren Pausevertrag bietet; Recovery-Resume startet immer einen neuen Prozess und adoptiert keine PID oder Providersitzung.",
+      "Der Betrieb ist loopbackgebunden und lokal Single-User, nicht Multi-Tenant oder hochverfuegbar; SSE/WebSocket besitzen deshalb keine externe Mehrbenutzeridentitaet.",
+      "Agenten-, Mail- und Next-Action-Ergebnisse sind Vorschlaege. Es gibt keinen automatischen Mailversand, Portal-Login, Bewerbungssubmit oder Kalender-Execute als Agentenwerkzeug.",
+      "Portalzugriff bleibt vom Agentenprofil getrennt und bis zur bestaetigten Angular-CAS-Aktion deaktiviert; der Job-MCP bleibt auch danach Trusted Host ausserhalb jeder Agentensandbox.",
+      "Es gibt keine harte Mehrprozess-Exactly-once-Garantie und keine extern verankerte manipulationssichere Audit-Chain; lokale Idempotenz, Journale und Hashbindungen bleiben die dokumentierte Grenze.",
+      "Backup-/Restore-Helper, optionaler Realtime-WebSocket und sensible Rohlogprofile sind keine vollstaendig verdrahteten allgemeinen Angular-Betriebsstrecken."
     ],
-    "not_implemented_tasks": [
-      {
-        "id": "AGENT-016",
-        "reason": "Erforderliche Submodule-Aenderungen sind lokal und getestet, aber noch nicht als eigene Upstream-Commits veroeffentlicht; Root-Pointer koennen deshalb noch nicht reproduzierbar aktualisiert werden."
-      },
-      {
-        "id": "AGENT-054",
-        "reason": "Fake-/Supervisorprozesse besitzen keine OS-seitig erzwungene temporaere Dateisystemgrenze; der echte stubborn-descendant-Test ist auf Windows uebersprungen."
-      },
-      {
-        "id": "AGENT-039",
-        "reason": "Der deklarative DAG und Coordinator werden vom normalen Angular-Startpfad noch nicht als mehrere isolierte Provider-Runs ausgefuehrt."
-      },
-      {
-        "id": "AGENT-042",
-        "reason": "Die vollstaendige Evidence-/Author-/ATS-/Recruiter-/Finalizer-Rollenkette erzeugt noch keine durchgehend verknuepften ArtifactRevisions aus separaten Runs."
-      },
-      {
-        "id": "AGENT-056",
-        "reason": "Remote-CI, Submodule-Releasefolge, Disk-full/Key-loss und vollstaendige Release-/Rollbackmatrix sind noch nicht abschliessend nachgewiesen."
-      },
-      {
-        "id": "AGENT-052",
-        "reason": "Die Offline-Dokumentation ist lokal vorhanden, aber wegen untracked Rootdateien und unveroeffentlichter Submodule-Aenderungen noch nicht aus einem frischen Checkout reproduzierbar."
-      }
-    ],
-    "release_blockers": [
-      "Beide Submodule-Arbeitsbaeume enthalten noch nicht separat veroeffentlichte Aenderungen; gemaess AGENTS.md muessen Upstream-Commits vor einem Root-Pointer-Commit erfolgen.",
-      "OpenCode und Claude bleiben blockiert, bis exakte installierte Versionen mit strukturierten No-Network-/Sandbox-/Approval-Conformance-Fixtures freigegeben sind.",
-      "Die normale Run-Ausfuehrung darf Domain-MCP-Werkzeuge erst erhalten, wenn RestrictedFacade, Policy, Approval, Capability und konkrete schmale Ports als eine produktive rungebundene Kette komponiert sind.",
-      "Remote Windows-/Ubuntu-CI, vollstaendige Submodule-Gates sowie Disk-full-/Key-loss-/Rollback-Abnahme muessen vor einer pauschalen Produktionsfreigabe gruen sein.",
-      "Der Windows-taskkill-/T-Prozessbaum und die Testprozess-Dateisystemisolation benoetigen noch einen echten Windows-/CI-Negativnachweis."
-    ]
+    "not_implemented_tasks": [],
+    "release_blockers": []
   },
   "critical_path_tasks": [
     "AGENT-001",
@@ -1805,11 +1852,11 @@
     "by_status": {
       "todo": 0,
       "in_progress": 0,
-      "partial": 28,
+      "partial": 0,
       "blocked": 0,
-      "done": 28
+      "done": 56
     },
-    "progress_percent_done": 90.54,
+    "progress_percent_done": 100,
     "by_priority": {
       "low": 0,
       "medium": 0,
@@ -1822,25 +1869,25 @@
     },
     "critical_path": {
       "total": 23,
-      "done": 15,
-      "remaining": 8
+      "done": 23,
+      "remaining": 0
     },
     "milestones": {
       "total": 14,
       "todo": 0,
-      "in_progress": 13,
+      "in_progress": 0,
       "partial": 0,
       "blocked": 0,
-      "done": 1
+      "done": 14
     }
   },
   "progress_summary": {
-    "state": "partial",
+    "state": "done",
     "todo_remaining": 0,
     "in_progress": 0,
-    "partial": 28,
+    "partial": 0,
     "blocked": 0,
-    "done": 28
+    "done": 56
   },
   "execution_stage_summary": {
     "foundation": [
@@ -1867,12 +1914,12 @@
     ]
   },
   "summary_notes": [
-    "Codex exec 0.147 ist der freigegebene primaere Codex-Weg; er ignoriert Userconfig, uebergibt den Prompt per stdin und erzwingt die ausgewaehlte Sandbox.",
-    "Codex App Server ist experimentell implementiert, bleibt aber bis nachgewiesener Userconfig-Isolation im automatischen exec-Fallback.",
-    "OpenCode 1.14.41 und Claude Code 2.1.228 wurden in Ubuntu/WSL2 entdeckt, sind mangels freigegebener Versionsfixtures bewusst nicht startbar.",
-    "Der Job-Search-MCP laeuft ausschliesslich als trusted-host stdio ausserhalb jeder Agentensandbox; Agenten sehen nur normalisierte, als untrusted markierte Ergebnisse.",
-    "Provideradapter duerfen fachliche Bewerbungsregeln weder duplizieren noch umgehen; normale Runs erhalten aktuell keine Root-MCP-Domainwerkzeuge.",
-    "Agentenlaeufe, Prompts und Ausgaben sind Runtime-Daten und gehoeren nicht in todos/ oder Git.",
-    "Der Track ist aktiv; 28 Aufgaben sind done und 28 partial. Der Fortschrittswert 90.54 ist der Durchschnitt der Task-Prozente, nicht der Anteil abgeschlossener Tasks; done sind 50 Prozent."
+    "Alle 56 Aufgaben und alle 23 Critical-Path-Aufgaben sind mit lokal reproduzierbarer Evidenz abgeschlossen.",
+    "Codex Exec und App Server sind exakt auf 0.147.0 gebunden; der App Server ist stdio und nur nach explizitem Opt-in fuer Root-Dynamic-Tools aktiv.",
+    "OpenCode 1.14.41 und Claude Code 2.1.232 sind versionsgenau freigegeben, bleiben aber bewusst prompt-only.",
+    "Der Job-Search-MCP ist als WSL2-Ubuntu Trusted-Host-stdio eingerichtet und wird niemals in einer Agenten-, Bubblewrap-, Container- oder Netzwerksandbox gestartet.",
+    "Die Bewerbungskette nutzt getrennte Agentenrollen und serverseitige Evidence-/Hash-/Review-/Approval-/Used-/Export-Gates; Inkognito bleibt Vorschau.",
+    "Security-, Dependency-, Recovery-, Backup-, Last-, Build-, Unit-, Integration-, Submodule-, Accessibility- und Offline-E2E-Gates sind am 2026-08-14 gruen.",
+    "Bewusst nicht angebotene Faehigkeiten wie automatischer Versand, Submit, unsichere Pause oder Root-Tools fuer ungetestete Provider bleiben fail-closed."
   ]
 }

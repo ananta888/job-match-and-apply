@@ -1,52 +1,67 @@
 # ADR 0002: Providerneutrale lokale Agentensteuerung
 
-Status: angenommen
+- Status: angenommen und implementiert
+- Datum: 2026-08-14
 
 ## Kontext
 
-Die Plattform soll Codex CLI, OpenCode, Claude CLI und weitere lokale Agenten über Angular
-bedienbar machen. Direkte Terminaleinbettung würde Providerdetails, Berechtigungen und fachliche
-Seiteneffekte vermischen. Ausgabeformate und interaktive Protokolle können sich unabhängig ändern.
+Die Plattform soll Codex CLI, OpenCode und Claude Code über Angular bedienen, ohne
+Providerdetails, Berechtigungen, Portalzugriff und autoritative Fachänderungen zu vermischen.
+Providerprotokolle, Versionen und interaktive Fähigkeiten ändern sich unabhängig voneinander.
 
 ## Entscheidung
 
-Die Root-Anwendung besitzt einen versionierten `AgentRunnerPort`, ein kanonisches Eventmodell und
-eine zentrale Policy Engine als Architekturbaustein. Provideradapter normalisieren strukturierte
-Protokolle. Angular sieht weder Executables noch freie Argumente und sendet keine Shellbefehle.
+Die Root-Anwendung besitzt einen versionierten `AgentRunnerPort`, ein kanonisches Eventmodell,
+serverseitige Provider-Manifeste und eine zentrale Policy Engine. Angular sieht weder Executables
+noch freie argv oder Environmentwerte. Provideradapter normalisieren ausschließlich strukturierte
+Protokolle; unbekannte Versionen werden fail-closed blockiert.
 
-Codex nutzt primär den stabil dokumentierten nichtinteraktiven JSONL-Modus. App-Server-Unterstützung
-bleibt experimentell und optional. Weitere Provider müssen dasselbe Conformance-Testkit bestehen.
+Codex Exec bleibt der stabile JSONL-Transport. Der Codex App Server ist ein experimenteller,
+server-owned Opt-in über `CODEX_APP_SERVER_EXPERIMENTAL=1` oder das bestätigte persistente
+Agentenprofil. Er läuft stdio-only mit temporärem
+`CODEX_HOME`, `SandboxPolicy.networkAccess:false` und kann rungebundene Root-Domain-Tools als
+Dynamic Tools erhalten. Ein fehlgeschlagener Offline- oder Tool-Healthcheck darf nicht auf einen
+schwächeren Transport zurückfallen.
 
-Domainzugriff soll über eine eingeschränkte MCP-/Command-Fassade erfolgen. Agenten dürfen
-Vorschläge erzeugen; externe oder autoritative Änderungen verlangen serverseitige Validierung und
-bei Bedarf eine einmalige kontextgebundene Nutzerfreigabe.
+OpenCode `1.14.41` und Claude Code `2.1.232` sind ausschließlich read-only in WSL/Bubblewrap
+freigegeben. Bubblewrap schützt Dateisystem und Prozessgrenzen; die Provider-Control-Plane bleibt
+für den Modellaufruf erreichbar. Modellaufrufbare Shell-, Schreib-, Web-, MCP- und
+Subagent-Fähigkeiten werden durch exakte servereigene Providerpolicies entfernt. Diese beiden
+Adapter besitzen keine Root-Tool- oder interaktive Approval-Brücke.
 
-## Implementierungsstatus
+Fachzugriff erfolgt über eine eingeschränkte, rungebundene Domain-Fassade. Eine interne Capability
+bindet Provider, Run, Tool und ApplicationCases. Vorschläge dürfen keine externe oder autoritative
+Änderung behaupten; lokale Domaincommands erfordern serverseitige Validierung, Revision,
+Idempotenz und gegebenenfalls eine einmalige kontextgebundene Nutzerfreigabe. Der direkte
+`agent:mcp`-Start bleibt ohne injizierte Ports auf Health und Katalog beschränkt.
 
-Port, Eventmodell, CLI-Adapter, Run Store, REST/SSE und Angular-Oberfläche sind vorhanden. Eine
-explizite serverseitige Factory setzt RunCapabilityAuthority, eingeschränkte Domain-Fassade,
-Policy, einmalige Approvals, Audit und injizierte schmale Ports zu einer produktiv nutzbaren
-rungebundenen MCP-Sitzung zusammen. Capability- und Approval-Tokens sind kein Clientvertrag. Der
-direkte MCP-Start bleibt ohne injizierten Executor absichtlich auf Health und Katalog beschränkt.
-Credential Broker und Orchestrierungs-DAG sind weiterhin nicht durchgängig im normalen Runpfad
-zusammengesetzt. API und Angular unterstützen
-die explizite Auswahl erkannter Windows- und WSL-Installationen einschließlich Distribution; nur
-serverseitig als unterstützt validierte Installationen können gestartet werden. OpenCode und
-Claude bleiben mangels freigegebener Versionsmuster blockiert. OpenCode und Claude besitzen im
-WSL-Startpfad eine fail-closed Bubblewrap-Isolation, bleiben jedoch mangels Versionsfreigabe
-weiterhin blockiert. Pause/Resume ist noch nicht implementiert. Die ADR beschreibt die weiterhin
-gültige Zielentscheidung, nicht deren vollständige Fertigstellung.
+Der Job-Search-MCP ist keine Agentenfähigkeit. Er läuft separat als direkter Trusted-Host-stdio-
+Prozess, niemals in einer Agentensandbox. Bei geführter Jobsuche startet der Root-Server ihn vor
+dem Agenten und übergibt nur normalisierte Daten.
+
+Die Bewerbungsfachlichkeit wird als versionierte Fünf-Node-Orchestrierung umgesetzt: Evidence,
+Author, ATS, Recruiter/Style und Finalizer laufen in getrennten Child-Runs. Servereigene Evidence-
+und Konfliktgates sowie das bewusste `user_input`-Vor-Gate trennen den Finalizerlauf von seiner
+nachgelagerten fachlichen Prüfung. Die erzeugte `package_proposal` durchläuft danach
+Artefakt-Review, Adoption, Pipeline-Revision, exakte Fallfreigabe, `used` und Export; ein
+`review_complete`-Vor-Gate des Finalizers existiert im aktuellen Workflow nicht.
 
 ## Folgen
 
-- Neue Provider benötigen vor einer Freigabe Adapter, Capability-Fixture und Conformance-Bericht.
-- Providerfunktionen können transparent degradieren, ohne das Domainmodell zu ändern.
-- Run-Persistenz ist Teil von Retention und Recovery; persistente Approval-Recovery und die
-  Verdrahtung des getesteten atomaren Backup-/Restore-Helpers in eine Betriebsoberfläche stehen
-  noch aus. Die Recovery repariert bekannte
-  Vorabversionsfälle für camelCase-`userPrompt` und Event-AAD-`failure`, ersetzt aber keine
-  allgemeine Migrationsstrecke.
-- Gleichzeitige identische Startrequests werden innerhalb eines Serverprozesses koalesziert. Ohne
-  dauerhafte Unique-Constraint besteht über mehrere Prozesse keine Exactly-once-Garantie.
-- Eine engere Root-Policy hat stets Vorrang vor Provideroptionen.
-- Experimentelle Protokolle sind separat deaktivierbar; der App-Server-Pfad bleibt opt-in.
+- Neue Provider oder Versionen benötigen Manifest, secret-freie Fixture, Mapper-Replay,
+  argv-/Promptprüfung, Sandbox-/Netzwerknachweis, Canary-, Cancel-, Limit- und Recovery-Tests.
+- Featureflags sind server-owned. Ein Config-Profil darf Sandbox- oder Approval-Defaults nicht
+  stillschweigend verbreitern.
+- Run-, Event-, Artefakt-, Orchestrierungs-, Idempotenz-, Retention- und Observability-Daten liegen
+  lokal; sensible Inhalte gehören nicht in Git oder normale Supportausgaben.
+- Der Approval-Lifecycle wird append-only und hashbasiert persistiert, ohne Rohparameter,
+  Akteursnamen oder Bearer-Tokens. Offene oder erteilte, noch nicht verbrauchte Freigaben sind
+  nicht restartfähig: Ein Neustart protokolliert ihren Widerruf. Aktive Orchestrierungs-Rohinputs
+  sind ebenfalls nicht restartfähig; ein Neustart orphaned aktive Runs beziehungsweise
+  Orchestrierungen, statt Prozesse zu adoptieren.
+- Das persistente Idempotenzregister ermöglicht Neustart-Replay eines abgeschlossenen Runs, aber
+  keine harte Exactly-once-Garantie über mehrere Serverprozesse.
+- Retention respektiert Legal Holds und erhält bei verwendeten Artefakten Provenance-Metadaten.
+  Das lokale Journal ist nicht extern signiert.
+- Pause ist für die produktiven Providerverträge nicht verfügbar; Cancel bleibt der sichere
+  Abbruchpfad.

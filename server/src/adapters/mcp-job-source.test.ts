@@ -4,7 +4,8 @@ import { assertTrustedHostMcpLaunch, buildTrustedHostMcpEnvironment, inspectTrus
 
 const native: AppConfig['mcp'] = {
   mode: 'stdio', executionIsolation: 'trusted-host',
-  command: 'C:\\workspace\\.venv\\Scripts\\job-search-mcp.exe', args: [], env: {}
+  command: 'C:\\workspace\\.venv\\Scripts\\job-search-mcp.exe', args: [],
+  env: { ALLOW_EXTERNAL_PORTALS: '0', JOB_MCP_STATE_DIR: 'C:\\workspace\\mcp-state' }
 };
 
 describe('job-search MCP process boundary', () => {
@@ -41,7 +42,11 @@ describe('job-search MCP process boundary', () => {
     expect(() => assertTrustedHostMcpLaunch(native)).not.toThrow();
     expect(() => assertTrustedHostMcpLaunch({
       ...native, command: 'C:\\Windows\\System32\\wsl.exe',
-      args: ['-d', 'Ubuntu', '--', 'env', 'ALLOW_EXTERNAL_PORTALS=1', 'JOB_MCP_STATE_DIR=/mnt/c/state', '/mnt/c/repo/.venv-wsl/bin/job-search-mcp']
+      args: ['-d', 'Ubuntu', '--', '/mnt/c/repo/.venv-wsl/bin/job-search-mcp'],
+      env: {
+        ALLOW_EXTERNAL_PORTALS: '0', JOB_MCP_STATE_DIR: '/mnt/c/state',
+        WSLENV: 'ALLOW_EXTERNAL_PORTALS:JOB_MCP_STATE_DIR'
+      }
     })).not.toThrow();
   });
 
@@ -61,6 +66,20 @@ describe('job-search MCP process boundary', () => {
       .toThrow('requires_trusted_host');
   });
 
+  it('allows only the two MCP runtime variables plus the fixed WSL bridge declaration', () => {
+    expect(() => assertTrustedHostMcpLaunch({
+      ...native, env: { ...native.env, ROOT_APP_SECRET: 'must-not-cross' }
+    })).toThrow('environment_key_forbidden');
+    expect(() => assertTrustedHostMcpLaunch({
+      ...native, runtimeTarget: 'wsl', distribution: 'Ubuntu', command: 'C:\\Windows\\System32\\wsl.exe',
+      args: ['-d', 'Ubuntu', '--', '/mnt/c/repo/.venv-wsl/bin/job-search-mcp'],
+      env: {
+        ALLOW_EXTERNAL_PORTALS: '0', JOB_MCP_STATE_DIR: '/mnt/c/repo/.local-data/mcp-state',
+        WSLENV: 'ALLOW_EXTERNAL_PORTALS:JOB_MCP_STATE_DIR:ROOT_APP_SECRET'
+      }
+    })).toThrow('wsl_environment_invalid');
+  });
+
   it('binds runtimeTarget and distribution to the direct argv', () => {
     expect(() => assertTrustedHostMcpLaunch({ ...native, runtimeTarget: 'wsl' }))
       .toThrow('wsl_launch_invalid');
@@ -74,6 +93,7 @@ describe('job-search MCP process boundary', () => {
     const projectRoot = 'C:\\repo';
     const expected = 'C:\\repo\\integrations\\job-search-mcp\\.venv\\Scripts\\job-search-mcp.exe';
     const settings = { ...native, runtimeTarget: 'windows' as const, command: expected };
+    settings.env = { ...settings.env, JOB_MCP_STATE_DIR: 'C:\\repo\\.local-data\\mcp-state' };
     const ready = await inspectTrustedHostMcpRuntime(settings, projectRoot, {
       projectRoot, realpath: async (path) => path, access: async () => undefined
     });
@@ -94,11 +114,16 @@ describe('job-search MCP process boundary', () => {
     const target = '/mnt/c/repo/integrations/job-search-mcp/.venv-wsl/bin/job-search-mcp';
     const settings: AppConfig['mcp'] = {
       ...native, runtimeTarget: 'wsl', distribution: 'Ubuntu', command,
-      args: ['-d', 'Ubuntu', '--', target]
+      args: ['-d', 'Ubuntu', '--', target],
+      env: {
+        ALLOW_EXTERNAL_PORTALS: '0', JOB_MCP_STATE_DIR: '/mnt/c/repo/.local-data/mcp-state',
+        WSLENV: 'ALLOW_EXTERNAL_PORTALS:JOB_MCP_STATE_DIR'
+      }
     };
     const runWsl = async (_command: string, _distribution: string, args: string[]): Promise<string> => {
       if (args[0] === 'wslpath') return '/mnt/c/repo/integrations/job-search-mcp';
       if (args[0] === 'readlink' && args.at(-1)?.endsWith('.venv-wsl')) return '/mnt/c/repo/integrations/job-search-mcp/.venv-wsl';
+      if (args[0] === 'readlink' && args.at(-1)?.endsWith('mcp-state')) return '/mnt/c/repo/.local-data/mcp-state';
       if (args[0] === 'readlink') return target;
       return '';
     };
@@ -116,5 +141,25 @@ describe('job-search MCP process boundary', () => {
     });
     expect(escaped.state).toBe('invalid');
     expect(escaped.note).toContain('outside_allowed_venv');
+  });
+
+  it('binds mutable MCP state to the ignored Root runtime instead of an arbitrary host path', async () => {
+    const projectRoot = 'C:\\repo';
+    const settings: AppConfig['mcp'] = {
+      ...native, runtimeTarget: 'wsl', distribution: 'Ubuntu', command: 'C:\\Windows\\System32\\wsl.exe',
+      args: ['-d', 'Ubuntu', '--', '/mnt/c/repo/integrations/job-search-mcp/.venv-wsl/bin/job-search-mcp'],
+      env: {
+        ALLOW_EXTERNAL_PORTALS: '0', JOB_MCP_STATE_DIR: '/tmp/escaped-state',
+        WSLENV: 'ALLOW_EXTERNAL_PORTALS:JOB_MCP_STATE_DIR'
+      }
+    };
+    const status = await inspectTrustedHostMcpRuntime(settings, projectRoot, {
+      projectRoot, allowedWslCommand: settings.command, realpath: async (path) => path,
+      access: async () => undefined,
+      runWsl: async (_command, _distribution, args) => args[0] === 'wslpath'
+        ? '/mnt/c/repo/integrations/job-search-mcp' : String(args.at(-1) ?? '')
+    });
+    expect(status.state).toBe('invalid');
+    expect(status.note).toContain('state_dir_outside_private_runtime');
   });
 });

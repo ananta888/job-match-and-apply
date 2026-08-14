@@ -12,6 +12,7 @@ import {
   FeatureFlaggedCodexAgentAdapter,
   mapCodexAppServerNotification
 } from './codex-app-server-adapter.js';
+import { PROVIDER_RESOURCE_CEILINGS } from './generic-jsonl-adapter.js';
 import type { ProcessCallbacks, ProcessLaunchSpec, ProcessResult, SupervisedProcess } from './process-supervisor.js';
 
 const installation: AgentProviderInstallation = {
@@ -99,9 +100,30 @@ describe('Codex App Server experimental adapter', () => {
       schemaVersion: '1.0', protocol: 'codex-app-server-jsonrpc-v2', transport: 'stdio-jsonl',
       featureFlag: CODEX_APP_SERVER_FEATURE_FLAG, fallbackProviderId: 'codex-exec'
     });
-    expect(CODEX_APP_SERVER_MANIFEST.commandArgs).toEqual(['app-server', '--listen', 'stdio://']);
-    expect(CODEX_APP_SERVER_MANIFEST.testedVersionPatterns).toEqual(['^(?:codex-cli|codex)\\s+0\\.147\\.']);
+    expect(CODEX_APP_SERVER_MANIFEST.commandArgs).toEqual([
+      'app-server', '--strict-config',
+      '-c', 'sandbox_workspace_write.network_access=false',
+      '-c', 'web_search="disabled"',
+      '--listen', 'stdio://'
+    ]);
+    expect(CODEX_APP_SERVER_MANIFEST.testedVersionPatterns).toEqual(['^(?:codex-cli|codex)\\s+0\\.147\\.0$']);
     expect(CODEX_APP_SERVER_MANIFEST.commandArgs.join(' ')).not.toMatch(/ws:|wss:|0\.0\.0\.0/);
+  });
+
+  it('reports pause as unsupported instead of simulating process suspension', async () => {
+    const adapter = new CodexAppServerAgentAdapter(new SyntheticAppServerSupervisor(), undefined, { userConfigIsolationVerified: true });
+    await expect(adapter.capabilities(installation)).resolves.toEqual(expect.objectContaining({
+      resume: true,
+      extensions: expect.objectContaining({
+        pause: false,
+        pauseSemantics: 'unsupported_cancel_only',
+        networkControl: true,
+        networkEnforcement: 'codex-cli-0.147.0-fixed-offline-config-v1',
+        networkAccessClaim: 'provider-control-plane-only',
+        webSearch: 'disabled',
+        sandboxNetworkAccess: false,
+      }),
+    }));
   });
 
   it('replays the versioned App Server fixture corpus', async () => {
@@ -117,12 +139,31 @@ describe('Codex App Server experimental adapter', () => {
     const adapter = new CodexAppServerAgentAdapter(supervisor, undefined, { requestTimeoutMs: 1_000, userConfigIsolationVerified: true });
     const handle = await adapter.start(context(events));
     expect((await handle.completion).state).toBe('succeeded');
-    expect(supervisor.spec?.args).toEqual(['app-server', '--listen', 'stdio://']);
+    expect(supervisor.spec?.args).toEqual([
+      'app-server', '--strict-config',
+      '-c', 'sandbox_workspace_write.network_access=false',
+      '-c', 'web_search="disabled"',
+      '--listen', 'stdio://'
+    ]);
     expect(supervisor.spec?.stdin).toBeUndefined();
+    expect(supervisor.spec?.limits).toEqual(expect.objectContaining(PROVIDER_RESOURCE_CEILINGS));
     expect(supervisor.writes.map((entry) => entry.method)).toEqual(['initialize', 'initialized', 'thread/start', 'turn/start']);
+    expect(supervisor.writes.find((entry) => entry.method === 'turn/start')).toMatchObject({
+      params: { sandboxPolicy: { type: 'readOnly', networkAccess: false } },
+    });
     expect(JSON.stringify(supervisor.writes)).toContain('synthetic private task');
     expect(events.map((event) => event.kind)).toContain('agent_message_delta');
     expect(events.map((event) => event.kind)).toContain('agent_message_completed');
+    expect(events).toContainEqual(expect.objectContaining({
+      kind: 'process_started',
+      data: expect.objectContaining({
+        networkEnforcement: 'codex-cli-0.147.0-fixed-offline-config-v1',
+        networkMechanism: 'server-owned-config-plus-codex-sandbox-policy',
+        networkAccessClaim: 'provider-control-plane-only',
+        webSearch: 'disabled',
+        sandboxNetworkAccess: false
+      })
+    }));
     expect(events.at(-1)).toMatchObject({ kind: 'run_completed', data: { state: 'succeeded', transport: 'codex-app-server' } });
   });
 
@@ -142,6 +183,26 @@ describe('Codex App Server experimental adapter', () => {
     expect(supervisor.writes).toContainEqual({ id: 77, result: { decision: 'accept' } });
     supervisor.finishTurn();
     expect((await handle.completion).state).toBe('succeeded');
+  });
+
+  it('cancels open approvals and the supervised process after a bounded interrupt grace period', async () => {
+    const supervisor = new SyntheticAppServerSupervisor(); supervisor.autoComplete = false;
+    const events: AgentEventDraft[] = [];
+    const adapter = new CodexAppServerAgentAdapter(supervisor, undefined, {
+      requestTimeoutMs: 1_000, cancelGraceMs: 25, userConfigIsolationVerified: true,
+    });
+    const handle = await adapter.start(context(events, 'explicit'));
+    supervisor.send({ id: 88, method: 'item/commandExecution/requestApproval', params: {
+      threadId: 'thr_synthetic', turnId: 'turn_synthetic', itemId: 'cmd_cancel',
+      reason: 'synthetic pending command', command: ['node', '--version'], cwd: process.cwd(),
+    } });
+    await new Promise((resolve) => setImmediate(resolve));
+    await adapter.cancel('run-app-server');
+    expect(supervisor.writes).toContainEqual({ id: 88, result: { decision: 'cancel' } });
+    expect(events).toContainEqual(expect.objectContaining({
+      kind: 'approval_resolved', data: { id: 'codex-88', decision: 'cancelled' },
+    }));
+    expect((await handle.completion).state).toBe('cancelled');
   });
 
   it('resumes the recorded thread in a fresh local stdio process', async () => {
@@ -192,27 +253,29 @@ describe('Codex App Server experimental adapter', () => {
     expect(fallback.starts).toBe(1);
   });
 
-  it('falls back before spawn when app-server cannot ignore user-level MCP config', async () => {
+  it('fails closed before spawn when the selected offline app-server cannot isolate user config', async () => {
     const appSupervisor = { start(): SupervisedProcess { throw new Error('unisolated app-server must not spawn'); } };
     const fallback = new FallbackStub(); const events: AgentEventDraft[] = [];
     const adapter = new FeatureFlaggedCodexAgentAdapter(new CodexAppServerAgentAdapter(appSupervisor), fallback, true);
-    const handle = await adapter.start(context(events));
-    expect((await handle.completion).state).toBe('succeeded');
-    expect(fallback.starts).toBe(1);
-    expect(events).toContainEqual(expect.objectContaining({ kind: 'warning', data: expect.objectContaining({
-      code: 'codex_app_server_fallback', reason: 'user_config_isolation_unverified'
-    }) }));
+    await expect(adapter.start(context(events))).rejects.toThrow('user_config_isolation_unverified');
+    expect(fallback.starts).toBe(0);
   });
 
-  it('falls back only when the pre-turn healthcheck fails', async () => {
+  it('does not advertise app-server network control without isolated config or for another patch version', async () => {
+    const unisolated = new CodexAppServerAgentAdapter(new SyntheticAppServerSupervisor());
+    await expect(unisolated.capabilities(installation)).rejects.toThrow('codex_offline_network_control_unverified');
+    const isolated = new CodexAppServerAgentAdapter(new SyntheticAppServerSupervisor(), undefined, { userConfigIsolationVerified: true });
+    await expect(isolated.capabilities({ ...installation, version: 'codex-cli 0.147.1' }))
+      .rejects.toThrow('Codex-Version');
+  });
+
+  it('does not weaken an offline preflight claim when the app-server healthcheck fails', async () => {
     const failingSupervisor = { start(): SupervisedProcess {
       return { completion: Promise.resolve(result('exit')), async writeInput() { throw new Error('stdio unavailable'); }, async cancel() {} };
     } };
     const fallback = new FallbackStub(); const events: AgentEventDraft[] = [];
     const adapter = new FeatureFlaggedCodexAgentAdapter(new CodexAppServerAgentAdapter(failingSupervisor, undefined, { requestTimeoutMs: 50, userConfigIsolationVerified: true }), fallback, true);
-    const handle = await adapter.start(context(events));
-    expect((await handle.completion).state).toBe('succeeded');
-    expect(fallback.starts).toBe(1);
-    expect(events).toContainEqual(expect.objectContaining({ kind: 'warning', data: expect.objectContaining({ code: 'codex_app_server_fallback' }) }));
+    await expect(adapter.start(context(events))).rejects.toThrow('stdio unavailable');
+    expect(fallback.starts).toBe(0);
   });
 });

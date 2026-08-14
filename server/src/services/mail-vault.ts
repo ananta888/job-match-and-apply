@@ -55,6 +55,8 @@ export class EncryptedMailVault {
   async confirmCorrelation(messageId: string, applicationCaseId: string, companyKey: string): Promise<CorrelatedMailMessage> {
     const data = await this.load(); const message = data.messages.find((item) => item.id === messageId);
     if (!message) throw Object.assign(new Error('Mail nicht gefunden.'), { statusCode: 404 });
+    if (message.correlation.confirmed && message.correlation.applicationCaseId === applicationCaseId
+      && message.correlation.companyKey === companyKey) return structuredClone(message);
     message.correlation = { ...message.correlation, applicationCaseId, companyKey, confidence: 1, confirmed: true, reasons: [...message.correlation.reasons, 'Nutzerbestätigte Zuordnung.'] };
     await this.save(data); return structuredClone(message);
   }

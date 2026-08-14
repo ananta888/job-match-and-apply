@@ -83,6 +83,10 @@ export interface AgentRunLimits {
   stderrBytes: number;
   totalOutputBytes: number;
   maxInputBytes: number;
+  /** Optional tightening of the server-owned provider memory ceiling. */
+  maxResidentMemoryBytes: number;
+  /** Optional tightening of the server-owned provider descendant ceiling. */
+  maxChildProcesses: number;
 }
 
 export interface AgentRunRequest {
@@ -174,6 +178,8 @@ export interface AgentEvent<T = Readonly<Record<string, unknown>>> {
   timestamp: string;
   provider: string;
   correlationId: string;
+  /** Stable opaque identifier supplied by a provider, when its protocol has one. */
+  providerEventId?: string;
   kind: AgentEventKind;
   data: T;
 }
@@ -186,11 +192,50 @@ export type AgentEventDraft<T = Readonly<Record<string, unknown>>> = Omit<
   correlationId?: string;
 };
 
+/**
+ * Server-owned domain tools exposed to a provider transport. The bridge is a
+ * runtime-only closure: it is never serialized into AgentRunRequest or the run
+ * store, and it never contains a bearer capability value.
+ */
+export interface ProviderDomainToolDescriptor {
+  name: string;
+  title: string;
+  description: string;
+  inputSchema: Readonly<Record<string, unknown>>;
+  requiresApproval: boolean;
+  risk: 'read' | 'local_write' | 'sensitive_read' | 'network' | 'external_write' | 'destructive';
+}
+
+export interface ProviderDomainToolResult {
+  data: unknown;
+  sourceReferences: readonly string[];
+}
+
+export interface ProviderDomainToolApproval {
+  id: string;
+  title: string;
+  explanation: string;
+  risk: ProviderDomainToolDescriptor['risk'];
+  requestedAt: string;
+  expiresAt: string;
+}
+
+export interface ProviderDomainToolBridge {
+  readonly namespace: 'job_match_apply';
+  listTools(): readonly ProviderDomainToolDescriptor[];
+  execute(name: string, args: Readonly<Record<string, unknown>>): Promise<ProviderDomainToolResult>;
+  requestApproval(name: string, args: Readonly<Record<string, unknown>>): Promise<ProviderDomainToolApproval>;
+  resolveApproval(requestId: string, decision: 'approve' | 'deny', actor: string): Promise<void>;
+  revoke(): Promise<void>;
+}
+
 export interface ProviderRunContext {
   runId: string;
   request: AgentRunRequest;
   installation: AgentProviderInstallation;
   emit(event: AgentEventDraft): Promise<void>;
+  /** Present only for an exact-version provider transport that negotiated it. */
+  domainTools?: ProviderDomainToolBridge;
 }
 
 export interface AgentRunHandle {

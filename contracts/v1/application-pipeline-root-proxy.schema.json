@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ananta.local/contracts/v1/application-pipeline-root-proxy.schema.json",
+  "title": "Server-owned application analysis and Evidence-matrix audit",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract",
+    "contractVersion",
+    "applicationCaseId",
+    "applicationCaseRevision",
+    "jobId",
+    "documentType",
+    "upstream",
+    "sourceVersion",
+    "jobAnalysis",
+    "matchMatrix",
+    "validation",
+    "finalization"
+  ],
+  "properties": {
+    "contract": { "const": "application-pipeline-root-proxy" },
+    "contractVersion": { "const": "1.0" },
+    "applicationCaseId": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "applicationCaseRevision": { "type": "integer", "minimum": 0 },
+    "jobId": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "documentType": { "enum": ["cv", "cover_letter", "email"] },
+    "upstream": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contract", "contractVersion", "compatible", "networkRequired"],
+      "properties": {
+        "contract": { "const": "bewerbungs-pipeline" },
+        "contractVersion": { "type": "string", "pattern": "^1\\." },
+        "compatible": { "const": true },
+        "networkRequired": { "const": false }
+      }
+    },
+    "sourceVersion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "applicationCaseRevision",
+        "jobSnapshotSha256",
+        "analysisVersion",
+        "analysisSourceSha256",
+        "pipelineContractVersion"
+      ],
+      "properties": {
+        "applicationCaseRevision": { "type": "integer", "minimum": 0 },
+        "jobSnapshotSha256": { "$ref": "#/$defs/sha256" },
+        "analysisVersion": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "analysisSourceSha256": { "$ref": "#/$defs/sha256" },
+        "pipelineContractVersion": { "type": "string", "pattern": "^1\\." }
+      }
+    },
+    "jobAnalysis": {
+      "type": "object",
+      "required": ["contract", "contract_version", "analysis_version", "source_sha256", "job", "requirements"],
+      "properties": {
+        "contract": { "const": "bewerbungs-pipeline" },
+        "contract_version": { "type": "string", "pattern": "^1\\." },
+        "analysis_version": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "source_sha256": { "$ref": "#/$defs/sha256" },
+        "job": {
+          "type": "object",
+          "required": ["id"],
+          "properties": { "id": { "type": "string", "minLength": 1, "maxLength": 256 } }
+        },
+        "requirements": { "type": "array", "maxItems": 1000 }
+      }
+    },
+    "matchMatrix": {
+      "type": "object",
+      "required": ["contract", "contract_version", "matches"],
+      "properties": {
+        "contract": { "const": "bewerbungs-pipeline" },
+        "contract_version": { "type": "string", "pattern": "^1\\." },
+        "matches": { "type": "array", "maxItems": 1000 },
+        "unresolved_questions": { "type": "array", "maxItems": 100, "items": { "type": "string" } }
+      }
+    },
+    "validation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["valid", "errors"],
+      "properties": {
+        "valid": { "type": "boolean" },
+        "errors": { "type": "array", "maxItems": 100, "items": { "type": "string", "maxLength": 1000 } }
+      }
+    },
+    "finalization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["executable", "route", "proofContract"],
+      "properties": {
+        "executable": { "const": false },
+        "route": { "const": "approved-artifact-review-adoption" },
+        "proofContract": { "const": "application-pipeline-proof@1.0" }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+  }
+}

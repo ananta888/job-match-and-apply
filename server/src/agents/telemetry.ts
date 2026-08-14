@@ -38,6 +38,17 @@ export interface AgentUsageTrend {
   }>;
 }
 
+export interface AgentUsageMetricPoint {
+  name: 'input_tokens' | 'cached_input_tokens' | 'output_tokens' | 'reasoning_tokens' | 'total_tokens' | 'tool_calls' | 'run_duration' | 'reported_cost';
+  value: number | null;
+  unit: 'tokens' | 'calls' | 'milliseconds' | 'currency_micros';
+  currency?: string;
+  source: 'provider' | 'estimated' | 'unknown';
+  capturedAt: string;
+  provider: string;
+  providerVersion: string | 'unknown';
+}
+
 export interface AgentTelemetrySnapshot {
   generatedAt: string;
   queueDepth: number;
@@ -48,7 +59,9 @@ export interface AgentTelemetrySnapshot {
     approvals: number;
     approvalWaitMs: number;
     streamReconnects: number;
+    streamLagMs?: { last: number; max: number };
     recoveries: number;
+    errors?: number;
   };
   providerRuns: Record<string, number>;
 }
@@ -64,7 +77,10 @@ export class AgentTelemetry {
   private approvals = 0;
   private approvalWaitMs = 0;
   private streamReconnects = 0;
+  private streamLagLastMs = 0;
+  private streamLagMaxMs = 0;
   private recoveries = 0;
+  private errors = 0;
   private readonly providerRuns = new Map<string, number>();
   private readonly usage = new Map<string, AgentUsageMeasurement>();
 
@@ -84,10 +100,17 @@ export class AgentTelemetry {
 
   approvalResolved(waitMs: number): void { this.approvals += 1; this.approvalWaitMs += boundedInteger(waitMs, 0, 365 * 24 * 60 * 60_000); }
   streamReconnected(): void { this.streamReconnects += 1; }
+  observeStreamLag(value: number): void {
+    const lag = boundedInteger(value, 0, 24 * 60 * 60_000);
+    this.streamLagLastMs = lag; this.streamLagMaxMs = Math.max(this.streamLagMaxMs, lag);
+  }
   recovered(): void { this.recoveries += 1; }
+  errorObserved(): void { this.errors += 1; }
 
   recordUsage(runId: string, measurement: AgentUsageMeasurement): void {
     if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(runId) || !SAFE_PROVIDER.test(measurement.provider)) throw new Error('telemetry_usage_identity_invalid');
+    if (!['provider', 'estimated', 'unknown'].includes(measurement.source)) throw new Error('telemetry_usage_source_invalid');
+    if (!measurement.capturedAt || !Number.isFinite(Date.parse(measurement.capturedAt))) throw new Error('telemetry_captured_at_invalid');
     for (const value of [measurement.inputTokens, measurement.cachedInputTokens, measurement.outputTokens, measurement.reasoningTokens, measurement.totalTokens, measurement.runDurationMs, measurement.toolCalls]) {
       if (value !== undefined) boundedInteger(value, 0, Number.MAX_SAFE_INTEGER);
     }
@@ -98,12 +121,38 @@ export class AgentTelemetry {
     if (measurement.reportedCost) {
       boundedInteger(measurement.reportedCost.amountMicros, 0, Number.MAX_SAFE_INTEGER);
       if (!/^[A-Z]{3}$/.test(measurement.reportedCost.currency)) throw new Error('telemetry_currency_invalid');
+      if (!['provider', 'estimated'].includes(measurement.reportedCost.source)) throw new Error('telemetry_usage_source_invalid');
     }
     this.usage.set(runId, structuredClone(measurement));
     if (this.usage.size > 2_000) this.usage.delete(this.usage.keys().next().value as string);
   }
 
   usageFor(runId: string): AgentUsageMeasurement | undefined { const value = this.usage.get(runId); return value && structuredClone(value); }
+
+  /** Normalized points always carry unit, source, timestamp and provider version, including unknowns. */
+  metricPointsFor(runId: string): AgentUsageMetricPoint[] {
+    const measurement = this.usage.get(runId);
+    if (!measurement) return [];
+    const base = {
+      capturedAt: measurement.capturedAt, provider: measurement.provider,
+      providerVersion: measurement.providerVersion ?? 'unknown' as const
+    };
+    const point = (name: AgentUsageMetricPoint['name'], value: number | undefined, unit: AgentUsageMetricPoint['unit']): AgentUsageMetricPoint => ({
+      name, value: value ?? null, unit, source: value === undefined ? 'unknown' : measurement.source, ...base
+    });
+    const points = [
+      point('input_tokens', measurement.inputTokens, 'tokens'), point('cached_input_tokens', measurement.cachedInputTokens, 'tokens'),
+      point('output_tokens', measurement.outputTokens, 'tokens'), point('reasoning_tokens', measurement.reasoningTokens, 'tokens'),
+      point('total_tokens', measurement.totalTokens, 'tokens'), point('tool_calls', measurement.toolCalls, 'calls'),
+      point('run_duration', measurement.runDurationMs, 'milliseconds')
+    ];
+    points.push({
+      name: 'reported_cost', value: measurement.reportedCost?.amountMicros ?? null, unit: 'currency_micros',
+      currency: measurement.reportedCost?.currency,
+      source: measurement.reportedCost?.source ?? 'unknown', ...base
+    });
+    return points;
+  }
 
   evaluateBudget(runId: string, limits: AgentUsageBudgetLimits): AgentUsageBudgetEvaluation {
     const measurement = this.usage.get(runId);
@@ -176,7 +225,7 @@ export class AgentTelemetry {
   snapshot(now = new Date()): AgentTelemetrySnapshot {
     return {
       generatedAt: now.toISOString(), queueDepth: this.queueDepth, activeRuns: this.activeRuns,
-      totals: { started: this.started, terminal: { ...this.terminal }, approvals: this.approvals, approvalWaitMs: this.approvalWaitMs, streamReconnects: this.streamReconnects, recoveries: this.recoveries },
+      totals: { started: this.started, terminal: { ...this.terminal }, approvals: this.approvals, approvalWaitMs: this.approvalWaitMs, streamReconnects: this.streamReconnects, streamLagMs: { last: this.streamLagLastMs, max: this.streamLagMaxMs }, recoveries: this.recoveries, errors: this.errors },
       providerRuns: Object.fromEntries([...this.providerRuns.entries()].sort(([left], [right]) => left.localeCompare(right)))
     };
   }

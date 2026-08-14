@@ -2,6 +2,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApprovalQueue, RunCapabilityAuthority } from './agents/security-approval.js';
+import { MemoryDomainCommandExecutionStore } from './agents/domain-command-execution-store.js';
 import { createRunBoundAgentMcpSession, type RunBoundAgentMcpPorts, type RunBoundAgentMcpSession } from './agent-mcp-run-factory.js';
 
 const open: Array<{ session: RunBoundAgentMcpSession; client: Client }> = [];
@@ -36,6 +37,18 @@ function setup(allowedTools: string[], allowedApplicationCaseIds = ['case-1']) {
       sourceReferences: ['case:case-1'], safeSummary: view === 'masked' ? 'Masked summary' : 'Sensitive summary',
     } : undefined),
     currentRevision: vi.fn(async (id: string) => id === 'case-1' ? 2 : undefined),
+    getCompany: vi.fn(async (input: { applicationCaseId: string; companyId: string }) => ({
+      id: input.companyId, name: 'Example GmbH', version: 'company-version:1',
+      applicationCases: [{
+        id: input.applicationCaseId, jobId: 'job-1', jobTitle: 'Engineer', status: 'draft', revision: 2,
+        sourceReference: 'application:case-1',
+      }],
+      sourceReferences: ['company:company-1', 'application:case-1'],
+    })),
+    listTracking: vi.fn(async (input: { page: number; pageSize: number }) => ({
+      items: [], page: input.page, pageSize: input.pageSize, hasMore: false, applicationCaseRevision: 2,
+      sourceReferences: ['application:case-1'],
+    })),
   };
   const messages = {
     list: vi.fn(async (input: { applicationCaseId: string; page: number; pageSize: number; view: 'masked' | 'sensitive' }) => ({
@@ -46,19 +59,76 @@ function setup(allowedTools: string[], allowedApplicationCaseIds = ['case-1']) {
       page: input.page, pageSize: input.pageSize, hasMore: false,
     })),
   };
+  const jobSearch = {
+    capabilities: vi.fn(async () => ({
+      contract: 'job-search-root-proxy', contractVersion: '1.0', upstreamContractVersion: '1.0', compatible: true,
+      executionIsolation: 'trusted-host', allowedOperations: ['capabilities', 'search'],
+      sources: [{
+        id: 'stepstone', name: 'StepStone', enabled: true, access: 'browser', filters: ['query'], pagination: false,
+        policyStatus: 'configured', authenticationRequiredForSearch: false,
+      }],
+    })),
+    callAllowedTool: vi.fn(async (input: { name: 'search'; arguments: unknown; runId: string }) => {
+      const args = input.arguments as { page: number; pageSize: number };
+      return ({
+      items: [{
+        id: `job-id:${'a'.repeat(64)}`, title: 'Platform Engineer', company: 'Example GmbH', sourceId: 'stepstone',
+        sourceReference: `job:${'b'.repeat(64)}`, version: '2029-01-01T00:00:00.000Z',
+      }],
+      page: args.page, pageSize: args.pageSize, hasMore: false, failures: [],
+      snapshotReference: `job-search-snapshot:${'c'.repeat(64)}`,
+    }); }),
+  };
   const ports: RunBoundAgentMcpPorts = {
     jobs,
     applications,
     messages,
     proposals: { async propose() { return { payload: { proposed: true }, sourceReferences: ['case:case-1'] }; } },
     commands: {
-      async preview() { return { changes: [] }; },
+      async preview(input) {
+        return {
+          prepared: {
+            kind: 'application_status', execution: 'local_write',
+            applicationCaseId: input.proposal.applicationCaseId, proposalId: input.proposal.proposalId,
+            proposalPayloadHash: input.proposal.payloadHash, from: 'draft', target: 'review',
+          },
+          dryRun: { changes: [] },
+        };
+      },
       async execute() { return { revision: 3, result: { changed: true } }; },
     },
     applicationPipeline: {
       async analyze() { return { payload: { claims: [] }, sourceReferences: ['claim:claim-1'] }; },
+      async audit(input) {
+        return {
+          payload: {
+            contract: 'application-pipeline-root-proxy', contractVersion: '1.0',
+            applicationCaseId: input.applicationCaseId, applicationCaseRevision: 2,
+            jobId: 'job-1', documentType: input.documentType,
+            upstream: {
+              contract: 'bewerbungs-pipeline', contractVersion: '1.0', compatible: true, networkRequired: false,
+            },
+            sourceVersion: {
+              applicationCaseRevision: 2, jobSnapshotSha256: 'a'.repeat(64), analysisVersion: 'analysis-v1',
+              analysisSourceSha256: 'b'.repeat(64), pipelineContractVersion: '1.0',
+            },
+            jobAnalysis: {
+              contract: 'bewerbungs-pipeline', contract_version: '1.0', analysis_version: 'analysis-v1',
+              source_sha256: 'b'.repeat(64), job: { id: 'job-1' }, requirements: [],
+            },
+            matchMatrix: { contract: 'bewerbungs-pipeline', contract_version: '1.0', matches: [] },
+            validation: { valid: true, errors: [] },
+            finalization: {
+              executable: false, route: 'approved-artifact-review-adoption',
+              proofContract: 'application-pipeline-proof@1.0',
+            },
+          },
+          sourceReferences: ['application:case-1', 'pipeline-contract:v1'],
+        };
+      },
       async proposeDocumentRevision() { return { payload: { draft: true }, sourceReferences: ['claim:claim-1'] }; },
     },
+    jobSearch,
   };
   const capabilityAuthority = new RunCapabilityAuthority(Buffer.alloc(32, 7), clock);
   const approvalQueue = new ApprovalQueue(Buffer.alloc(32, 8), clock);
@@ -67,10 +137,10 @@ function setup(allowedTools: string[], allowedApplicationCaseIds = ['case-1']) {
       runId: 'run-1', providerId: 'fake', identityMode: 'real', sandboxProfile: 'workspace_write_offline',
       allowedTools, allowedApplicationCaseIds, capabilityTtlMs: 1_000,
     },
-    ports, capabilityAuthority, approvalQueue, now: clock,
+    ports, capabilityAuthority, approvalQueue, commandExecutionStore: new MemoryDomainCommandExecutionStore(), now: clock,
   });
   return {
-    session, jobs, applications, messages,
+    session, jobs, applications, messages, jobSearch,
     advance(ms: number) { current = new Date(current.getTime() + ms); },
   };
 }
@@ -107,6 +177,31 @@ describe('run-bound Root MCP composition', () => {
     expect(JSON.stringify(result)).not.toContain('must-not-leak');
     expect(JSON.stringify(session.auditEvents())).not.toContain('must-not-leak');
     expect(result._meta).toEqual({ sourceReferences: [expect.stringMatching(/^source:/)] });
+  });
+
+  it('binds trusted-host proxy calls to the verified run capability and emits only normalized references', async () => {
+    const { session, jobSearch } = setup(['job_search.search']);
+    const client = await connect(session);
+    const result = await client.callTool({
+      name: 'job_search.search', arguments: { profileId: 'active', page: 0, pageSize: 10 },
+    });
+    expect(result.isError).not.toBe(true);
+    expect(jobSearch.callAllowedTool).toHaveBeenCalledWith({
+      name: 'search', arguments: { profileId: 'active', page: 0, pageSize: 10 }, runId: 'run-1',
+    });
+    expect(result._meta).toEqual({ sourceReferences: [`job-search-snapshot:${'c'.repeat(64)}`, `job:${'b'.repeat(64)}`] });
+    expect(JSON.stringify(result)).not.toMatch(/portal_login|credential|password/i);
+  });
+
+  it('never crosses the trusted-host proxy boundary after capability expiry', async () => {
+    const { session, jobSearch, advance } = setup(['job_search.search']);
+    const client = await connect(session);
+    advance(1_001);
+    const result = await client.callTool({
+      name: 'job_search.search', arguments: { profileId: 'active', page: 0, pageSize: 10 },
+    });
+    expect(result.isError).toBe(true);
+    expect(jobSearch.callAllowedTool).not.toHaveBeenCalled();
   });
 
   it('blocks a foreign application case before any domain port or approval request', async () => {

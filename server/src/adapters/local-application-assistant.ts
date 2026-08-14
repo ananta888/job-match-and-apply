@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { promisify } from 'node:util';
@@ -6,6 +7,7 @@ import type { AppConfig, ApplicationDraft, ApplicationPipelineCapabilities, Cand
 import type { ApplicationAssistantPort, FinalizeApplicationCommand } from '../ports/application-assistant.js';
 import YAML from 'yaml';
 import { buildMinimalLocalChildEnvironment } from '../services/process-environment.js';
+import { LocalLanguageChecker } from '../services/language-check.js';
 
 const execute = promisify(execFile);
 
@@ -16,7 +18,8 @@ function policyError(message: string): Error & { statusCode: number } {
 export class LocalApplicationAssistantAdapter implements ApplicationAssistantPort {
   constructor(
     private readonly settings: AppConfig['assistant'],
-    private readonly workRoot = resolve(process.cwd(), '..', '.application-work')
+    private readonly workRoot = resolve(process.cwd(), '..', '.application-work'),
+    private readonly environment: NodeJS.ProcessEnv = process.env
   ) {}
 
   async capabilities(): Promise<ApplicationPipelineCapabilities> {
@@ -136,6 +139,86 @@ export class LocalApplicationAssistantAdapter implements ApplicationAssistantPor
   }
 
   async finalize(command: FinalizeApplicationCommand): Promise<ApplicationDraft> {
+    const preparation = await this.analyze(command.job, command.documentType);
+    const matrixValidation = await this.validateMatchMatrix(preparation.matchMatrix, command.documentType);
+    if (!matrixValidation.valid) throw policyError('Die Evidence-Match-Matrix ist nicht gueltig; Finalisierung bleibt gesperrt.');
+    const draft = await this.finalizeWithoutEvidence(command);
+    const skillRoot = this.projectPath(this.settings.skillPath);
+    const candidate = this.projectPath(this.settings.candidateProfilePath);
+    const style = this.projectPath(this.settings.styleProfilePath);
+    const safeJobId = command.job.id.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 80) || 'job';
+    const runDirectory = resolve(this.workRoot, safeJobId);
+    const annotated = resolve(runDirectory, 'annotated.md');
+    const manifest = resolve(runDirectory, 'iteration.yaml');
+    const analysisPath = resolve(runDirectory, 'job-analysis.yaml');
+    const matrixPath = resolve(runDirectory, 'match-matrix.yaml');
+    const [annotatedContent, iterationContent, candidateContent, styleContent, analysisContent, matrixContent, capabilities] = await Promise.all([
+      readFile(annotated, 'utf8'),
+      readFile(manifest, 'utf8'),
+      readFile(candidate, 'utf8'),
+      readFile(style, 'utf8'),
+      readFile(analysisPath, 'utf8'),
+      readFile(matrixPath, 'utf8'),
+      this.capabilities()
+    ]);
+    if (!capabilities.compatible) throw policyError('Die Bewerbungs-Pipeline ist nicht vertragskompatibel.');
+    const styleDocument = YAML.parse(styleContent) as {
+      style_profile?: { locale?: unknown };
+      language_quality?: { language?: unknown };
+    } | undefined;
+    const language = typeof styleDocument?.language_quality?.language === 'string'
+      ? styleDocument.language_quality.language
+      : typeof styleDocument?.style_profile?.locale === 'string'
+        ? styleDocument.style_profile.locale
+        : 'de-DE';
+    const languageResult = await new LocalLanguageChecker(skillRoot, this.environment)
+      .check(resolve(runDirectory, 'final.md'), language);
+    if (!languageResult.available || !languageResult.backend) {
+      throw policyError('Die lokale Sprachpr\u00fcfung ist nicht verf\u00fcgbar; Finalisierung bleibt gesperrt.');
+    }
+    const sha256 = (value: string): string => createHash('sha256').update(value, 'utf8').digest('hex');
+    const artifactSha256 = sha256(draft.content);
+    return {
+      ...draft,
+      warnings: [
+        ...draft.warnings.filter((warning) => !warning.includes('LanguageTool') && !warning.includes('Hunspell')),
+        languageResult.issues.length === 0
+          ? 'Die lokale Sprachpr\u00fcfung hat keine Hinweise gefunden.'
+          : `Die lokale Sprachpr\u00fcfung hat ${languageResult.issues.length} Hinweis(e) gefunden; die Freigabe muss diese Anzahl best\u00e4tigen.`
+      ],
+      pipelineEvidence: {
+        pipelineContractVersion: capabilities.contractVersion,
+        completedStages: [
+          'validate_profiles', 'analyze_job', 'build_match_matrix', 'questions_reviewed',
+          'validate_iteration', 'audit_claims', 'check_style',
+        ],
+        annotatedSha256: sha256(annotatedContent),
+        iterationManifestSha256: sha256(iterationContent),
+        candidateProfileSha256: sha256(candidateContent),
+        styleProfileSha256: sha256(styleContent),
+        artifactSha256,
+        preparation: {
+          jobAnalysisSha256: sha256(analysisContent),
+          matchMatrixSha256: sha256(matrixContent),
+          unresolvedQuestionsSha256: sha256(JSON.stringify(
+            Array.isArray(preparation.matchMatrix.unresolved_questions)
+              ? preparation.matchMatrix.unresolved_questions : [],
+          )),
+          matchMatrixValid: true,
+        },
+        languageCheck: {
+          available: true,
+          backend: languageResult.backend,
+          language,
+          issueCount: languageResult.issues.length,
+          issuesSha256: sha256(JSON.stringify(languageResult.issues)),
+          checkedArtifactSha256: artifactSha256
+        }
+      }
+    };
+  }
+
+  private async finalizeWithoutEvidence(command: FinalizeApplicationCommand): Promise<ApplicationDraft> {
     if (command.identity.mode === 'incognito') {
       throw policyError('Inkognito-Identitäten dürfen nur Vorschauen erzeugen. Für die Finalisierung ist eine reale Identität erforderlich.');
     }

@@ -1,10 +1,92 @@
 {
   "provider": "opencode",
-  "providerVersion": "unverified",
-  "activation": "blocked_until_version_fixture_is_approved",
+  "providerVersion": "1.14.41",
+  "versionOutput": "1.14.41",
+  "activation": "supported_exact_version_offline_read_only",
+  "fixtureKind": "synthetic-exact-contract-corpus",
+  "capturedAt": "2026-08-14",
+  "conformance": {
+    "runtimeTarget": "wsl",
+    "argumentTemplate": ["run", "--pure", "--agent", "job-match-read-only", "--format", "json", "--dir", "{workspace}"],
+    "promptTransport": "stdin",
+    "promptTransportEvidence": "OpenCode v1.14.41 run.ts reads Bun.stdin when stdin is non-TTY; adapter process-boundary test proves argv exclusion",
+    "structuredTransport": "opencode run --format json",
+    "sandboxBackend": "wsl-bubblewrap-v1",
+    "networkIsolation": "provider-tool-capability-policy",
+    "networkMechanism": "server-owned-read-only-tool-allowlist",
+    "networkAccessClaim": "provider-control-plane-only",
+    "approvalMode": "deny",
+    "providerApprovalBehavior": "unapproved permission requests are auto-rejected",
+    "resume": false,
+    "pause": false
+  },
   "events": [
-    { "type": "text", "text": "synthetic result" },
-    { "type": "tool.completed", "part": { "id": "tool-1", "name": "read" } },
-    { "type": "future.additive" }
+    {
+      "type": "step_start",
+      "timestamp": 1786680000000,
+      "sessionID": "ses_synthetic",
+      "part": {
+        "id": "prt_step_start",
+        "messageID": "msg_synthetic",
+        "sessionID": "ses_synthetic",
+        "type": "step-start"
+      }
+    },
+    {
+      "type": "text",
+      "timestamp": 1786680000100,
+      "sessionID": "ses_synthetic",
+      "part": {
+        "id": "prt_text",
+        "messageID": "msg_synthetic",
+        "sessionID": "ses_synthetic",
+        "type": "text",
+        "text": "synthetic result",
+        "time": { "start": 1786680000050, "end": 1786680000100 }
+      }
+    },
+    {
+      "type": "tool_use",
+      "timestamp": 1786680000200,
+      "sessionID": "ses_synthetic",
+      "part": {
+        "id": "prt_tool",
+        "messageID": "msg_synthetic",
+        "sessionID": "ses_synthetic",
+        "type": "tool",
+        "callID": "call_synthetic",
+        "tool": "read",
+        "state": {
+          "status": "completed",
+          "input": { "filePath": "synthetic.txt" },
+          "output": "synthetic output",
+          "title": "",
+          "metadata": {},
+          "time": { "start": 1786680000110, "end": 1786680000190 },
+          "attachments": []
+        }
+      }
+    },
+    {
+      "type": "step_finish",
+      "timestamp": 1786680000300,
+      "sessionID": "ses_synthetic",
+      "part": {
+        "id": "prt_step_finish",
+        "messageID": "msg_synthetic",
+        "sessionID": "ses_synthetic",
+        "type": "step-finish",
+        "reason": "stop",
+        "cost": 0,
+        "tokens": { "input": 8, "output": 3, "reasoning": 1, "cache": { "read": 2, "write": 0 } }
+      }
+    },
+    {
+      "type": "error",
+      "timestamp": 1786680000400,
+      "sessionID": "ses_error_synthetic",
+      "error": { "name": "SyntheticError", "data": { "message": "synthetic failure" } }
+    },
+    { "type": "future.additive", "must-not-be-copied": "must-not-be-copied" }
   ]
 }

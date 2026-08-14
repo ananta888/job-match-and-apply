@@ -12,6 +12,7 @@
     "security:scan": "node scripts/security-scan.mjs",
     "mail:server": "npm --prefix server run mail:server",
     "agent:mcp": "npm --prefix server run agent:mcp",
+    "job-mcp:smoke": "npm --prefix server run job-mcp:smoke --",
     "agent:fake": "node scripts/fake-agent.mjs",
     "setup:integrations": "powershell -ExecutionPolicy Bypass -File scripts/setup-integrations.ps1"
   },

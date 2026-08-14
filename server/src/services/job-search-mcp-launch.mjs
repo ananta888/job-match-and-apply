@@ -10,6 +10,7 @@ export const JOB_SEARCH_MCP_LAUNCH_CONTRACT_VERSION = '1.0';
 
 const DISTRIBUTION = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const ENV_NAME = /^[A-Z][A-Z0-9_]{0,63}$/;
+const WSL_ENVIRONMENT_BRIDGE = 'ALLOW_EXTERNAL_PORTALS:JOB_MCP_STATE_DIR';
 const SANDBOX_WRAPPERS = new Set([
   'bwrap', 'bubblewrap', 'firejail', 'unshare', 'sandbox-exec',
   'docker', 'podman', 'nerdctl', 'lxc-execute', 'systemd-nspawn'
@@ -55,6 +56,9 @@ export function parseJobSearchMcpLaunch(value) {
   }
   const args = stringArray(input.args);
   const env = stringEnvironment(input.env);
+  if (env.ALLOW_EXTERNAL_PORTALS !== '0' && env.ALLOW_EXTERNAL_PORTALS !== '1') {
+    fail('job_search_mcp_portal_access_invalid');
+  }
   const commandName = executableName(input.command);
   if (SANDBOX_WRAPPERS.has(commandName)
     || args.some((argument) => SANDBOX_WRAPPERS.has(executableName(argument)))) {
@@ -67,6 +71,11 @@ export function parseJobSearchMcpLaunch(value) {
     if (input.distribution !== undefined || commandName !== 'job-search-mcp' || args.length !== 0) {
       fail('job_search_mcp_native_launch_invalid');
     }
+    if (env.WSLENV !== undefined || typeof env.JOB_MCP_STATE_DIR !== 'string'
+      || !win32.isAbsolute(env.JOB_MCP_STATE_DIR)) fail('job_search_mcp_native_environment_invalid');
+    if (Object.keys(env).some((key) => key !== 'ALLOW_EXTERNAL_PORTALS' && key !== 'JOB_MCP_STATE_DIR')) {
+      fail('job_search_mcp_environment_key_forbidden');
+    }
   } else {
     if (typeof input.distribution !== 'string') fail('job_search_mcp_wsl_launch_invalid');
     distribution = input.distribution;
@@ -75,13 +84,14 @@ export function parseJobSearchMcpLaunch(value) {
       fail('job_search_mcp_wsl_launch_invalid');
     }
     const commandArgs = args.slice(3);
-    const executableIndex = commandArgs[0] === 'env'
-      ? commandArgs.findIndex((argument, index) => index > 0 && !/^[A-Z][A-Z0-9_]{0,63}=/.test(argument))
-      : 0;
-    const targetExecutable = commandArgs[executableIndex];
-    if (executableIndex < 0 || executableIndex !== commandArgs.length - 1
-      || !targetExecutable || !posix.isAbsolute(targetExecutable)
+    const targetExecutable = commandArgs[0];
+    if (commandArgs.length !== 1 || !targetExecutable || !posix.isAbsolute(targetExecutable)
       || executableName(targetExecutable) !== 'job-search-mcp') fail('job_search_mcp_wsl_launch_invalid');
+    if (env.WSLENV !== WSL_ENVIRONMENT_BRIDGE || typeof env.JOB_MCP_STATE_DIR !== 'string'
+      || !posix.isAbsolute(env.JOB_MCP_STATE_DIR)) fail('job_search_mcp_wsl_environment_invalid');
+    if (Object.keys(env).some((key) => !['ALLOW_EXTERNAL_PORTALS', 'JOB_MCP_STATE_DIR', 'WSLENV'].includes(key))) {
+      fail('job_search_mcp_environment_key_forbidden');
+    }
   }
 
   return /** @type {JobSearchMcpLaunch} */ ({
@@ -139,8 +149,14 @@ export async function validateJobSearchMcpRuntime(value, options) {
   if (launch.runtimeTarget === 'windows') {
     const integrationRoot = win32.resolve(options.projectRoot, 'integrations', 'job-search-mcp');
     const allowedRoot = win32.resolve(integrationRoot, '.venv', 'Scripts');
-    const [commandReal, rootReal, integrationReal] = await Promise.all([
-      canonical(launch.command), canonical(allowedRoot), canonical(integrationRoot)
+    const runtimeRoot = win32.resolve(options.projectRoot, '.local-data');
+    const expectedStateRoot = win32.resolve(runtimeRoot, 'mcp-state');
+    if (win32.resolve(launch.env.JOB_MCP_STATE_DIR) !== expectedStateRoot) {
+      fail('job_search_mcp_state_dir_outside_private_runtime');
+    }
+    const [commandReal, rootReal, integrationReal, runtimeReal, stateReal] = await Promise.all([
+      canonical(launch.command), canonical(allowedRoot), canonical(integrationRoot),
+      canonical(runtimeRoot), canonical(expectedStateRoot)
     ]);
     const expectedRoot = win32.resolve(integrationReal, '.venv', 'Scripts');
     if (rootReal.toLocaleLowerCase('en-US') !== expectedRoot.toLocaleLowerCase('en-US')) {
@@ -150,6 +166,10 @@ export async function validateJobSearchMcpRuntime(value, options) {
     assertInside(commandReal, rootReal, true);
     if (commandReal.toLocaleLowerCase('en-US') !== win32.resolve(rootReal, 'job-search-mcp.exe').toLocaleLowerCase('en-US')) {
       fail('job_search_mcp_native_realpath_invalid');
+    }
+    if (runtimeReal.toLocaleLowerCase('en-US') !== runtimeRoot.toLocaleLowerCase('en-US')
+      || stateReal.toLocaleLowerCase('en-US') !== expectedStateRoot.toLocaleLowerCase('en-US')) {
+      fail('job_search_mcp_state_dir_realpath_invalid');
     }
     await canAccess(commandReal);
     return { ...launch, command: commandReal, targetExecutable: commandReal, ready: true };
@@ -164,16 +184,20 @@ export async function validateJobSearchMcpRuntime(value, options) {
   await canAccess(commandReal);
   const runWsl = options.runWsl ?? defaultWslRun;
   const integrationRoot = win32.resolve(options.projectRoot, 'integrations', 'job-search-mcp');
-  const mappedRoot = await runWsl(commandReal, launch.distribution, ['wslpath', '-a', '-u', integrationRoot]);
+  // wsl.exe interprets backslashes before argv reaches wslpath. A forward-slash
+  // Windows path keeps this a fixed-argv probe while preserving drive identity.
+  const mappedRoot = await runWsl(commandReal, launch.distribution, [
+    'wslpath', '-a', '-u', integrationRoot.replaceAll('\\', '/')
+  ]);
   if (!mappedRoot.startsWith('/') || mappedRoot.includes('\0') || mappedRoot.includes('\n')) fail('job_search_mcp_wsl_root_mapping_invalid');
   const lexicalVenv = posix.join(posix.normalize(mappedRoot), '.venv-wsl');
+  const expectedStateRoot = posix.join(posix.dirname(posix.dirname(posix.normalize(mappedRoot))), '.local-data', 'mcp-state');
+  if (launch.env.JOB_MCP_STATE_DIR !== expectedStateRoot) fail('job_search_mcp_state_dir_outside_private_runtime');
   const venvReal = await runWsl(commandReal, launch.distribution, ['readlink', '-f', '--', lexicalVenv]);
   if (venvReal !== lexicalVenv) fail('job_search_mcp_wsl_venv_realpath_invalid');
-  const commandArgs = launch.args.slice(3);
-  const executableIndex = commandArgs[0] === 'env'
-    ? commandArgs.findIndex((argument, index) => index > 0 && !/^[A-Z][A-Z0-9_]{0,63}=/.test(argument))
-    : 0;
-  const targetExecutable = commandArgs[executableIndex];
+  const stateReal = await runWsl(commandReal, launch.distribution, ['readlink', '-f', '--', expectedStateRoot]);
+  if (stateReal !== expectedStateRoot) fail('job_search_mcp_state_dir_realpath_invalid');
+  const targetExecutable = launch.args[3];
   if (!targetExecutable) fail('job_search_mcp_wsl_launch_invalid');
   const targetReal = await runWsl(commandReal, launch.distribution, ['readlink', '-f', '--', targetExecutable]);
   if (targetReal !== posix.join(venvReal, 'bin', 'job-search-mcp')) fail('job_search_mcp_executable_outside_allowed_venv');

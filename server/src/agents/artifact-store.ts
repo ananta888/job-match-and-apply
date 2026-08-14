@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdir, readFile, readdir, rename, stat, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, relative, resolve } from 'node:path';
 
 export type AgentArtifactLifecycle = 'proposed' | 'approved' | 'used' | 'rejected';
@@ -17,6 +17,10 @@ export interface AgentArtifactProvenance {
   applicationCaseRevision?: number;
   jobId?: string;
   companyKey?: string;
+  mailId?: string;
+  documentRevisionId?: string;
+  /** Opaque configured workspace-root identifier; never an absolute local path. */
+  workspaceRootId?: string;
   identityMode: 'none' | 'real' | 'incognito';
   claimIds?: string[];
   reviewIds?: string[];
@@ -37,6 +41,23 @@ export interface AgentArtifactRecord {
   provenance: AgentArtifactProvenance;
   review?: { decision: 'approved' | 'rejected'; actor: string; occurredAt: string };
   adoption?: { sourceReference: string; occurredAt: string };
+  /** A used artifact keeps immutable provenance even after privacy-driven raw-content deletion. */
+  contentState?: 'available' | 'deleted';
+  contentDeletedAt?: string;
+}
+
+export interface AgentArtifactDeletionPreview {
+  schemaVersion: 1;
+  artifactIds: string[];
+  artifacts: Array<{
+    id: string;
+    sha256: string;
+    lifecycle: AgentArtifactLifecycle;
+    contentState: 'available' | 'deleted';
+    metadataAction: 'delete' | 'retain_used_metadata';
+  }>;
+  blobs: Array<{ sha256: string; bytes: number; action: 'delete' | 'retain_shared'; protectedBy: string[] }>;
+  digest: string;
 }
 
 export interface AgentArtifactAdoptionPort {
@@ -97,7 +118,9 @@ function validateProvenance(value: AgentArtifactProvenance): AgentArtifactProven
     templateId: safeContext(value.templateId, true)!, templateVersion: safeMetadata(value.templateVersion, true)!,
     workflowId: safeContext(value.workflowId), workflowVersion: safeMetadata(value.workflowVersion),
     applicationCaseId: safeContext(value.applicationCaseId), jobId: safeMetadata(value.jobId),
-    companyKey: safeContext(value.companyKey), identityMode: value.identityMode,
+    companyKey: safeContext(value.companyKey), mailId: safeContext(value.mailId),
+    documentRevisionId: safeContext(value.documentRevisionId), workspaceRootId: safeContext(value.workspaceRootId),
+    identityMode: value.identityMode,
     claimIds: value.claimIds?.map((item) => safeContext(item, true)!),
     reviewIds: value.reviewIds?.map((item) => safeContext(item, true)!),
   };
@@ -105,7 +128,7 @@ function validateProvenance(value: AgentArtifactProvenance): AgentArtifactProven
     if (!Number.isSafeInteger(value.applicationCaseRevision) || value.applicationCaseRevision < 0) throw new Error('artifact_provenance_invalid');
     provenance.applicationCaseRevision = value.applicationCaseRevision;
   }
-  const hasDomainContext = Boolean(provenance.applicationCaseId || provenance.jobId || provenance.companyKey
+  const hasDomainContext = Boolean(provenance.applicationCaseId || provenance.jobId || provenance.companyKey || provenance.mailId || provenance.documentRevisionId
     || provenance.applicationCaseRevision !== undefined);
   if (hasDomainContext && (!provenance.applicationCaseId || provenance.applicationCaseRevision === undefined
     || !provenance.jobId || !provenance.companyKey || provenance.identityMode === 'none')) {
@@ -119,6 +142,7 @@ function validateRecord(record: AgentArtifactRecord): AgentArtifactRecord {
     || !/^[a-f0-9]{64}$/.test(record.sha256) || !Number.isSafeInteger(record.bytes) || record.bytes < 0
     || !SAFE_MEDIA_TYPE.test(record.mediaType) || !Number.isSafeInteger(record.revision) || record.revision < 0
     || !['proposed', 'approved', 'used', 'rejected'].includes(record.lifecycle)
+    || (record.contentState !== undefined && !['available', 'deleted'].includes(record.contentState))
     || !Number.isFinite(Date.parse(record.createdAt)) || !Number.isFinite(Date.parse(record.updatedAt))) {
     throw new Error('artifact_record_invalid');
   }
@@ -133,6 +157,9 @@ function validateRecord(record: AgentArtifactRecord): AgentArtifactRecord {
     || (record.lifecycle === 'used' && (record.revision !== 2 || !reviewValid || record.review?.decision !== 'approved' || !adoptionValid))) {
     throw new Error('artifact_record_invalid');
   }
+  if ((record.contentState === 'deleted' && (record.lifecycle !== 'used' || !record.contentDeletedAt
+    || !Number.isFinite(Date.parse(record.contentDeletedAt))))
+    || (record.contentState !== 'deleted' && record.contentDeletedAt !== undefined)) throw new Error('artifact_record_invalid');
   ensureRelativePath(record.relativePath);
   validateProvenance(record.provenance);
   return record;
@@ -209,6 +236,7 @@ export class AgentArtifactStore {
   async read(id: string): Promise<{ record: AgentArtifactRecord; content: Buffer }> {
     const record = await this.get(id);
     if (!record) throw Object.assign(new Error('artifact_not_found'), { statusCode: 404 });
+    if (record.contentState === 'deleted') throw Object.assign(new Error('artifact_content_deleted'), { statusCode: 410 });
     const blobPath = resolve(this.blobRoot, record.sha256.slice(0, 2), record.sha256);
     ensureInside(this.blobRoot, blobPath);
     const content = await readFile(blobPath);
@@ -261,9 +289,104 @@ export class AgentArtifactStore {
 
   async verify(): Promise<Array<{ id: string; valid: boolean; reason?: string }>> {
     return Promise.all((await this.list()).map(async (record) => {
+      if (record.contentState === 'deleted') return { id: record.id, valid: true, reason: 'content_deleted_by_retention' };
       try { await this.read(record.id); return { id: record.id, valid: true }; }
       catch (error) { return { id: record.id, valid: false, reason: error instanceof Error ? error.message : String(error) }; }
     }));
+  }
+
+  /** Exact, hash-bound impact preview for privacy deletion and legal-hold orchestration. */
+  async previewDeletion(artifactIds: readonly string[]): Promise<AgentArtifactDeletionPreview> {
+    if (artifactIds.length === 0 || artifactIds.some((id) => !ARTIFACT_ID.test(id))) throw new Error('artifact_deletion_selection_invalid');
+    const selectedIds = [...new Set(artifactIds)].sort();
+    if (selectedIds.length !== artifactIds.length) throw new Error('artifact_deletion_selection_duplicate');
+    const all = await this.list();
+    const byId = new Map(all.map((record) => [record.id, record]));
+    const selected = selectedIds.map((id) => {
+      const record = byId.get(id);
+      if (!record) throw new Error(`artifact_not_found:${id}`);
+      return record;
+    });
+    const selectedSet = new Set(selectedIds);
+    const byHash = new Map<string, AgentArtifactRecord[]>();
+    for (const record of all.filter((entry) => entry.contentState !== 'deleted')) {
+      const entries = byHash.get(record.sha256) ?? []; entries.push(record); byHash.set(record.sha256, entries);
+    }
+    const blobs = [...new Set(selected.filter((entry) => entry.contentState !== 'deleted').map((entry) => entry.sha256))]
+      .sort().map((sha256) => {
+        const references = (byHash.get(sha256) ?? []).filter((entry) => !selectedSet.has(entry.id)).map((entry) => entry.id).sort();
+        const record = selected.find((entry) => entry.sha256 === sha256)!;
+        return { sha256, bytes: record.bytes, action: references.length > 0 ? 'retain_shared' as const : 'delete' as const, protectedBy: references };
+      });
+    const unsigned = {
+      schemaVersion: 1 as const, artifactIds: selectedIds,
+      artifacts: selected.map((record) => ({
+        id: record.id, sha256: record.sha256, lifecycle: record.lifecycle, contentState: record.contentState ?? 'available',
+        metadataAction: record.lifecycle === 'used' ? 'retain_used_metadata' as const : 'delete' as const
+      })).sort((left, right) => left.id.localeCompare(right.id)),
+      blobs
+    };
+    return { ...unsigned, digest: createHash('sha256').update(JSON.stringify(unsigned)).digest('hex') };
+  }
+
+  /** Applies only an unchanged preview; used provenance remains while raw bytes become unavailable. */
+  async applyDeletion(preview: AgentArtifactDeletionPreview): Promise<{ deletedRecords: string[]; retainedUsedMetadata: string[]; deletedBlobs: string[] }> {
+    return this.serialized(async () => {
+      const current = await this.previewDeletion(preview.artifactIds);
+      if (current.digest !== preview.digest) throw new Error('artifact_deletion_preview_stale');
+      const rootInfo = await lstat(this.root);
+      if (rootInfo.isSymbolicLink() || !rootInfo.isDirectory()) throw new Error('artifact_store_root_unsafe');
+      const stagingRoot = resolve(this.root, '.deletion-staging'); ensureInside(this.root, stagingRoot);
+      await mkdir(stagingRoot, { recursive: true, mode: 0o700 });
+      const stagingInfo = await lstat(stagingRoot);
+      if (stagingInfo.isSymbolicLink() || !stagingInfo.isDirectory() || await realpath(stagingRoot) !== stagingRoot) throw new Error('artifact_deletion_staging_unsafe');
+      const stage = resolve(stagingRoot, randomUUID()); ensureInside(stagingRoot, stage);
+      await mkdir(resolve(stage, 'records'), { recursive: true, mode: 0o700 });
+      await mkdir(resolve(stage, 'blobs'), { recursive: true, mode: 0o700 });
+      const movedRecords: Array<{ original: string; staged: string; retained: boolean }> = [];
+      const movedBlobs: Array<{ original: string; staged: string }> = [];
+      try {
+        for (const artifact of current.artifacts) {
+          if (artifact.metadataAction === 'retain_used_metadata' && artifact.contentState === 'deleted') continue;
+          const original = resolve(this.recordRoot, `${artifact.id}.json`); ensureInside(this.recordRoot, original);
+          const staged = resolve(stage, 'records', `${artifact.id}.json`); ensureInside(stage, staged);
+          await rename(original, staged);
+          movedRecords.push({ original, staged, retained: artifact.metadataAction === 'retain_used_metadata' });
+          if (artifact.metadataAction === 'retain_used_metadata') {
+            const record = validateRecord(JSON.parse(await readFile(staged, 'utf8')) as AgentArtifactRecord);
+            const now = new Date().toISOString();
+            await this.writeRecord({ ...record, contentState: 'deleted', contentDeletedAt: now, updatedAt: now }, true);
+          }
+        }
+        for (const blob of current.blobs.filter((entry) => entry.action === 'delete')) {
+          const original = resolve(this.blobRoot, blob.sha256.slice(0, 2), blob.sha256); ensureInside(this.blobRoot, original);
+          const staged = resolve(stage, 'blobs', blob.sha256); ensureInside(stage, staged);
+          await rename(original, staged);
+          movedBlobs.push({ original, staged });
+        }
+        await rm(stage, { recursive: true, force: false });
+        return {
+          deletedRecords: current.artifacts.filter((entry) => entry.metadataAction === 'delete').map((entry) => entry.id),
+          retainedUsedMetadata: current.artifacts.filter((entry) => entry.metadataAction === 'retain_used_metadata').map((entry) => entry.id),
+          deletedBlobs: current.blobs.filter((entry) => entry.action === 'delete').map((entry) => entry.sha256)
+        };
+      } catch (error) {
+        for (const entry of [...movedRecords].reverse()) {
+          if (entry.retained) await rm(entry.original, { force: true });
+          try { await rename(entry.staged, entry.original); } catch (restoreError) {
+            if ((restoreError as NodeJS.ErrnoException).code !== 'ENOENT') throw restoreError;
+          }
+        }
+        for (const entry of [...movedBlobs].reverse()) {
+          await mkdir(dirname(entry.original), { recursive: true });
+          try { await rename(entry.staged, entry.original); } catch (restoreError) {
+            if ((restoreError as NodeJS.ErrnoException).code !== 'ENOENT') throw restoreError;
+          }
+        }
+        await rm(stage, { recursive: true, force: true });
+        throw error;
+      }
+    });
   }
 
   private async required(id: string): Promise<AgentArtifactRecord> {

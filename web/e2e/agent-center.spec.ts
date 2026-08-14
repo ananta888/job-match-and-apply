@@ -34,7 +34,7 @@ test.describe('Agent Center – offline browser contract', () => {
     await expect(panel.locator('input, select, textarea')).toHaveCount(0);
     await expect(panel).toHaveScreenshot('mcp-runtime-security.png');
 
-    const panelA11y = await new AxeBuilder({ page }).include('[data-testid="mcp-runtime-panel"]').withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
+    const panelA11y = await new AxeBuilder({ page }).include('[data-testid="mcp-runtime-panel"]').withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa']).analyze();
     expect(panelA11y.violations, panelA11y.violations.map((item) => `${item.id}: ${item.help}`).join('\n')).toEqual([]);
 
     await page.locator('.top-actions').getByRole('button', { name: 'Speichern', exact: true }).click();
@@ -42,18 +42,36 @@ test.describe('Agent Center – offline browser contract', () => {
     expect(agentApi.configSaveRequests[0].mcp.env).toEqual({ ALLOW_EXTERNAL_PORTALS: '', JOB_MCP_STATE_DIR: '' });
     expect(agentApi.configSaveRequests[0].mcp.configuredEnvironmentKeys).toEqual(['ALLOW_EXTERNAL_PORTALS', 'JOB_MCP_STATE_DIR']);
 
-    await panel.getByRole('button', { name: 'Portalzugriff freigeben', exact: true }).click();
-    const dialog = page.getByRole('dialog');
+    const portalTrigger = panel.getByRole('button', { name: 'Portalzugriff freigeben', exact: true });
+    await portalTrigger.click();
+    let dialog = page.getByRole('dialog');
     const confirmation = dialog.locator('input[type="checkbox"]');
     await expect(confirmation).toBeFocused();
-    await expect(dialog.getByRole('button', { name: 'Portalzugriff verbindlich freigeben', exact: true })).toBeDisabled();
+    const cancel = dialog.getByRole('button', { name: 'Abbrechen', exact: true });
+    const confirm = dialog.getByRole('button', { name: 'Portalzugriff verbindlich freigeben', exact: true });
+    await expect(confirm).toBeDisabled();
     expect(agentApi.portalAccessRequests).toHaveLength(0);
-    const dialogA11y = await new AxeBuilder({ page }).include('.portal-permission-dialog').withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
+    const dialogA11y = await new AxeBuilder({ page }).include('.portal-permission-dialog').withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa']).analyze();
     expect(dialogA11y.violations, dialogA11y.violations.map((item) => `${item.id}: ${item.help}`).join('\n')).toEqual([]);
     await confirmation.check();
+    await confirmation.focus();
+    await page.keyboard.press('Tab');
+    await expect(cancel).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(confirm).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(confirmation).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+    await expect(portalTrigger).toBeFocused();
+
+    await portalTrigger.click();
+    dialog = page.getByRole('dialog');
+    await expect(dialog.locator('input[type="checkbox"]')).toBeFocused();
+    await dialog.locator('input[type="checkbox"]').check();
     await dialog.getByRole('button', { name: 'Portalzugriff verbindlich freigeben', exact: true }).click();
     await expect.poll(() => agentApi.portalAccessRequests.length).toBe(1);
-    expect(agentApi.portalAccessRequests[0]).toEqual({ enabled: true, confirmed: true });
+    expect(agentApi.portalAccessRequests[0]).toEqual({ enabled: true, confirmed: true, expectedRevision: 1 });
     expect(agentApi.configSaveRequests).toHaveLength(1);
     await expect(page.getByRole('status').filter({ hasText: 'ALLOW_EXTERNAL_PORTALS=1' })).toBeVisible();
   });
@@ -69,7 +87,118 @@ test.describe('Agent Center – offline browser contract', () => {
     expect(agentApi.portalAccessRequests).toHaveLength(0);
   });
 
-  test('starts a WSL run with safe defaults and renders live events', async ({ page, agentApi }) => {
+  test('opts in to Codex App Server only with double confirmation, CAS and a refreshed preflight', async ({ page, agentApi }) => {
+    await openAgentCenter(page);
+    const profile = page.getByTestId('agent-config-profile');
+    await expect(profile).toContainText('safe-default');
+    await expect(profile).toContainText('Primärprofil');
+    await expect(profile.getByTestId('codex-app-server-toggle')).not.toBeChecked();
+    await expect(profile).toContainText('opencode');
+    await expect(profile.locator('[data-provider-config="opencode"] input[placeholder="Ubuntu-24.04"]')).toHaveValue('');
+    await expect(profile).toContainText('Kostenobergrenze: unknown');
+    expect(await profile.innerText()).not.toMatch(/X:\\Synthetic|testperson@example|(?:command|executable|workspaceRoot)\s*[:=]/i);
+
+    await page.locator('textarea[name="agentPrompt"]').fill('Preflight nach bewusstem Codex-App-Opt-in erneut prüfen');
+    await expect.poll(() => agentApi.preflightRequests.length).toBeGreaterThan(0);
+    const preflightCount = agentApi.preflightRequests.length;
+    await profile.getByTestId('agent-config-cost-amount').fill('12,345678');
+    await profile.getByTestId('agent-config-cost-currency').fill('EUR');
+    await expect(profile).toContainText('12.345.678 Währungs-Mikroeinheiten');
+    await profile.getByTestId('codex-app-server-toggle').check();
+    await profile.getByTestId('agent-config-save-confirmation').check();
+    await expect(profile.getByTestId('save-agent-config-profile')).toBeDisabled();
+    await profile.getByTestId('codex-app-server-opt-in').check();
+    await expect(profile.getByTestId('save-agent-config-profile')).toBeEnabled();
+    await profile.getByTestId('save-agent-config-profile').click();
+
+    await expect.poll(() => agentApi.agentConfigProfileSaveRequests.length).toBe(1);
+    const request = agentApi.agentConfigProfileSaveRequests[0];
+    expect(request['expectedUpdatedAt']).toBe('2026-08-14T08:00:00.000Z');
+    expect(request['confirmed']).toBe(true);
+    expect(request['profile']).toMatchObject({
+      schemaVersion: 2,
+      budgets: { maxCostMicros: { amountMicros: 12_345_678, currency: 'EUR' } },
+      features: { codexAppServerExperimental: true, multiAgentExperimental: true, realtimeWebSocketExperimental: false, rawProviderLogs: false }
+    });
+    const savedProviders = (request['profile'] as { providers: Array<Record<string, unknown>> }).providers;
+    expect(savedProviders.find((item) => item['provider'] === 'opencode')).not.toHaveProperty('wslDistribution');
+    expect(JSON.stringify(request)).not.toMatch(/secret|command|executable|workspaceRoot|configuredEnvironmentKeys/i);
+    await expect.poll(() => agentApi.providerRefreshRequests.length).toBe(1);
+    await expect.poll(() => agentApi.preflightRequests.length).toBeGreaterThan(preflightCount);
+    await expect(profile).toContainText('2026-08-14T08:00:01.000Z');
+    const profileA11y = await new AxeBuilder({ page }).include('[data-testid="agent-config-profile"]').withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa']).analyze();
+    expect(profileA11y.violations, profileA11y.violations.map((item) => `${item.id}: ${item.help}`).join('\n')).toEqual([]);
+  });
+
+  test('keeps an LKG draft visible and fails closed on a stale profile CAS', async ({ page, agentApi }) => {
+    agentApi.seedLastKnownGoodAgentConfig();
+    agentApi.seedStaleAgentConfigProfileSave();
+    await openAgentCenter(page);
+    const profile = page.getByTestId('agent-config-profile');
+    await expect(profile).toContainText('Last Known Good aktiv');
+    await expect(profile).toContainText('Synthetisches Primärprofil ist ungültig');
+    await profile.getByTestId('multi-agent-toggle').uncheck();
+    await profile.getByTestId('agent-config-save-confirmation').check();
+    await profile.getByTestId('save-agent-config-profile').click();
+    await expect.poll(() => agentApi.agentConfigProfileSaveRequests.length).toBe(1);
+    await expect(profile.getByRole('alert')).toContainText('zwischenzeitlich geändert');
+    await expect(profile.getByTestId('multi-agent-toggle')).not.toBeChecked();
+    await expect(profile.getByTestId('agent-config-save-confirmation')).not.toBeChecked();
+    expect(agentApi.providerRefreshRequests).toHaveLength(0);
+    await page.waitForTimeout(250);
+    expect(agentApi.agentConfigProfileSaveRequests).toHaveLength(1);
+  });
+
+  test('blocks a disabled provider until the confirmed profile save refreshes provider discovery and preflight', async ({ page, agentApi }) => {
+    agentApi.seedAgentProviderDisabled();
+    await openAgentCenter(page);
+    await page.locator('textarea[name="agentPrompt"]').fill('Profilgebundenen Providerstart sicher prüfen');
+    const start = page.getByRole('button', { name: 'Run kontrolliert starten', exact: true });
+    const preflight = page.getByTestId('agent-preflight');
+    await expect(preflight).toContainText('im aktiven lokalen Sicherheitsprofil deaktiviert');
+    await expect(start).toBeDisabled();
+
+    const profile = page.getByTestId('agent-config-profile');
+    const provider = profile.locator('[data-provider-config="fake-interactive"]');
+    await provider.locator('input[type="checkbox"]').first().check();
+    await profile.getByTestId('agent-config-save-confirmation').check();
+    await profile.getByTestId('save-agent-config-profile').click();
+    await expect.poll(() => agentApi.providerRefreshRequests.length).toBe(1);
+    await expect(preflight).not.toContainText('im aktiven lokalen Sicherheitsprofil deaktiviert');
+    await expect(start).toBeEnabled();
+  });
+
+  test('lets the local profile disable new suggestion-only multi-agent orchestrations', async ({ page, agentApi }) => {
+    await openAgentCenter(page);
+    const profile = page.getByTestId('agent-config-profile');
+    await profile.getByTestId('multi-agent-toggle').uncheck();
+    await profile.getByTestId('agent-config-save-confirmation').check();
+    await profile.getByTestId('save-agent-config-profile').click();
+    await expect.poll(() => agentApi.agentConfigProfileSaveRequests.length).toBe(1);
+
+    const center = page.getByTestId('agent-orchestration-center');
+    await center.locator('select[name="orchestrationWorkflow"]').selectOption('guided-job-analysis');
+    await center.locator('textarea[name="orchestrationPrompt"]').fill('Deaktivierte Multi-Agent-Kette fail-closed prüfen');
+    await center.getByRole('button', { name: 'Multi-Agent-Workflow starten', exact: true }).click();
+    await expect.poll(() => agentApi.orchestrationCreateRequests.length).toBe(1);
+    await expect(center.getByRole('alert')).toContainText('im aktiven lokalen Profil deaktiviert');
+  });
+
+  test('keeps employer-response orchestration blocked until an inbox mail is explicitly selected', async ({ page, agentApi }) => {
+    const application = agentApi.seedPipelineCase();
+    await openAgentCenter(page);
+    const center = page.getByTestId('agent-orchestration-center');
+    await center.locator('select[name="orchestrationWorkflow"]').selectOption('employer-response-triage');
+    await center.locator('select[name="orchestrationCase"]').selectOption(application.id);
+    await center.locator('textarea[name="orchestrationPrompt"]').fill('Eine konkrete Unternehmensantwort nur als Vorschlag einordnen');
+    await expect(center).toContainText('Explizite Mailauswahl erforderlich');
+    await expect(center).toContainText('Gewählte Mail mit Agent triagieren');
+    await expect(center.getByRole('button', { name: 'Multi-Agent-Workflow starten', exact: true })).toBeDisabled();
+    expect(agentApi.orchestrationCreateRequests).toHaveLength(0);
+  });
+
+  test('starts a profile-approved WSL run and renders live events', async ({ page, agentApi }) => {
+    agentApi.seedAgentProviderRuntime('fake-interactive', 'wsl', 'E2E-Ubuntu');
     await openAgentCenter(page);
 
     await page.locator('select[name="agentRuntime"]').selectOption('wsl:E2E-Ubuntu');
@@ -92,6 +221,7 @@ test.describe('Agent Center – offline browser contract', () => {
   });
 
   test('shows the complete server-owned guided preflight without starting tools or network access', async ({ page, agentApi }) => {
+    agentApi.seedAgentProviderRuntime('fake-interactive', 'wsl', 'E2E-Ubuntu');
     await openAgentCenter(page);
     await page.locator('select[name="agentRuntime"]').selectOption('wsl:E2E-Ubuntu');
     await page.locator('select[name="agentWorkflow"]').selectOption('guided-job-analysis');
@@ -142,9 +272,114 @@ test.describe('Agent Center – offline browser contract', () => {
     expect(preflightText).not.toContain('fixture-secret');
     expect(preflightText).not.toContain('testperson@example.invalid');
 
-    const preflightA11y = await new AxeBuilder({ page }).include('[data-testid="agent-preflight"]').withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
+    const preflightA11y = await new AxeBuilder({ page }).include('[data-testid="agent-preflight"]').withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa']).analyze();
     expect(preflightA11y.violations, preflightA11y.violations.map((item) => `${item.id}: ${item.help}`).join('\n')).toEqual([]);
     await expect(preflight).toHaveScreenshot('agent-preflight-guided.png');
+  });
+
+  test('starts without a prior revision, continues only user input and exposes the package as proposed', async ({ page, agentApi }) => {
+    const application = agentApi.seedPipelineCase();
+    await openAgentCenter(page);
+    const center = page.getByTestId('agent-orchestration-center');
+    await center.locator('select[name="orchestrationWorkflow"]').selectOption('evidence-application-package');
+    await center.locator('select[name="orchestrationCase"]').selectOption(application.id);
+    await center.locator('textarea[name="orchestrationPrompt"]').fill('Getrennte Evidence- und Finalizer-Rollen synthetisch ausführen');
+    await center.getByRole('button', { name: 'Multi-Agent-Workflow starten', exact: true }).click();
+    await expect.poll(() => agentApi.orchestrationCreateRequests.length).toBe(1);
+    expect(agentApi.orchestrationCreateRequests[0]).toEqual({
+      workflowId: 'evidence-application-package', providerId: 'fake-interactive',
+      prompt: 'Getrennte Evidence- und Finalizer-Rollen synthetisch ausführen', runtimeTarget: 'windows', applicationCaseId: application.id
+    });
+    await expect(center).toContainText('Gate offen');
+    await expect(center).toContainText('Bestätigte Nutzereingabe');
+    await expect(center).toContainText('evidence_reviewer');
+    await expect(center.locator('.orchestration-nodes > li')).toHaveCount(5);
+    await expect(center.locator('.orchestration-gates select')).toHaveCount(0);
+    await center.locator('.orchestration-gates .explicit-confirmation input[type="checkbox"]').check();
+    await center.getByRole('button', { name: 'Nur offene Rollen fortsetzen', exact: true }).click();
+    await expect.poll(() => agentApi.orchestrationContinueRequests.length).toBe(1);
+    expect(agentApi.orchestrationContinueRequests[0]).toEqual({
+      orchestrationId: '33333333-3333-4333-8333-000000000001',
+      body: {
+        expectedRevision: 1,
+        userInput: { confirmed: true }
+      }
+    });
+    await expect(center).toContainText('package_proposal');
+    await expect(center).toContainText('application-pipeline-package');
+    await expect(center).toContainText('PROPOSED');
+    await center.getByRole('button', { name: 'Node-Run für Review öffnen', exact: true }).click();
+    await expect(page.locator('.agent-artifact-list')).toContainText('application-pipeline-package');
+
+    await center.locator('select[name="orchestrationWorkflow"]').selectOption('guided-job-analysis');
+    await center.locator('textarea[name="orchestrationPrompt"]').fill('Synthetische parallele Stellenanalyse starten');
+    await center.getByRole('button', { name: 'Multi-Agent-Workflow starten', exact: true }).click();
+    await expect.poll(() => agentApi.orchestrationCreateRequests.length).toBe(2);
+    const activeDetail = center.locator('.orchestration-detail');
+    await activeDetail.locator('.orchestration-cancel input[type="checkbox"]').check();
+    await activeDetail.getByRole('button', { name: 'Revisionsgebunden abbrechen', exact: true }).click();
+    await expect.poll(() => agentApi.orchestrationCancelRequests.length).toBe(1);
+    expect(agentApi.orchestrationCancelRequests[0]).toEqual({
+      orchestrationId: '33333333-3333-4333-8333-000000000002', body: { expectedRevision: 1, confirmed: true }
+    });
+    await expect(center).toContainText('Abgebrochen');
+    const orchestrationA11y = await new AxeBuilder({ page }).include('[data-testid="agent-orchestration-center"]').withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa']).analyze();
+    expect(orchestrationA11y.violations, orchestrationA11y.violations.map((item) => `${item.id}: ${item.help}`).join('\n')).toEqual([]);
+  });
+
+  test('shows all ATS/style variants and resolves an unresolved fan-in only by an explicit bound decision', async ({ page, agentApi }) => {
+    const { orchestration, conflict } = agentApi.seedUnresolvedOrchestrationConflict();
+    await openAgentCenter(page);
+    const panel = page.getByTestId(`orchestration-conflict-${conflict.id}`);
+    await expect(panel).toContainText('Nutzerentscheidung erforderlich');
+    await expect(panel).toContainText(conflict.variantsSha256);
+    await expect(panel).toContainText(conflict.variants[0].sha256);
+    await expect(panel).toContainText(conflict.variants[1].sha256);
+    await expect(panel).toContainText(conflict.variants[0].artifactId);
+    await expect(panel).toContainText(conflict.variants[1].artifactId);
+    const resolve = panel.getByRole('button', { name: 'Konflikt revisionsgebunden auflösen', exact: true });
+    await expect(resolve).toBeDisabled();
+
+    await panel.getByRole('radio', { name: /Eine Variante auswählen/ }).check();
+    await panel.locator('.conflict-variant-select select').selectOption(conflict.variants[1].artifactId);
+    await expect(resolve).toBeDisabled();
+    await panel.locator('.explicit-confirmation input[type="checkbox"]').check();
+    await expect(resolve).toBeEnabled();
+    await resolve.click();
+
+    await expect.poll(() => agentApi.orchestrationConflictResolveRequests.length).toBe(1);
+    expect(agentApi.orchestrationConflictResolveRequests[0]).toEqual({
+      orchestrationId: orchestration.id, conflictId: conflict.id,
+      body: {
+        expectedRevision: 3, variantsSha256: conflict.variantsSha256, strategy: 'select_variant',
+        selectedArtifactId: conflict.variants[1].artifactId, confirmed: true
+      }
+    });
+    await expect(panel).toContainText('Explizit aufgelöst');
+    await expect(panel).toContainText('Variante ausgewählt');
+    await expect(panel).toContainText('Gebundene Revision');
+    await expect(panel.getByRole('button', { name: 'Konflikt revisionsgebunden auflösen', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('status').filter({ hasText: 'bleibt ein Vorschlag' })).toBeVisible();
+    const conflictA11y = await new AxeBuilder({ page }).include(`[data-testid="orchestration-conflict-${conflict.id}"]`).withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa']).analyze();
+    expect(conflictA11y.violations, conflictA11y.violations.map((item) => `${item.id}: ${item.help}`).join('\n')).toEqual([]);
+  });
+
+  test('surfaces a stale conflict CAS without retrying or silently changing the strategy', async ({ page, agentApi }) => {
+    const { conflict } = agentApi.seedUnresolvedOrchestrationConflict();
+    agentApi.seedStaleOrchestrationConflictResolve();
+    await openAgentCenter(page);
+    const panel = page.getByTestId(`orchestration-conflict-${conflict.id}`);
+    const complementary = panel.getByRole('radio', { name: /Komplementär übernehmen/ });
+    await complementary.check();
+    await panel.locator('.explicit-confirmation input[type="checkbox"]').check();
+    await panel.getByRole('button', { name: 'Konflikt revisionsgebunden auflösen', exact: true }).click();
+
+    await expect.poll(() => agentApi.orchestrationConflictResolveRequests.length).toBe(1);
+    await expect(page.getByTestId('agent-orchestration-center').getByRole('alert')).toContainText('stale');
+    await expect(complementary).toBeChecked();
+    await expect(panel.locator('.explicit-confirmation input[type="checkbox"]')).not.toBeChecked();
+    await page.waitForTimeout(250);
+    expect(agentApi.orchestrationConflictResolveRequests).toHaveLength(1);
   });
 
   test('handles an explicit user answer and revision-bound approval', async ({ page, agentApi }) => {
@@ -298,12 +533,17 @@ test.describe('Agent Center – offline browser contract', () => {
     expect(copied).not.toContain('X:\\Synthetic\\Fixture');
     expect(copied).not.toContain('fixture-secret');
 
+    const preflightCount = agentApi.preflightRequests.length;
     await page.getByRole('button', { name: 'Als Replay-Vorlage (kein Start)', exact: true }).click();
     await expect(page.getByText('Replay-Vorlage aus fixture-child', { exact: true })).toBeVisible();
     expect(agentApi.createRequests).toHaveLength(0);
     const start = page.getByRole('button', { name: 'Run kontrolliert starten', exact: true });
+    await expect.poll(() => agentApi.preflightRequests.length).toBeGreaterThan(preflightCount);
+    await expect(page.getByTestId('agent-preflight')).toContainText('Das aktive Profil erlaubt nur einen schreibgeschützten Workspace.');
+    const blockedPreflightCount = agentApi.preflightRequests.length;
+    await page.locator('input[name="workspaceMode"][value="read_only"]').check();
+    await expect.poll(() => agentApi.preflightRequests.length).toBeGreaterThan(blockedPreflightCount);
     await expect(start).toBeEnabled();
-    await expect.poll(() => agentApi.preflightRequests.length).toBe(1);
     await start.click();
     await expect.poll(() => agentApi.createRequests.length).toBe(1);
     expect(agentApi.createRequests[0].parentRunId).toBe('fixture-child');
@@ -329,7 +569,8 @@ test.describe('Agent Center – offline browser contract', () => {
     await expect(recoveryCard).toContainText('Dieser Browser hält die Lease-ID');
     await expect(recoveryCard).toContainText('Operator local-user');
 
-    await recoveryCard.getByRole('button', { name: 'Bereinigung prüfen', exact: true }).click();
+    const cleanupTrigger = recoveryCard.getByRole('button', { name: 'Bereinigung prüfen', exact: true });
+    await cleanupTrigger.click();
     let dialog = page.getByRole('dialog');
     await expect(dialog).toContainText('erwarteter Revision #3');
     await expect(dialog.getByRole('button', { name: 'Bereinigung verbindlich bestätigen', exact: true })).toBeDisabled();
@@ -337,6 +578,21 @@ test.describe('Agent Center – offline browser contract', () => {
     const cleanupConfirmation = dialog.locator('input[type="checkbox"]');
     await expect(cleanupConfirmation).toBeFocused();
     await cleanupConfirmation.check();
+    await cleanupConfirmation.focus();
+    await page.keyboard.press('Tab');
+    await expect(dialog.getByRole('button', { name: 'Abbrechen', exact: true })).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(dialog.getByRole('button', { name: 'Bereinigung verbindlich bestätigen', exact: true })).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(cleanupConfirmation).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+    await expect(cleanupTrigger).toBeFocused();
+
+    await cleanupTrigger.click();
+    dialog = page.getByRole('dialog');
+    await expect(dialog.locator('input[type="checkbox"]')).toBeFocused();
+    await dialog.locator('input[type="checkbox"]').check();
     await dialog.getByRole('button', { name: 'Bereinigung verbindlich bestätigen', exact: true }).click();
     await expect.poll(() => agentApi.recoveryResolveRequests.length).toBe(1);
     expect(agentApi.recoveryResolveRequests[0]).toEqual({
@@ -357,7 +613,7 @@ test.describe('Agent Center – offline browser contract', () => {
     await expect(dialog).toContainText('eigenständigen Ersatz-Run');
     await dialog.getByLabel('Optionaler Auftrag für den neuen Run', { exact: true }).fill('Eigenständigen synthetischen Ersatz-Run ausführen');
     await dialog.locator('input[type="checkbox"]').check();
-    const dialogA11y = await new AxeBuilder({ page }).include('.recovery-dialog').withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
+    const dialogA11y = await new AxeBuilder({ page }).include('.recovery-dialog').withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa']).analyze();
     expect(dialogA11y.violations, dialogA11y.violations.map((item) => `${item.id}: ${item.help}`).join('\n')).toEqual([]);
     await dialog.getByRole('button', { name: 'Neuen Run verbindlich starten', exact: true }).click();
     await expect.poll(() => agentApi.recoveryResolveRequests.length).toBe(2);
@@ -400,7 +656,7 @@ test.describe('Agent Center – offline browser contract', () => {
     await expect(page.locator('.motion-note')).toHaveAttribute('data-reduced-motion', 'true');
     await expect(page.locator('.timeline-autoscroll input')).not.toBeChecked();
 
-    const result = await new AxeBuilder({ page }).include('main').withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
+    const result = await new AxeBuilder({ page }).include('main').withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa']).analyze();
     expect(result.violations, result.violations.map((item) => `${item.impact ?? 'unknown'} ${item.id}: ${item.help}`).join('\n')).toEqual([]);
   });
 

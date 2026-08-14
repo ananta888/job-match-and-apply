@@ -100,7 +100,7 @@ describe('ProcessSupervisor', () => {
     await handle.cancel('snapshot fallback canary');
     const result = await handle.completion;
     expect(result.termination).toBe('cancelled');
-    expect(result.error).toContain('Prozessbaum-Snapshot fehlgeschlagen');
+    expect(result.error).toBe('snapshot fallback canary');
   });
 
   it('kills a stubborn descendant process when the direct child exits on cancellation', async () => {

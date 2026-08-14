@@ -112,8 +112,11 @@ describe('ProcessSupervisor injected resource boundaries', () => {
     await expect(new HostProcessTreeResourceProbe('win32', windowsExecutor).sample(10))
       .resolves.toEqual({ residentMemoryBytes: 500, childProcessCount: 1 });
     expect(calls[0]?.executable).toMatch(/^[A-Za-z]:\\.*\\powershell\.exe$/i);
-    expect(calls[0]?.args).toEqual(expect.arrayContaining(['-NoProfile', '-NonInteractive', '-Command']));
-    expect(calls[0]?.args.at(-1)).toContain('SELECT ProcessId,ParentProcessId,WorkingSetSize FROM Win32_Process');
+    expect(calls[0]?.args).toEqual(expect.arrayContaining(['-NoProfile', '-NonInteractive', '-EncodedCommand']));
+    const decodedWindowsProbe = Buffer.from(calls[0]?.args.at(-1) ?? '', 'base64').toString('utf16le');
+    expect(decodedWindowsProbe).toContain('NtQueryInformationProcess');
+    expect(decodedWindowsProbe).toContain('GetProcessMemoryInfo');
+    expect(decodedWindowsProbe).not.toContain('Get-CimInstance');
 
     const posixExecutor: ProcessTableCommandExecutor = { async run(executable, args) {
       calls.push({ executable, args });

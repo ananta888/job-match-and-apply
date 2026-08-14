@@ -48,9 +48,23 @@ export interface ProcessTableEntry {
   residentMemoryBytes: number;
 }
 
-export interface ProcessTableCommandResult { exitCode: number | null; stdout: string; stderr: string; }
+export interface ProcessTableCommandResult {
+  exitCode: number | null;
+  stdout: string;
+  stderr: string;
+  /** True only when the fixed host command exceeded its executor deadline. */
+  timedOut?: boolean;
+}
+export interface ProcessTableCommandContext {
+  readonly supervisedRootPid: number;
+}
 export interface ProcessTableCommandExecutor {
-  run(executable: string, args: readonly string[], timeoutMs: number): Promise<ProcessTableCommandResult>;
+  run(
+    executable: string,
+    args: readonly string[],
+    timeoutMs: number,
+    context?: ProcessTableCommandContext,
+  ): Promise<ProcessTableCommandResult>;
 }
 
 class ProcessTreeRootNotVisibleError extends Error {
@@ -62,22 +76,41 @@ class ProcessTreeRootNotVisibleError extends Error {
 
 /** Fixed-command executor used only for OS process accounting; no run/client value reaches argv. */
 export class SpawnProcessTableCommandExecutor implements ProcessTableCommandExecutor {
-  async run(executable: string, args: readonly string[], timeoutMs: number): Promise<ProcessTableCommandResult> {
+  async run(
+    executable: string,
+    args: readonly string[],
+    timeoutMs: number,
+    context?: ProcessTableCommandContext,
+  ): Promise<ProcessTableCommandResult> {
+    const environment = context === undefined ? {} : processTableEnvironment(context);
     return new Promise((resolveResult) => {
       execFile(executable, [...args], {
         windowsHide: true,
         timeout: timeoutMs,
         maxBuffer: 8 * 1024 * 1024,
-        env: buildMinimalLocalChildEnvironment(),
+        env: { ...buildMinimalLocalChildEnvironment(), ...environment },
       }, (error, stdout, stderr) => {
         const errorCode = (error as { code?: unknown } | null)?.code;
         const exitCode = error
           ? typeof errorCode === 'number' ? errorCode : null
           : 0;
-        resolveResult({ exitCode, stdout: String(stdout), stderr: String(stderr) });
+        const timedOut = (error as { killed?: unknown } | null)?.killed === true || errorCode === 'ETIMEDOUT';
+        resolveResult({ exitCode, stdout: String(stdout), stderr: String(stderr), timedOut });
       });
     });
   }
+}
+
+function processTableEnvironment(context: ProcessTableCommandContext): NodeJS.ProcessEnv {
+  const keys = Reflect.ownKeys(context);
+  if (keys.length !== 1 || keys[0] !== 'supervisedRootPid') {
+    throw new Error('Prozesstabellen-Kontext enthaelt nicht erlaubte Eintraege.');
+  }
+  const rootPid = context.supervisedRootPid;
+  if (!Number.isSafeInteger(rootPid) || rootPid < 1 || rootPid > 0xffff_ffff) {
+    throw new Error('Prozesstabellen-Root-PID ist ungueltig.');
+  }
+  return { JOB_MATCH_SUPERVISED_ROOT_PID: String(rootPid) };
 }
 
 function safeProcessInteger(value: unknown, field: string): number {
@@ -121,9 +154,17 @@ export function summarizeProcessTree(rootPid: number, entries: readonly ProcessT
   return { residentMemoryBytes, childProcessCount: Math.max(0, visited.size - 1) };
 }
 
-const WINDOWS_PROCESS_TABLE_SCRIPT = String.raw`
+const WINDOWS_TOOLHELP_PROCESS_ROWS_SCRIPT = String.raw`
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
+$rootPidText = $env:JOB_MATCH_SUPERVISED_ROOT_PID
+if ($rootPidText -notmatch "^[1-9][0-9]*$") {
+  throw "Supervised root PID is invalid."
+}
+$rootPid = [long]$rootPidText
+if ($rootPid -gt [uint32]::MaxValue) {
+  throw "Supervised root PID is invalid."
+}
 $automationAssembly = [System.Management.Automation.PSObject].Assembly
 $platformType = $automationAssembly.GetType(
   "System.Management.Automation.PlatformInvokes",
@@ -150,18 +191,6 @@ try {
     throw "CreateToolhelp32Snapshot failed."
   }
 
-  $memoryByPid = @{}
-  foreach ($process in [System.Diagnostics.Process]::GetProcesses()) {
-    try {
-      $memoryByPid[[long]$process.Id] = [long]$process.WorkingSet64
-    } catch {
-      # A process may leave between enumeration and sampling. Its snapshot row
-      # remains useful for parentage and is conservatively recorded with 0 RSS.
-    } finally {
-      $process.Dispose()
-    }
-  }
-
   $pidField = $entryType.GetField("th32ProcessID")
   $parentPidField = $entryType.GetField("th32ParentProcessID")
   $sizeField = $entryType.GetField("dwSize")
@@ -172,34 +201,101 @@ try {
   )
   $arguments = [object[]]@($snapshot, $entry)
   $hasEntry = [bool]$processFirst.Invoke($null, $arguments)
-  $rows = [System.Collections.Generic.List[object]]::new()
+  $snapshotRows = [System.Collections.Generic.List[object]]::new()
   while ($hasEntry) {
     $entry = $arguments[1]
     $processId = [long]$pidField.GetValue($entry)
     if ($processId -gt 0) {
-      $workingSetSize = if ($memoryByPid.ContainsKey($processId)) {
-        [long]$memoryByPid[$processId]
-      } else {
-        [long]0
-      }
-      $rows.Add([PSCustomObject]@{
+      $snapshotRows.Add([PSCustomObject]@{
         ProcessId = $processId
         ParentProcessId = [long]$parentPidField.GetValue($entry)
-        WorkingSetSize = $workingSetSize
       })
     }
     $arguments[1] = $entry
     $hasEntry = [bool]$processNext.Invoke($null, $arguments)
   }
-  ConvertTo-Json -InputObject $rows -Compress
 } finally {
   $snapshot.Dispose()
 }
 `;
 
+const WINDOWS_SELECT_PROCESS_TREE_SCRIPT = String.raw`
+$rowByPid = @{}
+$childrenByParent = @{}
+foreach ($row in $snapshotRows) {
+  $rowByPid[$row.ProcessId] = $row
+  if (!$childrenByParent.ContainsKey($row.ParentProcessId)) {
+    $childrenByParent[$row.ParentProcessId] = [System.Collections.Generic.List[long]]::new()
+  }
+  $childrenByParent[$row.ParentProcessId].Add($row.ProcessId)
+}
+
+$pending = [System.Collections.Generic.Queue[long]]::new()
+$visited = [System.Collections.Generic.HashSet[long]]::new()
+$selectedRows = [System.Collections.Generic.List[object]]::new()
+$pending.Enqueue($rootPid)
+while ($pending.Count -gt 0) {
+  $selectedPid = $pending.Dequeue()
+  if (!$visited.Add($selectedPid)) {
+    continue
+  }
+  if (!$rowByPid.ContainsKey($selectedPid)) {
+    continue
+  }
+  $selectedRows.Add($rowByPid[$selectedPid])
+  if ($childrenByParent.ContainsKey($selectedPid)) {
+    foreach ($childPid in $childrenByParent[$selectedPid]) {
+      $pending.Enqueue($childPid)
+    }
+  }
+}
+`;
+
+const WINDOWS_PROCESS_TABLE_SCRIPT = `${WINDOWS_TOOLHELP_PROCESS_ROWS_SCRIPT}${WINDOWS_SELECT_PROCESS_TREE_SCRIPT}${String.raw`
+$rows = [System.Collections.Generic.List[object]]::new()
+foreach ($row in $selectedRows) {
+  $process = $null
+  try {
+    $process = [System.Diagnostics.Process]::GetProcessById([int]$row.ProcessId)
+    $workingSetSize = [long]$process.WorkingSet64
+  } catch [System.ArgumentException] {
+    # GetProcessById proves that this snapshot entry has already exited. Keep
+    # its zero-RSS edge so a still-live descendant cannot become unreachable
+    # from the supervised root in the Node-side tree aggregation.
+    $workingSetSize = [long]0
+  } finally {
+    if ($null -ne $process) {
+      $process.Dispose()
+    }
+  }
+  $rows.Add([PSCustomObject]@{
+    ProcessId = [long]$row.ProcessId
+    ParentProcessId = [long]$row.ParentProcessId
+    WorkingSetSize = $workingSetSize
+  })
+}
+ConvertTo-Json -InputObject $rows -Compress
+`}`;
+
+const WINDOWS_PROCESS_TREE_SCRIPT = `${WINDOWS_TOOLHELP_PROCESS_ROWS_SCRIPT}${WINDOWS_SELECT_PROCESS_TREE_SCRIPT}${String.raw`
+$rows = [System.Collections.Generic.List[object]]::new()
+foreach ($row in $selectedRows) {
+  $rows.Add([PSCustomObject]@{
+    ProcessId = [long]$row.ProcessId
+    ParentProcessId = [long]$row.ParentProcessId
+    WorkingSetSize = [long]0
+  })
+}
+ConvertTo-Json -InputObject $rows -Compress
+`}`;
+
 const WINDOWS_PROCESS_TABLE_COMMAND = [
   '-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand',
   Buffer.from(WINDOWS_PROCESS_TABLE_SCRIPT, 'utf16le').toString('base64'),
+] as const;
+const WINDOWS_PROCESS_TREE_COMMAND = [
+  '-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand',
+  Buffer.from(WINDOWS_PROCESS_TREE_SCRIPT, 'utf16le').toString('base64'),
 ] as const;
 const WINDOWS_RESOURCE_PROBE_TIMEOUT_MS = 5_000;
 const POSIX_RESOURCE_PROBE_TIMEOUT_MS = 5_000;
@@ -210,6 +306,17 @@ function windowsSystemExecutable(name: 'powershell.exe' | 'taskkill.exe'): strin
   return name === 'powershell.exe'
     ? win32.join(root, 'System32', 'WindowsPowerShell', 'v1.0', name)
     : win32.join(root, 'System32', name);
+}
+
+function windowsRootProcessContext(rootPid: number): ProcessTableCommandContext {
+  const normalizedRootPid = safeProcessInteger(rootPid, 'rootPid');
+  if (normalizedRootPid < 1 || normalizedRootPid > 0xffff_ffff) throw new Error('Root-PID ist ungueltig.');
+  return { supervisedRootPid: normalizedRootPid };
+}
+
+function processTableFailure(result: ProcessTableCommandResult, timeoutMs: number, context: string): Error {
+  if (result.timedOut === true) return new Error(`${context}: Zeitlimit von ${timeoutMs} ms ueberschritten.`);
+  return new Error(`${context}: ${result.stderr.trim().slice(0, 512)}`);
 }
 
 function parseWindowsProcessTable(stdout: string): ProcessTableEntry[] {
@@ -255,8 +362,14 @@ async function snapshotWindowsProcessTree(
   // Cleanup has to fit inside ordinary request/test deadlines. If the Windows
   // process table is cold or unavailable, the caller immediately falls back
   // to forceful taskkill /T while the root PID still owns its descendants.
-  const result = await executor.run(windowsSystemExecutable('powershell.exe'), WINDOWS_PROCESS_TABLE_COMMAND, 2_000);
-  if (result.exitCode !== 0) throw new Error(`Windows-Prozessbaum konnte nicht gelesen werden: ${result.stderr.trim().slice(0, 512)}`);
+  const timeoutMs = 2_000;
+  const result = await executor.run(
+    windowsSystemExecutable('powershell.exe'),
+    WINDOWS_PROCESS_TREE_COMMAND,
+    timeoutMs,
+    windowsRootProcessContext(rootPid),
+  );
+  if (result.exitCode !== 0) throw processTableFailure(result, timeoutMs, 'Windows-Prozessbaum konnte nicht gelesen werden');
   return processTreeIds(rootPid, parseWindowsProcessTable(result.stdout));
 }
 
@@ -294,8 +407,9 @@ export class HostProcessTreeResourceProbe implements ResourceProbe {
     const timeoutMs = this.platform === 'win32'
       ? WINDOWS_RESOURCE_PROBE_TIMEOUT_MS
       : POSIX_RESOURCE_PROBE_TIMEOUT_MS;
-    const result = await this.executor.run(command.executable, command.args, timeoutMs);
-    if (result.exitCode !== 0) throw new Error(`Prozesstabelle konnte nicht gelesen werden: ${result.stderr.trim().slice(0, 512)}`);
+    const context = this.platform === 'win32' ? windowsRootProcessContext(rootPid) : undefined;
+    const result = await this.executor.run(command.executable, command.args, timeoutMs, context);
+    if (result.exitCode !== 0) throw processTableFailure(result, timeoutMs, 'Prozesstabelle konnte nicht gelesen werden');
     const entries = this.platform === 'win32' ? parseWindowsProcessTable(result.stdout) : parsePosixProcessTable(result.stdout);
     return summarizeProcessTree(rootPid, entries);
   }

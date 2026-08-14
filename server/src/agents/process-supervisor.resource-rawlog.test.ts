@@ -7,8 +7,10 @@ import {
   classifyProcessResourceUsage,
   HostProcessTreeResourceProbe,
   ProcessSupervisor,
+  SpawnProcessTableCommandExecutor,
   summarizeProcessTree,
   type ProcessTableCommandExecutor,
+  type ProcessTableCommandContext,
   type ResourceProbe,
 } from './process-supervisor.js';
 
@@ -101,9 +103,14 @@ describe('ProcessSupervisor injected resource boundaries', () => {
   });
 
   it('uses fixed platform commands and normalizes Windows and POSIX RSS units', async () => {
-    const calls: Array<{ executable: string; args: readonly string[]; timeoutMs: number }> = [];
-    const windowsExecutor: ProcessTableCommandExecutor = { async run(executable, args, timeoutMs) {
-      calls.push({ executable, args, timeoutMs });
+    const calls: Array<{
+      executable: string;
+      args: readonly string[];
+      timeoutMs: number;
+      context?: ProcessTableCommandContext;
+    }> = [];
+    const windowsExecutor: ProcessTableCommandExecutor = { async run(executable, args, timeoutMs, context) {
+      calls.push({ executable, args, timeoutMs, context });
       return { exitCode: 0, stdout: JSON.stringify([
         { ProcessId: 10, ParentProcessId: 1, WorkingSetSize: '200' },
         { ProcessId: 11, ParentProcessId: 10, WorkingSetSize: 300 },
@@ -113,26 +120,55 @@ describe('ProcessSupervisor injected resource boundaries', () => {
       .resolves.toEqual({ residentMemoryBytes: 500, childProcessCount: 1 });
     expect(calls[0]?.executable).toMatch(/^[A-Za-z]:\\.*\\powershell\.exe$/i);
     expect(calls[0]?.timeoutMs).toBe(5_000);
-    expect(calls[0]?.args).toEqual(expect.arrayContaining(['-NoProfile', '-NonInteractive', '-EncodedCommand']));
+    expect(calls[0]?.context).toEqual({ supervisedRootPid: 10 });
+    expect(calls[0]?.args.slice(0, -1)).toEqual(['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand']);
     const decodedWindowsProbe = Buffer.from(calls[0]?.args.at(-1) ?? '', 'base64').toString('utf16le');
+    expect(decodedWindowsProbe).toContain('$env:JOB_MATCH_SUPERVISED_ROOT_PID');
     expect(decodedWindowsProbe).toContain('System.Management.Automation.PlatformInvokes');
     expect(decodedWindowsProbe).toContain('CreateToolhelp32Snapshot');
     expect(decodedWindowsProbe).toContain('Process32First');
-    expect(decodedWindowsProbe).toContain('System.Diagnostics.Process]::GetProcesses()');
+    expect(decodedWindowsProbe).toContain('System.Diagnostics.Process]::GetProcessById');
+    expect(decodedWindowsProbe).not.toContain('System.Diagnostics.Process]::GetProcesses()');
+    expect(decodedWindowsProbe).not.toContain('$args');
     expect(decodedWindowsProbe).not.toContain('Add-Type');
     expect(decodedWindowsProbe).not.toContain('Get-CimInstance');
     expect(decodedWindowsProbe).not.toContain('ManagementObjectSearcher');
     expect(decodedWindowsProbe).not.toContain('NtQueryInformationProcess');
 
-    const posixExecutor: ProcessTableCommandExecutor = { async run(executable, args, timeoutMs) {
-      calls.push({ executable, args, timeoutMs });
+    const posixExecutor: ProcessTableCommandExecutor = { async run(executable, args, timeoutMs, context) {
+      calls.push({ executable, args, timeoutMs, context });
       return { exitCode: 0, stdout: '10 1 2\n11 10 3\n', stderr: '' };
     } };
     await expect(new HostProcessTreeResourceProbe('linux', posixExecutor).sample(10))
       .resolves.toEqual({ residentMemoryBytes: 5 * 1024, childProcessCount: 1 });
     expect(calls[1]).toEqual({
-      executable: '/usr/bin/ps', args: ['-axo', 'pid=,ppid=,rss='], timeoutMs: 5_000,
+      executable: '/usr/bin/ps', args: ['-axo', 'pid=,ppid=,rss='], timeoutMs: 5_000, context: undefined,
     });
+  });
+
+  it('forwards only the validated server-owned Windows root PID environment entry', async () => {
+    const executor = new SpawnProcessTableCommandExecutor();
+    const context = { supervisedRootPid: 1234 } as const;
+    const result = await executor.run(process.execPath, [
+      '-e',
+      'process.stdout.write(process.env.JOB_MATCH_SUPERVISED_ROOT_PID ?? "missing")',
+    ], 5_000, context);
+    expect(result).toEqual(expect.objectContaining({ exitCode: 0, stdout: '1234', timedOut: false }));
+
+    const unexpected = { ...context, clientControlled: 'blocked' } as unknown as ProcessTableCommandContext;
+    await expect(executor.run(process.execPath, ['-e', 'process.exit(0)'], 5_000, unexpected))
+      .rejects.toThrow('nicht erlaubte Eintraege');
+    await expect(executor.run(process.execPath, ['-e', 'process.exit(0)'], 5_000, {
+      supervisedRootPid: Number.NaN,
+    })).rejects.toThrow('Root-PID ist ungueltig');
+  });
+
+  it('classifies an executor timeout explicitly', async () => {
+    const timedOut: ProcessTableCommandExecutor = { async run() {
+      return { exitCode: null, stdout: '', stderr: '', timedOut: true };
+    } };
+    await expect(new HostProcessTreeResourceProbe('win32', timedOut).sample(10))
+      .rejects.toThrow('Zeitlimit von 5000 ms ueberschritten');
   });
 
   it('fails closed for malformed tables, unsupported hosts, and a missing root process', async () => {
@@ -186,10 +222,17 @@ describe('ProcessSupervisor injected resource boundaries', () => {
         ? [{ ProcessId: 1, ParentProcessId: 0, WorkingSetSize: 1 }]
         : [{ ProcessId: rootPid, ParentProcessId: 1, WorkingSetSize: 101 }]), stderr: '' };
     } };
-    const cleanupExecutor: ProcessTableCommandExecutor = { async run(_executable, _args, timeoutMs) {
+    const cleanupExecutor: ProcessTableCommandExecutor = { async run(executable, args, timeoutMs, context) {
       expect(timeoutMs).toBe(2_000);
+      expect(executable).toMatch(/^[A-Za-z]:\\.*\\powershell\.exe$/i);
+      expect(context).toEqual({ supervisedRootPid: rootPid });
+      expect(args.slice(0, -1)).toEqual(['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand']);
+      const decodedCleanupProbe = Buffer.from(args.at(-1) ?? '', 'base64').toString('utf16le');
+      expect(decodedCleanupProbe).toContain('CreateToolhelp32Snapshot');
+      expect(decodedCleanupProbe).not.toContain('GetProcessById');
+      expect(decodedCleanupProbe).not.toContain('WorkingSet64');
       return { exitCode: 0, stdout: JSON.stringify([
-        { ProcessId: rootPid, ParentProcessId: 1, WorkingSetSize: 101 },
+        { ProcessId: rootPid, ParentProcessId: 1, WorkingSetSize: 0 },
       ]), stderr: '' };
     } };
     const cwd = await temporaryRoot('supervisor-visibility-lag-');

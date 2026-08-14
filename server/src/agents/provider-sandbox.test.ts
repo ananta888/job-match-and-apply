@@ -68,6 +68,11 @@ describe('WslBubblewrapSandboxBoundary', () => {
       installation, providerExecutable: '/usr/local/bin/opencode', providerArgs: [], workspaceRoot: '/mnt/c/work',
       sandbox: 'read-only', network: 'disabled'
     })).rejects.toThrow('backend_unavailable');
+    await expect(available.plan({
+      installation: { ...installation, executable: '/usr/bin/wsl.exe' },
+      providerExecutable: '/usr/local/bin/opencode', providerArgs: [], workspaceRoot: '/mnt/c/work',
+      sandbox: 'read-only', network: 'disabled'
+    })).rejects.toThrow('host_executable_must_be_absolute');
   });
 });
 

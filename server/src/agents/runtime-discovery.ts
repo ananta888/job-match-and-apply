@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { access, realpath } from 'node:fs/promises';
 import { constants } from 'node:fs';
-import { delimiter, isAbsolute, posix, resolve, win32 } from 'node:path';
+import { isAbsolute, posix, resolve, win32 } from 'node:path';
 import type { AgentProviderInstallation, RuntimeTarget } from '../ports/agent-runner.js';
 import { buildMinimalLocalChildEnvironment } from '../services/process-environment.js';
 
@@ -57,9 +57,18 @@ function supportFor(version: string | undefined, definition: ProviderDiscoveryDe
   return { support: 'untested', reason: 'Installierte Version besitzt noch keine freigegebene Contract-Fixture.' };
 }
 
+function isFullyQualifiedWindowsPath(value: string): boolean {
+  if (!win32.isAbsolute(value)) return false;
+  const root = win32.parse(value).root;
+  if (/^[A-Za-z]:[\\/]$/.test(root)) return true;
+  if (!root.startsWith('\\\\') || root.startsWith('\\\\?\\') || root.startsWith('\\\\.\\')) return false;
+  return root.split(/[\\/]+/).filter(Boolean).length === 2;
+}
+
 async function executableCandidates(name: string, env: NodeJS.ProcessEnv, platform: NodeJS.Platform): Promise<string[]> {
-  if (isAbsolute(name)) return [name];
-  const pathEntries = (env.PATH ?? env.Path ?? '').split(delimiter).filter(Boolean);
+  const pathContract = platform === 'win32' ? win32 : posix;
+  if (pathContract.isAbsolute(name)) return [pathContract.normalize(name)];
+  const pathEntries = (env.PATH ?? env.Path ?? '').split(pathContract.delimiter).filter(Boolean);
   const extensions = platform === 'win32'
     ? (env.PATHEXT ?? '.EXE;.COM;.CMD;.BAT').split(';').map((value) => value.toLowerCase())
     : [''];
@@ -69,7 +78,7 @@ async function executableCandidates(name: string, env: NodeJS.ProcessEnv, platfo
   const found: string[] = [];
   for (const directory of pathEntries) {
     for (const candidateName of names) {
-      const candidate = resolve(directory.replace(/^"|"$/g, ''), candidateName);
+      const candidate = pathContract.resolve(directory.replace(/^"|"$/g, ''), candidateName);
       try { await access(candidate, platform === 'win32' ? constants.F_OK : constants.X_OK); found.push(await realpath(candidate)); }
       catch { /* not installed at this path */ }
     }
@@ -138,7 +147,7 @@ export class AgentRuntimeDiscovery {
   }
 
   async windowsPathToWsl(windowsPath: string, distribution: string, wslExecutable = 'wsl.exe'): Promise<string> {
-    if (!isAbsolute(windowsPath)) throw new Error('Windows-Pfad muss absolut sein.');
+    if (!isFullyQualifiedWindowsPath(windowsPath)) throw new Error('Windows-Pfad muss absolut sein.');
     const result = await this.executor.run(wslExecutable, ['-d', distribution, '--', 'wslpath', '-a', '-u', windowsPath]);
     const mapped = result.stdout.trim();
     if (result.exitCode !== 0 || !mapped.startsWith('/')) throw new Error(`WSL-Pfadabbildung fehlgeschlagen: ${result.stderr.trim()}`);

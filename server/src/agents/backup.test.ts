@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -63,7 +63,7 @@ describe('atomic backup and restore workflow', () => {
   it('creates a self-validating bundle and performs a write-free restore dry run', async () => {
     const { source, bundle, target } = await fixture();
     const created = await createAgentBackupBundle(source, bundle, files, new Date('2026-08-13T00:00:00Z'));
-    expect(created.bundleRoot).toBe(bundle);
+    expect(created.bundleRoot).toBe(await realpath(bundle));
     expect(await validateAgentBackupBundle(bundle)).toMatchObject({ valid: true, checked: 2 });
     expect((await readAgentBackupManifest(bundle)).manifestSha256).toMatch(/^[a-f0-9]{64}$/);
     await expect(readFile(target)).rejects.toMatchObject({ code: 'ENOENT' });

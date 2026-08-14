@@ -51,6 +51,22 @@ describe('AgentRuntimeDiscovery', () => {
       return { exitCode: 0, stdout: '/mnt/c/Work\n', stderr: '' };
     } };
     await expect(new AgentRuntimeDiscovery(executor).windowsPathToWsl('C:\\Work', 'Ubuntu')).resolves.toBe('/mnt/c/Work');
+    await expect(new AgentRuntimeDiscovery(executor).windowsPathToWsl('/tmp/not-a-windows-path', 'Ubuntu'))
+      .rejects.toThrow('Windows-Pfad muss absolut sein');
+  });
+
+  it('uses the declared Windows path contract when discovery runs on another host', async () => {
+    const executable = 'C:\\Tools\\synthetic-agent.exe';
+    const calls: string[] = [];
+    const executor: DiscoveryCommandExecutor = { async run(candidate) {
+      calls.push(candidate);
+      return { exitCode: 0, stdout: 'synthetic 1.0.0\n', stderr: '' };
+    } };
+    const found = await new AgentRuntimeDiscovery(executor).discoverLocal({
+      ...definition, executableNames: [executable]
+    }, {}, 'win32');
+    expect(calls).toEqual([executable]);
+    expect(found).toEqual([expect.objectContaining({ executable, runtimeTarget: 'windows', support: 'supported' })]);
   });
 });
 

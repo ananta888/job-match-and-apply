@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -33,8 +33,9 @@ describe('WorkspaceRegistry', () => {
     await writeFile(join(root, 'src', 'a.txt'), 'safe');
     const registry = new WorkspaceRegistry();
     await registry.register({ id: 'repo', root, accessMode: 'read_write' });
-    expect(await registry.resolvePath('repo', 'src/a.txt')).toBe(resolve(root, 'src', 'a.txt'));
-    expect(await registry.resolvePath('repo', 'new/file.txt', 'read_write', false)).toBe(resolve(root, 'new', 'file.txt'));
+    const canonicalRoot = await realpath(root);
+    expect(await registry.resolvePath('repo', 'src/a.txt')).toBe(await realpath(join(root, 'src', 'a.txt')));
+    expect(await registry.resolvePath('repo', 'new/file.txt', 'read_write', false)).toBe(resolve(canonicalRoot, 'new', 'file.txt'));
     await expect(registry.resolvePath('repo', '../secret.txt', 'read_only', false)).rejects.toThrow('workspace_path_escape');
     await expect(registry.resolvePath('repo', 'C:\\Windows\\System32')).rejects.toThrow('workspace_path_must_be_relative');
   });
@@ -74,8 +75,9 @@ describe('ExecutableAllowlist', () => {
       providerId: 'node', runtimeTarget: process.platform === 'win32' ? 'windows' : 'wsl', workspaceId: 'repo',
       sandboxProfile: 'read_only_offline', slots: { mode: 'safe', prompt: 'prompt.txt' },
     });
-    expect(launch).toMatchObject({ executable: process.execPath, shell: false, cwd: resolve(root) });
-    expect(launch.argv).toEqual(['--version', 'safe', resolve(root, 'prompt.txt')]);
+    const canonicalRoot = await realpath(root);
+    expect(launch).toMatchObject({ executable: process.execPath, shell: false, cwd: canonicalRoot });
+    expect(launch.argv).toEqual(['--version', 'safe', await realpath(join(root, 'prompt.txt'))]);
   });
 
   it('rejects browser-selected executables, undeclared slots and option injection', async () => {

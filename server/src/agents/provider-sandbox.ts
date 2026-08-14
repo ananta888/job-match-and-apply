@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { lstat, readFile } from 'node:fs/promises';
-import { dirname, isAbsolute as isNativeAbsolute, join, posix } from 'node:path';
+import { dirname, isAbsolute as isNativeAbsolute, join, posix, win32 } from 'node:path';
 import { promisify } from 'node:util';
 import type { AgentProviderInstallation, SandboxPolicy } from '../ports/agent-runner.js';
 import { buildMinimalLocalChildEnvironment } from '../services/process-environment.js';
@@ -80,12 +80,17 @@ function safeDistribution(value: string | undefined): value is string {
   return Boolean(value && /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(value));
 }
 
+function isDriveQualifiedWindowsPath(value: string): boolean {
+  const root = win32.parse(value).root;
+  return win32.isAbsolute(value) && /^[A-Za-z]:[\\/]$/.test(root);
+}
+
 /**
  * Executes a fixed, shell-free availability probe. A provider is never started
  * when the local WSL distribution cannot prove that Bubblewrap is executable.
  */
 export const probeWslBubblewrap: WslBubblewrapProbe = async (installation) => {
-  if (installation.runtimeTarget !== 'wsl' || !safeDistribution(installation.distribution) || !isNativeAbsolute(installation.executable)) return false;
+  if (installation.runtimeTarget !== 'wsl' || !safeDistribution(installation.distribution) || !isDriveQualifiedWindowsPath(installation.executable)) return false;
   try {
     await execFileAsync(installation.executable, [
       '-d', installation.distribution, '--', 'bwrap', '--die-with-parent', '--new-session',
@@ -112,7 +117,10 @@ export class WslBubblewrapSandboxBoundary implements ExternalSandboxBoundary {
     const { installation } = request;
     if (installation.runtimeTarget !== 'wsl') throw new Error('external_sandbox_requires_wsl');
     if (!safeDistribution(installation.distribution)) throw new Error('external_sandbox_distribution_invalid');
-    if (!isNativeAbsolute(installation.executable)) throw new Error('external_sandbox_host_executable_must_be_absolute');
+    // WSL is a Windows-host runtime contract even when this pure planning code
+    // is exercised by the Ubuntu CI job. Never interpret its executable with
+    // the path rules of the machine running the test.
+    if (!isDriveQualifiedWindowsPath(installation.executable)) throw new Error('external_sandbox_host_executable_must_be_absolute');
     if (!posix.isAbsolute(request.providerExecutable) || !posix.isAbsolute(request.workspaceRoot)) {
       throw new Error('external_sandbox_wsl_paths_must_be_absolute');
     }

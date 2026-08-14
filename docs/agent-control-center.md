@@ -224,10 +224,13 @@ weiterhin.
 - Mehrprozess-Exactly-once, eine allgemeine Run-Store-Migrationsstrecke und eine extern
   manipulationssichere Audit-Chain sind nicht vorhanden.
 - Der Backup-/Restore-Helper ist getestet, aber noch nicht als Angular-/CLI-Betriebsstrecke
-  verdrahtet. Plattformspezifische Memory-/Kindprozess-Probes sind im normalen Produktstart nicht
-  konfiguriert.
-- Eine vollständige Releasefreigabe benötigt weiterhin eine reproduzierbare Windows-/Ubuntu-CI-
-  Matrix, Chaosfälle wie Disk-full/Key-loss und veröffentlichte Submodule-Commits.
+  verdrahtet.
+- Memory- und Kindprozesslimits verwenden plattformspezifische, zeitbegrenzte Stichproben. Auf
+  Windows liest ein fester compilerfreier Toolhelp32-Prozess den Root-Prozess und seine
+  Nachkommen. Blockiert der Host diese Abfrage, läuft der Agent nicht unbeschränkt weiter: Er
+  endet mit `resource_probe_error` und der Prozessbaum wird beendet. Die Stichprobe ist jedoch
+  kein Windows Job Object und daher keine adversarial-harte Lifetime-Grenze gegen bereits vor
+  dem Snapshot verwaiste Nachkommen oder PID-Reuse.
 
 Weitere Betriebsdetails stehen in [operations.md](operations.md), die Sicherheitsannahmen in
 [agent-threat-model.md](agent-threat-model.md) und die Verträge in [contracts.md](contracts.md).

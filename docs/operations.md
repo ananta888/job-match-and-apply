@@ -138,6 +138,17 @@ ein unverschlüsseltes camelCase-`userPrompt` und einen Run-Snapshot, dessen `fa
 historisch falschen Event-AAD nicht lesbar ist. Eine allgemeine Schema-Migrationsstrecke ist das
 nicht.
 
+Sind Speicher- oder Kindprozesslimits aktiv, misst der Supervisor den Prozessbaum in festen,
+zeitbegrenzten Intervallen. Linux/macOS verwenden `ps`; Windows verwendet einen festen
+`powershell.exe -EncodedCommand` ohne Profil, Shell-Interpolation, WMI/CIM oder Compiler. Das
+Toolhelp32-Snapshot öffnet Speicherinformationen nur für die serverseitig gebundene Root-PID und
+deren Nachkommen. Kann die Windows-Prozesstabelle nicht innerhalb von fünf Sekunden gelesen
+werden, wird der Run mit `resource_probe_error` beendet und der Baum über den separaten
+speicherfreien Snapshot beziehungsweise `taskkill /T /F` bereinigt. Das Limit wird nie still
+deaktiviert. Die Windows-Messung bleibt eine Stichprobe und ersetzt kein Kernel-Job-Object; für
+bereits vor einem Snapshot verwaiste Prozesse und PID-Reuse gilt daher die in der Release-Matrix
+dokumentierte Restgrenze.
+
 Backups des Agentensystems müssen Run-Vault, Schlüssel, Eventindex und referenzierte
 Arbeitsartefakte gemeinsam umfassen. Der vorhandene Helper erzeugt atomare Bundles, validiert
 Hashes und Schlüsselmaterial, führt schreibfreie Dry-runs aus und restauriert nur in eine exakt

@@ -11,6 +11,7 @@ import {
   summarizeProcessTree,
   type ProcessTableCommandExecutor,
   type ProcessTableCommandContext,
+  type ProcessResult,
   type ResourceProbe,
 } from './process-supervisor.js';
 
@@ -21,6 +22,39 @@ async function temporaryRoot(prefix: string): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), prefix));
   roots.push(root);
   return root;
+}
+
+function processExists(pid: number): boolean {
+  try { process.kill(pid, 0); return true; }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ESRCH') return false;
+    if ((error as NodeJS.ErrnoException).code === 'EPERM') return true;
+    throw error;
+  }
+}
+
+async function expectProcessGone(pid: number): Promise<void> {
+  expect(pid).toBeGreaterThan(0);
+  const deadline = Date.now() + 1_000;
+  while (processExists(pid) && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  expect(processExists(pid)).toBe(false);
+}
+
+function expectMeasuredLimitOrWindowsFailClosed(
+  result: ProcessResult,
+  expected: 'memory_limit' | 'child_process_limit',
+): boolean {
+  if (result.termination === expected) return true;
+  expect(process.platform).toBe('win32');
+  expect(result.termination).toBe('resource_probe_error');
+  expect(result.error).toBe(
+    'ResourceProbe fehlgeschlagen: Prozesstabelle konnte nicht gelesen werden: '
+    + 'Zeitlimit von 5000 ms ueberschritten.',
+  );
+  expect(result.lastResourceUsage).toBeUndefined();
+  return false;
 }
 
 describe('ProcessSupervisor optional raw-log rotation', () => {
@@ -285,6 +319,7 @@ describe('ProcessSupervisor injected resource boundaries', () => {
 
   it.runIf(['win32', 'linux', 'darwin'].includes(process.platform))('enforces a real host process-table sample', async () => {
     const cwd = await temporaryRoot('supervisor-host-probe-');
+    let rootPid = 0;
     const result = await new ProcessSupervisor().start({
       executable: process.execPath,
       args: ['-e', 'setInterval(() => {}, 1000)'],
@@ -297,14 +332,17 @@ describe('ProcessSupervisor injected resource boundaries', () => {
         idleTimeMs: 15_000,
         cancelGraceMs: 100,
       },
-    }).completion;
+    }, { onStart: (pid) => { rootPid = pid; } }).completion;
 
-    expect(result.termination).toBe('memory_limit');
-    expect(result.lastResourceUsage?.residentMemoryBytes).toBeGreaterThan(1);
+    if (expectMeasuredLimitOrWindowsFailClosed(result, 'memory_limit')) {
+      expect(result.lastResourceUsage?.residentMemoryBytes).toBeGreaterThan(1);
+    }
+    await expectProcessGone(rootPid);
   }, 20_000);
 
   it.runIf(['win32', 'linux', 'darwin'].includes(process.platform))('detects and cleans up a real descendant over the child-process ceiling', async () => {
     const cwd = await temporaryRoot('supervisor-host-child-probe-');
+    let rootPid = 0;
     let descendantPidText = '';
     const result = await new ProcessSupervisor().start({
       executable: process.execPath,
@@ -323,14 +361,18 @@ describe('ProcessSupervisor injected resource boundaries', () => {
         idleTimeMs: 15_000,
         cancelGraceMs: 100,
       },
-    }, { onStdout: (chunk) => { descendantPidText += chunk; } }).completion;
+    }, {
+      onStart: (pid) => { rootPid = pid; },
+      onStdout: (chunk) => { descendantPidText += chunk; },
+    }).completion;
 
-    expect(result.termination, result.error).toBe('child_process_limit');
-    expect(result.lastResourceUsage?.childProcessCount).toBeGreaterThan(0);
+    if (expectMeasuredLimitOrWindowsFailClosed(result, 'child_process_limit')) {
+      expect(result.lastResourceUsage?.childProcessCount).toBeGreaterThan(0);
+    }
     const descendantPid = Number(descendantPidText);
     expect(descendantPid).toBeGreaterThan(0);
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(() => process.kill(descendantPid, 0)).toThrow();
+    await expectProcessGone(rootPid);
+    await expectProcessGone(descendantPid);
   }, 20_000);
 
   it('fails closed for a missing, throwing, or invalid resource probe', async () => {

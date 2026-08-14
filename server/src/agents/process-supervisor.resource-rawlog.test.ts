@@ -112,13 +112,14 @@ describe('ProcessSupervisor injected resource boundaries', () => {
     await expect(new HostProcessTreeResourceProbe('win32', windowsExecutor).sample(10))
       .resolves.toEqual({ residentMemoryBytes: 500, childProcessCount: 1 });
     expect(calls[0]?.executable).toMatch(/^[A-Za-z]:\\.*\\powershell\.exe$/i);
-    expect(calls[0]?.timeoutMs).toBe(12_000);
+    expect(calls[0]?.timeoutMs).toBe(5_000);
     expect(calls[0]?.args).toEqual(expect.arrayContaining(['-NoProfile', '-NonInteractive', '-EncodedCommand']));
     const decodedWindowsProbe = Buffer.from(calls[0]?.args.at(-1) ?? '', 'base64').toString('utf16le');
-    expect(decodedWindowsProbe).toContain('NtQueryInformationProcess');
-    expect(decodedWindowsProbe).toContain('GetProcessMemoryInfo');
-    expect(decodedWindowsProbe).toContain('PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ');
+    expect(decodedWindowsProbe).toContain('System.Management.ManagementObjectSearcher');
+    expect(decodedWindowsProbe).toContain('SELECT ProcessId,ParentProcessId,WorkingSetSize FROM Win32_Process');
+    expect(decodedWindowsProbe).not.toContain('Add-Type');
     expect(decodedWindowsProbe).not.toContain('Get-CimInstance');
+    expect(decodedWindowsProbe).not.toContain('NtQueryInformationProcess');
 
     const posixExecutor: ProcessTableCommandExecutor = { async run(executable, args, timeoutMs) {
       calls.push({ executable, args, timeoutMs });

@@ -121,116 +121,38 @@ export function summarizeProcessTree(rootPid: number, entries: readonly ProcessT
   return { residentMemoryBytes, childProcessCount: Math.max(0, visited.size - 1) };
 }
 
-const WINDOWS_NATIVE_PROCESS_TABLE_SCRIPT = String.raw`
+const WINDOWS_PROCESS_TABLE_SCRIPT = String.raw`
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
-Add-Type -TypeDefinition @"
-using System;
-using System.Collections.Generic;
-using System.Diagnostics;
-using System.Runtime.InteropServices;
-
-public sealed class NativeProcessTableRow {
-  public int ProcessId { get; set; }
-  public int ParentProcessId { get; set; }
-  public ulong WorkingSetSize { get; set; }
-}
-
-public static class NativeProcessTable {
-  private const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
-  private const uint PROCESS_VM_READ = 0x0010;
-
-  [StructLayout(LayoutKind.Sequential)]
-  private struct PROCESS_BASIC_INFORMATION {
-    public IntPtr Reserved1;
-    public IntPtr PebBaseAddress;
-    public IntPtr Reserved2_0;
-    public IntPtr Reserved2_1;
-    public IntPtr UniqueProcessId;
-    public IntPtr InheritedFromUniqueProcessId;
-  }
-
-  [StructLayout(LayoutKind.Sequential)]
-  private struct PROCESS_MEMORY_COUNTERS {
-    public uint cb;
-    public uint PageFaultCount;
-    public UIntPtr PeakWorkingSetSize;
-    public UIntPtr WorkingSetSize;
-    public UIntPtr QuotaPeakPagedPoolUsage;
-    public UIntPtr QuotaPagedPoolUsage;
-    public UIntPtr QuotaPeakNonPagedPoolUsage;
-    public UIntPtr QuotaNonPagedPoolUsage;
-    public UIntPtr PagefileUsage;
-    public UIntPtr PeakPagefileUsage;
-  }
-
-  [DllImport("kernel32.dll", SetLastError = true)]
-  private static extern IntPtr OpenProcess(uint desiredAccess, bool inheritHandle, int processId);
-
-  [DllImport("kernel32.dll")]
-  [return: MarshalAs(UnmanagedType.Bool)]
-  private static extern bool CloseHandle(IntPtr handle);
-
-  [DllImport("ntdll.dll")]
-  private static extern int NtQueryInformationProcess(
-    IntPtr processHandle,
-    int processInformationClass,
-    ref PROCESS_BASIC_INFORMATION processInformation,
-    int processInformationLength,
-    out int returnLength);
-
-  [DllImport("psapi.dll", SetLastError = true)]
-  [return: MarshalAs(UnmanagedType.Bool)]
-  private static extern bool GetProcessMemoryInfo(
-    IntPtr process,
-    out PROCESS_MEMORY_COUNTERS counters,
-    uint size);
-
-  public static NativeProcessTableRow[] Capture() {
-    var rows = new List<NativeProcessTableRow>();
-    foreach (var process in Process.GetProcesses()) {
-      IntPtr handle = IntPtr.Zero;
-      try {
-        int pid = process.Id;
-        handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ, false, pid);
-        if (handle == IntPtr.Zero) continue;
-        var basic = new PROCESS_BASIC_INFORMATION();
-        int returned;
-        if (NtQueryInformationProcess(
-          handle,
-          0,
-          ref basic,
-          Marshal.SizeOf(typeof(PROCESS_BASIC_INFORMATION)),
-          out returned) != 0) continue;
-        long parent = basic.InheritedFromUniqueProcessId.ToInt64();
-        if (parent < 0 || parent > Int32.MaxValue) continue;
-        var memory = new PROCESS_MEMORY_COUNTERS();
-        memory.cb = (uint)Marshal.SizeOf(typeof(PROCESS_MEMORY_COUNTERS));
-        if (!GetProcessMemoryInfo(handle, out memory, memory.cb)) continue;
-        rows.Add(new NativeProcessTableRow {
-          ProcessId = pid,
-          ParentProcessId = (int)parent,
-          WorkingSetSize = memory.WorkingSetSize.ToUInt64()
-        });
-      } catch {
-        // Processes can exit or deny inspection between enumeration and open.
-      } finally {
-        if (handle != IntPtr.Zero) CloseHandle(handle);
-        process.Dispose();
+$searcher = [System.Management.ManagementObjectSearcher]::new(
+  "SELECT ProcessId,ParentProcessId,WorkingSetSize FROM Win32_Process"
+)
+$collection = $null
+try {
+  $collection = $searcher.Get()
+  $rows = @(
+    foreach ($process in $collection) {
+      [PSCustomObject]@{
+        ProcessId = [long]($process.GetPropertyValue("ProcessId"))
+        ParentProcessId = [long]($process.GetPropertyValue("ParentProcessId"))
+        WorkingSetSize = [long]($process.GetPropertyValue("WorkingSetSize"))
       }
     }
-    return rows.ToArray();
+  )
+  ConvertTo-Json -InputObject $rows -Compress
+} finally {
+  if ($null -ne $collection) {
+    $collection.Dispose()
   }
+  $searcher.Dispose()
 }
-"@
-ConvertTo-Json -InputObject @([NativeProcessTable]::Capture()) -Compress
 `;
 
 const WINDOWS_PROCESS_TABLE_COMMAND = [
   '-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand',
-  Buffer.from(WINDOWS_NATIVE_PROCESS_TABLE_SCRIPT, 'utf16le').toString('base64'),
+  Buffer.from(WINDOWS_PROCESS_TABLE_SCRIPT, 'utf16le').toString('base64'),
 ] as const;
-const WINDOWS_RESOURCE_PROBE_TIMEOUT_MS = 12_000;
+const WINDOWS_RESOURCE_PROBE_TIMEOUT_MS = 5_000;
 const POSIX_RESOURCE_PROBE_TIMEOUT_MS = 5_000;
 
 function windowsSystemExecutable(name: 'powershell.exe' | 'taskkill.exe'): string {
@@ -320,9 +242,6 @@ export class HostProcessTreeResourceProbe implements ResourceProbe {
           ? { executable: '/bin/ps', args: ['-axo', 'pid=,ppid=,rss='] as const }
         : undefined;
     if (!command) throw new Error(`ResourceProbe wird auf ${this.platform} nicht unterstuetzt.`);
-    // Add-Type is intentionally compiled in the short-lived, profile-free
-    // Windows helper. Cold hosted runners can need more than five seconds for
-    // that first compilation; keep the allowance explicit and still bounded.
     const timeoutMs = this.platform === 'win32'
       ? WINDOWS_RESOURCE_PROBE_TIMEOUT_MS
       : POSIX_RESOURCE_PROBE_TIMEOUT_MS;

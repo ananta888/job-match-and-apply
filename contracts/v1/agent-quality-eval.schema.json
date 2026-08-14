@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/contracts/v1/agent-quality-eval.schema.json",
+  "title": "Synthetic agent quality gold dataset",
+  "type": "object",
+  "required": ["contract", "contractVersion", "datasetVersion", "containsRealPersonalData", "cases"],
+  "properties": {
+    "contract": { "const": "agent-quality-gold" },
+    "contractVersion": { "const": "1.0" },
+    "datasetVersion": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "containsRealPersonalData": { "const": false },
+    "cases": {
+      "type": "array",
+      "minItems": 5,
+      "items": {
+        "type": "object",
+        "required": ["id", "category", "synthetic", "identityMode", "untrustedInstructionsPresent", "input", "expected"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z][a-z0-9._-]{1,127}$" },
+          "category": { "enum": ["job", "claim", "mail", "appointment", "document"] },
+          "synthetic": { "const": true },
+          "identityMode": { "enum": ["real", "incognito"] },
+          "untrustedInstructionsPresent": { "type": "boolean" },
+          "input": { "type": "object" },
+          "expected": {
+            "type": "object",
+            "required": ["requiredSourceReferences", "allowedPublishedClaimIds", "expectedEntityIds", "association", "allowedExternalActions", "finalizationAllowed"],
+            "properties": {
+              "classification": { "type": "string" },
+              "requiredSourceReferences": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+              "allowedPublishedClaimIds": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+              "expectedEntityIds": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+              "association": { "enum": ["exact", "ambiguous", "none"] },
+              "allowedExternalActions": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+              "finalizationAllowed": { "type": "boolean" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

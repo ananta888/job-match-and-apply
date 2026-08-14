@@ -1,0 +1,7 @@
+{
+  "contract": "bewerbungs-pipeline",
+  "contract_version": "1.0",
+  "run_id": "synthetic-run",
+  "state": "analysis",
+  "artifacts": ["job-analysis.yaml"]
+}

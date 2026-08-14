@@ -1,0 +1,147 @@
+import { execFile } from 'node:child_process';
+import { lstat, readFile } from 'node:fs/promises';
+import { dirname, isAbsolute as isNativeAbsolute, join, posix } from 'node:path';
+import { promisify } from 'node:util';
+import type { AgentProviderInstallation, SandboxPolicy } from '../ports/agent-runner.js';
+import { buildMinimalLocalChildEnvironment } from '../services/process-environment.js';
+
+const execFileAsync = promisify(execFile);
+
+const PROJECT_AGENT_CONFIGS = [
+  'opencode.json', 'opencode.jsonc', join('.opencode', 'opencode.json'), join('.opencode', 'opencode.jsonc'),
+  '.mcp.json', join('.claude', 'settings.json'), join('.claude', 'settings.local.json'),
+  join('.codex', 'config.toml')
+] as const;
+const JOB_MCP_REFERENCE = /(?:job-search-mcp|job_search_mcp)/i;
+const AGENT_MANAGED_MCP_DECLARATION = /(?:\[\s*(?:mcp_servers|plugins)(?:\.|\])|["'](?:mcp|mcpServers|mcp_servers|plugin|plugins|enabledPlugins)["']\s*:)/i;
+
+async function existingKind(path: string): Promise<'file' | 'directory' | undefined> {
+  try {
+    const stat = await lstat(path);
+    if (stat.isSymbolicLink()) throw new Error('agent_config_symlink_forbidden');
+    return stat.isFile() ? 'file' : stat.isDirectory() ? 'directory' : undefined;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+    throw error;
+  }
+}
+
+/**
+ * A trusted-host portal MCP must never become a descendant of an agent sandbox.
+ * Sandboxed providers are therefore blocked if their effective project config
+ * could auto-start job-search-mcp. The host-owned MCP remains available through
+ * the separate Root stdio adapter.
+ */
+export async function assertTrustedHostJobMcpNotNestedInAgentSandbox(workspaceRoot: string): Promise<void> {
+  if (!isNativeAbsolute(workspaceRoot)) throw new Error('agent_workspace_must_be_absolute');
+  let current = workspaceRoot;
+  for (let depth = 0; depth < 32; depth += 1) {
+    for (const relative of PROJECT_AGENT_CONFIGS) {
+      const candidate = join(current, relative);
+      if (await existingKind(candidate) !== 'file') continue;
+      const contents = await readFile(candidate, 'utf8');
+      if (Buffer.byteLength(contents) > 256 * 1024) throw new Error('agent_project_config_too_large');
+      if (JOB_MCP_REFERENCE.test(contents)) throw new Error('trusted_host_job_mcp_must_not_run_in_agent_sandbox');
+      if (AGENT_MANAGED_MCP_DECLARATION.test(contents)) throw new Error('agent_managed_mcp_configuration_forbidden');
+    }
+    const gitBoundary = await existingKind(join(current, '.git'));
+    if (gitBoundary) return;
+    const parent = dirname(current);
+    if (parent === current) return;
+    current = parent;
+  }
+  throw new Error('agent_project_boundary_not_found');
+}
+
+export interface ExternalSandboxLaunchRequest {
+  installation: AgentProviderInstallation;
+  providerExecutable: string;
+  providerArgs: readonly string[];
+  workspaceRoot: string;
+  sandbox: SandboxPolicy;
+  network: 'disabled' | 'restricted' | 'enabled';
+}
+
+export interface ExternalSandboxLaunchPlan {
+  executable: string;
+  args: string[];
+  enforcedBy: 'wsl-bubblewrap-v1';
+  workspaceAccess: 'read_only' | 'read_write';
+  network: 'none';
+}
+
+export interface ExternalSandboxBoundary {
+  plan(request: ExternalSandboxLaunchRequest): Promise<ExternalSandboxLaunchPlan>;
+}
+
+export type WslBubblewrapProbe = (installation: AgentProviderInstallation) => Promise<boolean>;
+
+function safeDistribution(value: string | undefined): value is string {
+  return Boolean(value && /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(value));
+}
+
+/**
+ * Executes a fixed, shell-free availability probe. A provider is never started
+ * when the local WSL distribution cannot prove that Bubblewrap is executable.
+ */
+export const probeWslBubblewrap: WslBubblewrapProbe = async (installation) => {
+  if (installation.runtimeTarget !== 'wsl' || !safeDistribution(installation.distribution) || !isNativeAbsolute(installation.executable)) return false;
+  try {
+    await execFileAsync(installation.executable, [
+      '-d', installation.distribution, '--', 'bwrap', '--die-with-parent', '--new-session',
+      '--unshare-net', '--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc',
+      '--tmpfs', '/tmp', '--chdir', '/tmp', '--', '/bin/true'
+    ], { timeout: 5_000, windowsHide: true, maxBuffer: 64 * 1024, env: buildMinimalLocalChildEnvironment() });
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * WSL isolation for CLIs without a verified native sandbox contract.
+ *
+ * The distribution root is mounted read-only, /tmp is ephemeral, networking is
+ * removed at the namespace boundary, and only the selected workspace may be
+ * rebound read-write. No value is interpreted by a shell.
+ */
+export class WslBubblewrapSandboxBoundary implements ExternalSandboxBoundary {
+  constructor(private readonly probe: WslBubblewrapProbe = probeWslBubblewrap) {}
+
+  async plan(request: ExternalSandboxLaunchRequest): Promise<ExternalSandboxLaunchPlan> {
+    const { installation } = request;
+    if (installation.runtimeTarget !== 'wsl') throw new Error('external_sandbox_requires_wsl');
+    if (!safeDistribution(installation.distribution)) throw new Error('external_sandbox_distribution_invalid');
+    if (!isNativeAbsolute(installation.executable)) throw new Error('external_sandbox_host_executable_must_be_absolute');
+    if (!posix.isAbsolute(request.providerExecutable) || !posix.isAbsolute(request.workspaceRoot)) {
+      throw new Error('external_sandbox_wsl_paths_must_be_absolute');
+    }
+    if (request.providerExecutable.includes('\0') || request.workspaceRoot.includes('\0') || request.providerArgs.some((value) => value.includes('\0'))) {
+      throw new Error('external_sandbox_argument_invalid');
+    }
+    if (request.network !== 'disabled') throw new Error('external_sandbox_network_mode_not_enforceable');
+    if (request.sandbox === 'danger-full-access') throw new Error('external_sandbox_full_access_forbidden');
+    if (!await this.probe(installation)) throw new Error('external_sandbox_backend_unavailable');
+
+    const workspaceAccess = request.sandbox === 'workspace-write' ? 'read_write' : 'read_only';
+    const bubblewrapArgs = [
+      'bwrap', '--die-with-parent', '--new-session', '--unshare-pid', '--unshare-ipc',
+      '--unshare-uts', '--unshare-net', '--ro-bind', '/', '/', '--dev', '/dev',
+      '--proc', '/proc', '--tmpfs', '/tmp', '--clearenv',
+      '--setenv', 'PATH', '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+      '--setenv', 'HOME', '/tmp/agent-home', '--setenv', 'XDG_CONFIG_HOME', '/tmp/agent-home/.config',
+      '--setenv', 'TMPDIR', '/tmp', '--setenv', 'XDG_CACHE_HOME', '/tmp/agent-cache',
+      '--dir', '/tmp/agent-home', '--dir', '/tmp/agent-home/.config', '--dir', '/tmp/agent-cache'
+    ];
+    if (workspaceAccess === 'read_write') bubblewrapArgs.push('--bind', request.workspaceRoot, request.workspaceRoot);
+    bubblewrapArgs.push('--chdir', request.workspaceRoot, '--', request.providerExecutable, ...request.providerArgs);
+
+    return {
+      executable: installation.executable,
+      args: ['-d', installation.distribution, '--', ...bubblewrapArgs],
+      enforcedBy: 'wsl-bubblewrap-v1',
+      workspaceAccess,
+      network: 'none'
+    };
+  }
+}

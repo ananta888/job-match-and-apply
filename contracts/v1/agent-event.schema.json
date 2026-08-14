@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/job-match-and-apply/contracts/v1/agent-event.schema.json",
+  "title": "AgentEvent v1",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["schemaVersion", "runId", "sequence", "timestamp", "provider", "correlationId", "kind", "data"],
+  "properties": {
+    "schemaVersion": { "type": "string", "pattern": "^1\\.[0-9]+$" },
+    "runId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" },
+    "sequence": { "type": "integer", "minimum": 1 },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "provider": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
+    "correlationId": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "kind": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "data": {}
+  }
+}

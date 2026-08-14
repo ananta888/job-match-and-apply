@@ -12,7 +12,7 @@ export const defaultConfig: AppConfig = {
     niceToHave: ['Angular', 'Python', 'Automatisierung'],
     exclude: ['Arbeitnehmerüberlassung', 'unbezahlt'],
     minSalary: 60000,
-    sourceIds: ['stepstone', 'arbeitnow', 'remotive', 'linkedin-profile']
+    sourceIds: ['stepstone', 'arbeitnow', 'remotive', 'bundesagentur-arbeit', 'linkedin-profile']
   },
   identities: [
     {
@@ -23,20 +23,22 @@ export const defaultConfig: AppConfig = {
       email: 'alex.beispiel@example.invalid',
       phone: '+49 000 0000000',
       location: 'Berlin',
-      linkedin: 'https://linkedin.com/in/profil-platzhalter',
+      linkedin: 'https://profile.example.invalid/alex.beispiel',
       placeholders: {
         '{{VOLLSTAENDIGER_NAME}}': 'Alex Beispiel',
         '{{VORNAME}}': 'Alex',
         '{{NACHNAME}}': 'Beispiel',
         '{{E_MAIL}}': 'alex.beispiel@example.invalid',
         '{{TELEFON}}': '+49 000 0000000',
-        '{{ORT}}': 'Berlin'
+        '{{ORT}}': 'Berlin',
+        '{{PROFIL_URL}}': 'https://profile.example.invalid/alex.beispiel'
       }
     }
   ],
   activeIdentityId: 'incognito-default',
   mcp: {
     mode: 'demo',
+    executionIsolation: 'trusted-host',
     command: 'integrations/job-search-mcp/.venv/Scripts/job-search-mcp.exe',
     args: [],
     env: {

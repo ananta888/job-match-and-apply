@@ -1,0 +1,31 @@
+{
+  "$schema": "../todo.track.schema.json",
+  "version": 1,
+  "owner": "job-match-and-apply",
+  "track": "application-crm-mail-integration",
+  "created": "2026-08-13",
+  "updated": "2026-08-14",
+  "purpose": "Bewerbungen firmen- und stellenbezogen verwalten, Antworten aus lokalen Mailquellen korrelieren und verwendete Dokumentrevisionen nachvollziehbar zuordnen.",
+  "goal": "Ein lokales Bewerbungs-CRM mit verschluesselten Mailkonten, IMAP-/EML-/SMTP-Eingang, deterministischer Zuordnung, Termin- und Antwortklassifikation sowie revisionssicherer Dokumentnutzung bereitstellen.",
+  "status_scale": ["todo", "in_progress", "partial", "blocked", "done"],
+  "priority_scale": ["low", "medium", "high"],
+  "risk_scale": ["low", "medium", "high"],
+  "milestones": [
+    { "id": "M1", "title": "Firmen- und Bewerbungs-CRM", "task_ids": ["CRM-001", "CRM-002"], "status": "done" },
+    { "id": "M2", "title": "Lokaler Maileingang und Korrelation", "task_ids": ["CRM-003", "CRM-004", "CRM-005"], "status": "done" },
+    { "id": "M3", "title": "Dokumentrevisionen und Angular-Arbeitsplatz", "task_ids": ["CRM-006", "CRM-007"], "status": "done" }
+  ],
+  "tasks": [
+    { "id": "CRM-001", "title": "Firmenansicht mit mehreren Stellen und Bewerbungen bereitstellen", "status": "done", "priority": "high", "risk": "medium", "progress_percent": 100, "acceptance_criteria": ["Bewerbungen werden deterministisch nach Firma gruppiert, ohne gleichnamige Stellen zusammenzufassen.", "Mehrere Bewerbungen bei derselben Firma behalten getrennte Stellen-, Status- und Nachrichtenhistorien."] },
+    { "id": "CRM-002", "title": "Append-only Bewerbungsaktivitaeten und Antwortklassifikation erweitern", "status": "done", "priority": "high", "risk": "medium", "progress_percent": 100, "acceptance_criteria": ["Termine, Eingangsbestätigungen, Rueckfragen, Absagen und Angebote werden mit Quelle und Konfidenz gespeichert.", "Unsichere Zuordnungen bleiben in einer Inbox und werden nur durch Nutzerbestaetigung autoritativ."] },
+    { "id": "CRM-003", "title": "Mailkonten lokal verschluesselt konfigurieren", "status": "done", "priority": "high", "risk": "high", "progress_percent": 100, "acceptance_criteria": ["IMAP-Passwoerter oder Tokens liegen AES-GCM-verschluesselt und nie in API-Antworten oder Logs.", "Konten koennen getestet, deaktiviert und getrennt geloescht werden."] },
+    { "id": "CRM-004", "title": "IMAP- und nutzerbereitgestellte EML-Quellen anbinden", "status": "done", "priority": "high", "risk": "high", "progress_percent": 100, "acceptance_criteria": ["Synchronisation ist explizit, inkrementell und standardmaessig deaktiviert.", "EML-Dateien werden lokal ohne aktive Inhalte verarbeitet und koennen nach Import verworfen werden."] },
+    { "id": "CRM-005", "title": "Optionalen lokalen SMTP-Eingang bereitstellen", "status": "done", "priority": "medium", "risk": "high", "progress_percent": 100, "acceptance_criteria": ["SMTP bindet standardmaessig nur an 127.0.0.1 und erfordert ein lokales Secret.", "Der Dienst versendet keine Nachrichten und speichert nur begrenzte EML-Dateien im ignorierten Datenverzeichnis."] },
+    { "id": "CRM-006", "title": "Vorgeschlagene und verwendete Dokumentrevisionen nachvollziehbar speichern", "status": "done", "priority": "high", "risk": "high", "progress_percent": 100, "acceptance_criteria": ["CV, Anschreiben und E-Mail besitzen Hash, Pipelineversion, Lifecycle und Stellen-/Firmenreferenz.", "Eine als verwendet markierte Revision ist unveraenderlich und zeigt, fuer welche Bewerbung sie genutzt wurde."] },
+    { "id": "CRM-007", "title": "Angular-Firmen-, Inbox- und Dokumentansicht integrieren", "status": "done", "priority": "high", "risk": "medium", "progress_percent": 100, "acceptance_criteria": ["Firma, Stellen, Bewerbungen, Antworten, Termine und verwendete Unterlagen sind ohne Medienbruch sichtbar.", "Nutzer koennen unsichere Mailzuordnungen bestaetigen oder korrigieren."] }
+  ],
+  "critical_path_tasks": ["CRM-001", "CRM-003", "CRM-004", "CRM-006", "CRM-007"],
+  "tasks_status_summary": { "total": 7, "by_status": { "todo": 0, "in_progress": 0, "partial": 0, "blocked": 0, "done": 7 }, "progress_percent_done": 100, "by_priority": { "high": 6, "medium": 1, "low": 0 }, "by_risk": { "high": 4, "medium": 3, "low": 0 }, "critical_path": { "total": 5, "done": 5, "remaining": 0 }, "milestones": { "total": 3, "todo": 0, "in_progress": 0, "blocked": 0, "done": 3 } },
+  "progress_summary": { "state": "done", "todo_remaining": 0, "in_progress": 0, "partial": 0, "blocked": 0, "done": 7 },
+  "summary_notes": ["Keine automatische externe Antwort oder Bewerbung.", "Mailinhalte und Zugangsdaten bleiben lokal und unversioniert.", "Dokumentinhalte bleiben der Evidence-Pipeline des Bewerbungsassistenten unterstellt."]
+}

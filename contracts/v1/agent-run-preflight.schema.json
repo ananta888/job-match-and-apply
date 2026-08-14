@@ -1,0 +1,139 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ananta.local/contracts/v1/agent-run-preflight.schema.json",
+  "title": "Agent run preflight response",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract", "contractVersion", "capturedAt", "ready", "blockers", "warnings", "provider", "runtime", "workspace", "data", "tools", "network", "limits", "scheduling"],
+  "properties": {
+    "contract": { "const": "agent-run-preflight" },
+    "contractVersion": { "const": "1.0" },
+    "capturedAt": { "type": "string", "format": "date-time" },
+    "ready": { "type": "boolean" },
+    "blockers": { "$ref": "#/$defs/findings" },
+    "warnings": { "$ref": "#/$defs/findings" },
+    "provider": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "available", "source"],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "available": { "type": "boolean" },
+        "source": { "const": "server_discovery" },
+        "installation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["runtimeTarget", "support"],
+          "properties": {
+            "runtimeTarget": { "enum": ["windows", "wsl", "linux", "darwin"] },
+            "distribution": { "type": "string" },
+            "version": { "type": "string" },
+            "adapterVersion": { "type": "string" },
+            "support": { "enum": ["supported", "untested", "unsupported", "unavailable"] },
+            "authStatus": { "enum": ["authenticated", "unauthenticated", "unknown", "not_required"] }
+          }
+        }
+      }
+    },
+    "runtime": {
+      "type": "object", "additionalProperties": false, "required": ["runtimeTarget", "supported"],
+      "properties": { "runtimeTarget": { "enum": ["windows", "wsl", "linux", "darwin"] }, "distribution": { "type": "string" }, "supported": { "type": "boolean" } }
+    },
+    "workspace": {
+      "type": "object", "additionalProperties": false, "required": ["ownership", "mode", "supported", "pathDisclosed"],
+      "properties": { "ownership": { "const": "server" }, "mode": { "enum": ["read_only", "workspace_write"] }, "supported": { "type": "boolean" }, "pathDisclosed": { "const": false } }
+    },
+    "workflow": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "version", "title", "requiredScope", "producesSuggestionsOnly", "prohibitedActions"],
+      "properties": {
+        "id": { "type": "string" }, "version": { "type": "string" }, "title": { "type": "string" },
+        "requiredScope": { "enum": ["search_profile", "application_case", "company"] },
+        "producesSuggestionsOnly": { "const": true },
+        "prohibitedActions": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
+      }
+    },
+    "data": {
+      "type": "object", "additionalProperties": false,
+      "required": ["declaredScope", "selectedApplicationCaseCount", "categories", "exactSourceCount", "maxContextCharacters", "actualManifestAvailableAfterStart"],
+      "properties": {
+        "declaredScope": { "enum": ["workspace", "search_profile", "application_case", "company"] },
+        "selectedApplicationCaseCount": { "enum": [0, 1] },
+        "categories": {
+          "type": "array",
+          "items": {
+            "type": "object", "additionalProperties": false, "required": ["kind", "availability", "trust"],
+            "properties": {
+              "kind": { "enum": ["search_preference", "job", "application_case", "candidate_claim", "mail", "company", "tracking_event"] },
+              "availability": { "enum": ["included", "conditional", "unknown_until_start", "not_wired"] },
+              "trust": { "enum": ["local", "untrusted"] },
+              "maxItems": { "type": "integer", "minimum": 1 }
+            }
+          }
+        },
+        "exactSourceCount": { "type": ["integer", "null"], "minimum": 0 },
+        "maxContextCharacters": { "type": "integer", "minimum": 1 },
+        "actualManifestAvailableAfterStart": { "const": true }
+      }
+    },
+    "tools": {
+      "type": "object", "additionalProperties": false,
+      "required": ["policy", "allowedRootMcpTools", "allowlistComplete", "providerTooling", "providerToolNamesExposed", "prohibitedActions"],
+      "properties": {
+        "policy": { "const": "deny_by_default" },
+        "allowedRootMcpTools": { "type": "array", "maxItems": 0 },
+        "allowlistComplete": { "const": true },
+        "providerTooling": { "const": "sandbox_managed" },
+        "providerToolNamesExposed": { "const": false },
+        "prohibitedActions": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
+      }
+    },
+    "network": {
+      "type": "object", "additionalProperties": false,
+      "required": ["requested", "effective", "enforced", "trustedHostServices"],
+      "properties": {
+        "requested": { "type": "boolean" }, "effective": { "const": "disabled" }, "enforced": { "const": true },
+        "trustedHostServices": {
+          "type": "array",
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["id", "executionIsolation", "agentAccessible", "invocation"],
+            "properties": {
+              "id": { "const": "job-search-mcp" }, "executionIsolation": { "const": "trusted-host" },
+              "agentAccessible": { "const": false }, "invocation": { "const": "root_before_agent" }
+            }
+          }
+        }
+      }
+    },
+    "limits": {
+      "type": "object", "additionalProperties": false, "required": ["requested", "effective"],
+      "properties": {
+        "requested": {
+          "type": "object", "additionalProperties": false, "required": ["wallTimeMinutes", "maxOutputMiB"],
+          "properties": { "wallTimeMinutes": { "type": "integer", "minimum": 1, "maximum": 120 }, "maxOutputMiB": { "type": "integer", "minimum": 1, "maximum": 25 } }
+        },
+        "effective": {
+          "type": "object", "additionalProperties": false,
+          "required": ["wallTimeMs", "idleTimeMs", "totalOutputBytes", "stdoutBytes", "stderrBytes", "maxInputBytes"],
+          "properties": {
+            "wallTimeMs": { "type": "integer", "minimum": 1 }, "idleTimeMs": { "type": "integer", "minimum": 1 },
+            "totalOutputBytes": { "type": "integer", "minimum": 1 }, "stdoutBytes": { "type": "integer", "minimum": 1 },
+            "stderrBytes": { "type": "integer", "minimum": 1 }, "maxInputBytes": { "type": "integer", "minimum": 1 }
+          }
+        }
+      }
+    },
+    "scheduling": { "type": "object", "required": ["queueDepth", "active", "limits"], "properties": { "queueDepth": { "type": "integer", "minimum": 0 }, "active": { "type": "integer", "minimum": 0 }, "limits": { "type": "object" } } }
+  },
+  "$defs": {
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false, "required": ["code", "message"],
+        "properties": { "code": { "type": "string" }, "field": { "type": "string" }, "message": { "type": "string" } }
+      }
+    }
+  }
+}

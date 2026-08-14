@@ -15,13 +15,18 @@ export function matchJob(profile: SearchProfile, job: JobPosting): SearchPrefere
   const workModelScore = profile.workModels.includes(job.workModel) ? 10 : 0;
   const salaryAccepted = !profile.minSalary || !job.salaryMax || job.salaryMax >= profile.minSalary;
   const accepted = missingMustHave.length === 0 && exclusions.length === 0 && salaryAccepted;
+  const exclusionScore = -exclusions.length * 30;
   return {
     job,
-    searchPreferenceScore: Math.max(0, Math.round(mustScore + niceScore + regionScore + workModelScore - exclusions.length * 30)),
+    searchPreferenceScore: Math.max(0, Math.round(mustScore + niceScore + regionScore + workModelScore + exclusionScore)),
     accepted,
     matchedMustHave,
     missingMustHave,
     matchedNiceToHave,
-    exclusions
+    exclusions,
+    scoreBreakdown: {
+      mustHave: Math.round(mustScore), niceToHave: Math.round(niceScore), region: regionScore,
+      workModel: workModelScore, exclusions: exclusionScore
+    }
   };
 }

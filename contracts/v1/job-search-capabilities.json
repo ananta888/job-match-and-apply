@@ -1,0 +1,20 @@
+{
+  "contract": "job-search-mcp",
+  "contract_version": "1.0",
+  "compatible_major_versions": [1],
+  "tools": ["capabilities", "browser_status", "mehrportal_suche", "portal_login", "portal_sitzung_loeschen"],
+  "error_categories": ["validation", "policy", "authentication", "rate_limit", "retryable_dependency", "internal"],
+  "sources": [
+    {
+      "id": "stepstone",
+      "name": "StepStone",
+      "enabled": true,
+      "access": "public_browser",
+      "supports_login": true,
+      "login_required_for_search": false,
+      "filters": ["query", "location"],
+      "pagination": false,
+      "policy_status": "active"
+    }
+  ]
+}

@@ -1,4 +1,4 @@
-import type { JobPosting, SearchProfile, SourceStatus } from '../domain/models.js';
+import type { JobPosting, JobSourceCapabilities, SearchProfile, SourceStatus } from '../domain/models.js';
 import type { JobSourcePort, LoginResult } from '../ports/job-source.js';
 
 const DEMO_JOBS: JobPosting[] = [
@@ -8,6 +8,13 @@ const DEMO_JOBS: JobPosting[] = [
     description: 'Entwicklung einer Angular-Plattform mit TypeScript, REST APIs und Design System. Keine Arbeitnehmerüberlassung.',
     skills: ['Angular', 'TypeScript', 'REST API', 'Design Systems'], salaryMin: 72000, salaryMax: 90000,
     url: 'https://www.stepstone.de/', publishedAt: '2026-08-12'
+  },
+  {
+    id: 'bundesagentur-backend-1', sourceId: 'bundesagentur-arbeit', title: 'Backend-Entwickler öffentliche Verwaltung',
+    company: 'Beispielbehörde', location: 'Karlsruhe · Hybrid', workModel: 'hybrid', employmentType: 'full_time',
+    description: 'Backend-Entwicklung mit TypeScript und API-Integration aus einer synthetischen Offline-Fixture.',
+    skills: ['TypeScript', 'API'], salaryMin: 62000, salaryMax: 78000,
+    url: 'https://www.arbeitsagentur.de/jobsuche/', publishedAt: '2026-08-13'
   },
   {
     id: 'arbeitnow-automation-1', sourceId: 'arbeitnow', title: 'Software Engineer Automation',
@@ -32,12 +39,26 @@ const DEMO_JOBS: JobPosting[] = [
 ];
 
 export class DemoJobSourceAdapter implements JobSourcePort {
+  async capabilities(): Promise<JobSourceCapabilities> {
+    const statuses = await this.statuses();
+    return {
+      contract: 'job-search-mcp', contractVersion: '1.0', compatible: true,
+      tools: ['capabilities', 'browser_status', 'mehrportal_suche', 'portal_login', 'portal_sitzung_loeschen'],
+      errorCategories: ['validation', 'policy', 'authentication', 'rate_limit', 'retryable_dependency', 'internal'],
+      sources: statuses.map((source) => ({
+        id: source.id, name: source.name, enabled: source.enabled, access: source.kind === 'profile' ? 'user_import' : 'demo',
+        supportsLogin: source.supportsLogin, loginRequiredForSearch: false, filters: ['query', 'location'],
+        pagination: false, policyStatus: source.enabled ? 'demo' : 'disabled'
+      }))
+    };
+  }
   async statuses(): Promise<SourceStatus[]> {
     return [
       { id: 'stepstone', name: 'StepStone', kind: 'demo', enabled: true, connected: false, supportsLogin: true, note: 'Demo-Daten aktiv; für Login den stdio-MCP konfigurieren.' },
       { id: 'arbeitnow', name: 'Arbeitnow', kind: 'demo', enabled: true, connected: true, supportsLogin: false, note: 'Offizielle öffentliche Quelle im Upstream-MCP.' },
       { id: 'remotive', name: 'Remotive', kind: 'demo', enabled: true, connected: true, supportsLogin: false, note: 'Offizielle öffentliche Quelle im Upstream-MCP.' },
       { id: 'weworkremotely', name: 'We Work Remotely', kind: 'demo', enabled: true, connected: true, supportsLogin: false, note: 'Über einen weiteren Adapter erweiterbar.' },
+      { id: 'bundesagentur-arbeit', name: 'Bundesagentur für Arbeit', kind: 'demo', enabled: true, connected: true, supportsLogin: false, note: 'Offizieller API-Adapter im Upstream-MCP; hier als synthetische Offline-Fixture.' },
       { id: 'linkedin-profile', name: 'LinkedIn Profil', kind: 'profile', enabled: true, connected: false, supportsLogin: false, note: 'Profil-/Export-Import vorgesehen; kein unerlaubtes Crawling.' }
     ];
   }
@@ -52,8 +73,13 @@ export class DemoJobSourceAdapter implements JobSourcePort {
       return queryTerms.some((term) => text.includes(term));
     });
   }
+  async searchDetailed(profile: SearchProfile) { return { jobs: await this.search(profile), failures: [] }; }
 
   async login(portalId: string): Promise<LoginResult> {
     throw Object.assign(new Error(`Für ${portalId} ist nur der Demo-Adapter aktiv. MCP-Modus auf stdio umstellen.`), { statusCode: 409 });
+  }
+
+  async logout(portalId: string): Promise<LoginResult> {
+    throw Object.assign(new Error(`Für ${portalId} ist keine persistierte Demo-Sitzung vorhanden.`), { statusCode: 409 });
   }
 }

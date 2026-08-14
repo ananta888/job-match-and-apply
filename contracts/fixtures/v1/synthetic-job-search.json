@@ -1,0 +1,19 @@
+{
+  "contract": "job-search-mcp",
+  "contract_version": "1.0",
+  "fetched_at": "2026-01-01T00:00:00Z",
+  "angebote": [
+    {
+      "id": "synthetic-1",
+      "source_id": "synthetic-feed",
+      "external_id": "offline-1",
+      "titel": "Synthetic Engineer",
+      "unternehmen": "Example Invalid GmbH",
+      "url": "https://example.invalid/jobs/offline-1",
+      "source_reference": { "source_id": "synthetic-feed", "external_id": "offline-1", "url": "https://example.invalid/jobs/offline-1", "fetched_at": "2026-01-01T00:00:00Z" },
+      "fetched_at": "2026-01-01T00:00:00Z",
+      "normalization_warnings": []
+    }
+  ],
+  "errors": []
+}

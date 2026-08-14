@@ -5,7 +5,14 @@
   "scripts": {
     "dev": "concurrently -n api,web -c cyan,magenta \"npm --prefix server run dev\" \"npm --prefix web start\"",
     "build": "npm --prefix server run build && npm --prefix web run build",
-    "test": "npm --prefix server test && npm --prefix web test -- --watch=false",
+    "test": "npm run test:repository-scripts && npm --prefix server test && npm --prefix web test -- --watch=false",
+    "test:repository-scripts": "node --test scripts/*.test.mjs",
+    "test:security-scan": "node --test scripts/security-scan.test.mjs",
+    "diagnose": "node scripts/diagnose.mjs",
+    "security:scan": "node scripts/security-scan.mjs",
+    "mail:server": "npm --prefix server run mail:server",
+    "agent:mcp": "npm --prefix server run agent:mcp",
+    "agent:fake": "node scripts/fake-agent.mjs",
     "setup:integrations": "powershell -ExecutionPolicy Bypass -File scripts/setup-integrations.ps1"
   },
   "devDependencies": {

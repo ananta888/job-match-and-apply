@@ -1,0 +1,12 @@
+{
+  "provider": "codex-exec",
+  "providerVersion": "codex-cli 0.147.x",
+  "source": "synthetic no-network corpus for the documented exec --json JSONL contract; upgrade gate remains exact-version allowlisted",
+  "events": [
+    { "type": "thread.started", "thread_id": "synthetic-thread" },
+    { "type": "turn.started" },
+    { "type": "item.completed", "item": { "id": "item-1", "type": "agent_message", "text": "synthetic result" } },
+    { "type": "turn.completed", "usage": { "input_tokens": 12, "cached_input_tokens": 2, "output_tokens": 4 } },
+    { "type": "future.additive", "private": "must-not-be-copied" }
+  ]
+}

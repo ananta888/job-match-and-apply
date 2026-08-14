@@ -1,0 +1,12 @@
+{
+  "schemaVersion": "1.0",
+  "id": "codex-app-server",
+  "adapter": "codex-app-server",
+  "enabled": false,
+  "experimental": true,
+  "productionSelection": "fallback_until_user_config_isolation_verified",
+  "runtimeTargets": ["windows", "wsl", "linux", "darwin"],
+  "argumentTemplate": ["app-server", "--listen", "stdio://"],
+  "testedVersionRanges": [">=0.147.0 <0.148.0"],
+  "fixtureSet": "contracts/fixtures/v1/codex-app-server-events.json"
+}

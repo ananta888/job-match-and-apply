@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://job-match-and-apply.local/contracts/v1/job-search-mcp-launch.schema.json",
+  "title": "Trusted-host job-search-mcp launch contract",
+  "description": "A direct native Windows or WSL stdio launch owned by the integration host. Agent sandboxes and shell wrappers are intentionally not representable.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contractVersion",
+    "executionIsolation",
+    "runtimeTarget",
+    "command",
+    "args",
+    "env"
+  ],
+  "properties": {
+    "contractVersion": { "const": "1.0" },
+    "executionIsolation": { "const": "trusted-host" },
+    "runtimeTarget": { "enum": ["windows", "wsl"] },
+    "distribution": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+    },
+    "command": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 4096,
+      "pattern": "^(?:[A-Za-z]:[\\\\/]|\\\\\\\\)"
+    },
+    "args": {
+      "type": "array",
+      "maxItems": 64,
+      "items": { "type": "string", "maxLength": 4096 }
+    },
+    "env": {
+      "type": "object",
+      "maxProperties": 64,
+      "propertyNames": { "pattern": "^[A-Z][A-Z0-9_]{0,63}$" },
+      "additionalProperties": { "type": "string", "maxLength": 4096 }
+    }
+  },
+  "oneOf": [
+    {
+      "properties": {
+        "runtimeTarget": { "const": "windows" },
+        "command": { "pattern": "[Jj][Oo][Bb]-[Ss][Ee][Aa][Rr][Cc][Hh]-[Mm][Cc][Pp]\\.[Ee][Xx][Ee]$" },
+        "args": { "maxItems": 0 }
+      },
+      "not": { "required": ["distribution"] }
+    },
+    {
+      "required": ["distribution"],
+      "properties": {
+        "runtimeTarget": { "const": "wsl" },
+        "command": { "pattern": "[Ww][Ss][Ll]\\.[Ee][Xx][Ee]$" },
+        "args": {
+          "minItems": 4,
+          "prefixItems": [
+            { "const": "-d" },
+            { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$" },
+            { "const": "--" }
+          ]
+        }
+      }
+    }
+  ]
+}

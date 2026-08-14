@@ -1,0 +1,76 @@
+{
+  "contract": "agent-provider-support",
+  "contractVersion": "1.0",
+  "policyVersion": "2026-08-13",
+  "unknownVersionPolicy": "block",
+  "securityDefaultChangePolicy": "explicit_contract_major_and_user_migration",
+  "deprecation": {
+    "minimumNoticeDays": 90,
+    "emergencySecurityNoticeDays": 0,
+    "removalRequiresReplacementOrDocumentedNoFallback": true
+  },
+  "featureFlags": {
+    "experimentalDefault": false,
+    "mustBeServerOwned": true,
+    "mustBeVisibleInApiAndUi": true,
+    "mayNotBroadenSandboxOrApprovalDefaults": true
+  },
+  "providers": [
+    {
+      "id": "codex-exec",
+      "adapterVersion": "1.0.0",
+      "protocolVersion": "1.0",
+      "status": "supported",
+      "testedVersionPatterns": ["^(?:codex-cli|codex)\\s+0\\.147\\."],
+      "fixture": "contracts/fixtures/v1/codex-exec-events.json",
+      "runtimeTargets": ["windows", "wsl", "linux", "darwin"],
+      "experimental": false
+    },
+    {
+      "id": "codex-app-server",
+      "adapterVersion": "1.0.0",
+      "protocolVersion": "1.0",
+      "status": "experimental",
+      "testedVersionPatterns": ["^(?:codex-cli|codex)\\s+0\\.147\\."],
+      "fixture": "contracts/fixtures/v1/codex-app-server-events.json",
+      "runtimeTargets": ["windows", "wsl", "linux", "darwin"],
+      "experimental": true,
+      "featureFlag": "CODEX_APP_SERVER_EXPERIMENTAL",
+      "productionSelection": "fallback_until_user_config_isolation_verified",
+      "fallback": "codex-exec-before-first-turn-only"
+    },
+    {
+      "id": "opencode",
+      "adapterVersion": "1.0.0",
+      "protocolVersion": "1.0",
+      "status": "blocked_pending_conformance",
+      "testedVersionPatterns": [],
+      "fixture": "contracts/fixtures/v1/opencode-events.json",
+      "runtimeTargets": ["wsl"],
+      "experimental": false,
+      "sandboxBoundary": "wsl-bubblewrap-v1"
+    },
+    {
+      "id": "claude-cli",
+      "adapterVersion": "1.0.0",
+      "protocolVersion": "1.0",
+      "status": "blocked_pending_conformance",
+      "testedVersionPatterns": [],
+      "fixture": "contracts/fixtures/v1/claude-cli-events.json",
+      "runtimeTargets": ["wsl"],
+      "experimental": false,
+      "sandboxBoundary": "wsl-bubblewrap-v1"
+    }
+  ],
+  "upgradeChecklist": [
+    "capture_synthetic_no_secret_fixture",
+    "replay_known_and_unknown_events",
+    "verify_fixed_argv_and_prompt_transport",
+    "verify_sandbox_and_network_effective_policy",
+    "verify_approval_defaults_unchanged",
+    "run_secret_pii_canaries",
+    "run_cancel_timeout_output_and_recovery_tests",
+    "record_exact_tested_version_pattern",
+    "show_support_state_and_limitations_in_api_and_ui"
+  ]
+}

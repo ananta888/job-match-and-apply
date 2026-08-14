@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/job-match-and-apply/contracts/v1/agent-artifact.schema.json",
+  "title": "Agent artifact metadata v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "id", "kind", "sha256", "bytes", "mediaType", "createdAt",
+    "updatedAt", "revision", "lifecycle", "provenance"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "id": { "type": "string", "format": "uuid" },
+    "kind": { "$ref": "#/$defs/token" },
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "bytes": { "type": "integer", "minimum": 0, "maximum": 26214400 },
+    "mediaType": { "enum": ["text/plain", "text/markdown", "application/json"] },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "updatedAt": { "type": "string", "format": "date-time" },
+    "revision": { "type": "integer", "minimum": 0 },
+    "lifecycle": { "enum": ["proposed", "approved", "used", "rejected"] },
+    "relativePath": { "$ref": "#/$defs/safeRelativePath" },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runId", "provider", "providerVersion", "adapterVersion", "templateId",
+        "templateVersion", "applicationCaseId", "applicationCaseRevision", "jobId", "companyKey", "identityMode"
+      ],
+      "properties": {
+        "runId": { "$ref": "#/$defs/contextToken" },
+        "provider": { "$ref": "#/$defs/contextToken" },
+        "providerVersion": { "$ref": "#/$defs/metadata" },
+        "adapterVersion": { "$ref": "#/$defs/metadata" },
+        "templateId": { "$ref": "#/$defs/contextToken" },
+        "templateVersion": { "$ref": "#/$defs/metadata" },
+        "workflowId": { "$ref": "#/$defs/contextToken" },
+        "workflowVersion": { "$ref": "#/$defs/metadata" },
+        "applicationCaseId": { "$ref": "#/$defs/contextToken" },
+        "applicationCaseRevision": { "type": "integer", "minimum": 0 },
+        "jobId": { "$ref": "#/$defs/metadata" },
+        "companyKey": { "$ref": "#/$defs/contextToken" },
+        "identityMode": { "enum": ["none", "real", "incognito"] },
+        "claimIds": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/contextToken" } },
+        "reviewIds": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/contextToken" } }
+      }
+    },
+    "review": {
+      "type": "object", "additionalProperties": false, "required": ["decision", "actor", "occurredAt"],
+      "properties": {
+        "decision": { "enum": ["approved", "rejected"] },
+        "actor": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "occurredAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "adoption": {
+      "type": "object", "additionalProperties": false, "required": ["sourceReference", "occurredAt"],
+      "properties": {
+        "sourceReference": { "type": "string", "minLength": 3, "maxLength": 512 },
+        "occurredAt": { "type": "string", "format": "date-time" }
+      }
+    }
+  },
+  "$defs": {
+    "token": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,179}$" },
+    "contextToken": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$" },
+    "metadata": { "type": "string", "minLength": 1, "maxLength": 512, "pattern": "^[^\\u0000-\\u001f\\u007f]+$" },
+    "safeRelativePath": {
+      "type": "string", "minLength": 1, "maxLength": 1024,
+      "pattern": "^(?!/)(?![A-Za-z]:)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*//)[A-Za-z0-9][A-Za-z0-9._/-]*$"
+    }
+  }
+}

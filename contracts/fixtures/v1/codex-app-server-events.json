@@ -1,0 +1,28 @@
+{
+  "contract": "codex-app-server-event-fixture",
+  "contractVersion": "1.0",
+  "providerVersions": ["0.147.x"],
+  "transport": "stdio-jsonl",
+  "notifications": [
+    { "method": "thread/started", "params": { "thread": { "id": "thr_fixture" } } },
+    { "method": "turn/started", "params": { "turn": { "id": "turn_fixture", "status": "inProgress", "items": [] } } },
+    { "method": "item/agentMessage/delta", "params": { "threadId": "thr_fixture", "turnId": "turn_fixture", "itemId": "msg_fixture", "delta": "synthetic " } },
+    { "method": "item/completed", "params": { "item": { "type": "agentMessage", "id": "msg_fixture", "text": "synthetic result", "phase": "final_answer" } } },
+    { "method": "thread/tokenUsage/updated", "params": { "usage": { "inputTokens": 3, "outputTokens": 2, "totalTokens": 5 } } },
+    { "method": "turn/completed", "params": { "turn": { "id": "turn_fixture", "status": "completed", "items": [] } } }
+  ],
+  "serverRequests": [
+    {
+      "id": 77,
+      "method": "item/commandExecution/requestApproval",
+      "params": {
+        "threadId": "thr_fixture",
+        "turnId": "turn_fixture",
+        "itemId": "cmd_fixture",
+        "reason": "Synthetic approval",
+        "command": ["npm", "test"],
+        "cwd": "/workspace"
+      }
+    }
+  ]
+}

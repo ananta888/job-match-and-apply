@@ -1,0 +1,11 @@
+{
+  "provider": "claude-cli",
+  "providerVersion": "unverified",
+  "activation": "blocked_until_version_fixture_is_approved",
+  "events": [
+    { "type": "system", "subtype": "init" },
+    { "type": "assistant", "message": { "content": [{ "type": "text", "text": "synthetic result" }] } },
+    { "type": "result", "result": "done", "usage": { "input_tokens": 8, "output_tokens": 3 } },
+    { "type": "future.additive" }
+  ]
+}

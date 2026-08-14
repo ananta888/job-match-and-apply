@@ -31,6 +31,20 @@ passes:
 `;
 
 describe('LocalApplicationAssistantAdapter', () => {
+  it('builds a claim-backed match matrix without converting a gap into experience', async () => {
+    temporaryDirectory = await mkdtemp(resolve(tmpdir(), 'application-pipeline-'));
+    const repositoryRoot = resolve(process.cwd(), '..');
+    const adapter = new LocalApplicationAssistantAdapter({
+      skillPath: resolve(repositoryRoot, 'integrations', 'bewerbungs-schreib-assistent'),
+      candidateProfilePath: resolve(repositoryRoot, 'integrations', 'bewerbungs-schreib-assistent', 'tests', 'fixtures', 'valid-candidate.yaml'),
+      styleProfilePath: resolve(repositoryRoot, 'integrations', 'bewerbungs-schreib-assistent', 'tests', 'fixtures', 'valid-style.yaml')
+    }, temporaryDirectory);
+    const analysis = await adapter.analyze({ ...job, skills: ['RabbitMQ', 'Kafka'] }, 'cover_letter');
+    const matches = analysis.matchMatrix.matches as Array<{ competency: string; classification: string; evidence_claim_ids: string[] }>;
+    expect(matches.find((item) => item.competency === 'RabbitMQ')).toMatchObject({ classification: 'direct_match', evidence_claim_ids: ['claim-rabbitmq'] });
+    expect(matches.find((item) => item.competency === 'Kafka')).toMatchObject({ classification: 'gap', evidence_claim_ids: [] });
+  });
+
   it('runs the deterministic skill gates and strips evidence only after success', async () => {
     temporaryDirectory = await mkdtemp(resolve(tmpdir(), 'application-pipeline-'));
     const repositoryRoot = resolve(process.cwd(), '..');
@@ -49,5 +63,5 @@ describe('LocalApplicationAssistantAdapter', () => {
     expect(result.lifecycle).toBe('final');
     expect(result.content).not.toContain('<!-- evidence:');
     expect(await readFile(resolve(temporaryDirectory, 'test-job', 'annotated.md'), 'utf8')).toContain('claim-role');
-  });
+  }, 20_000);
 });

@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/job-match-and-apply/contracts/v1/agent-backup-manifest.schema.json",
+  "title": "Agent Control Center backup manifest v1.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract",
+    "contractVersion",
+    "backupId",
+    "createdAt",
+    "entries",
+    "requiresKeyMaterial",
+    "keyMaterialPaths",
+    "manifestSha256"
+  ],
+  "properties": {
+    "contract": { "const": "agent-control-backup" },
+    "contractVersion": { "const": "1.1" },
+    "backupId": { "type": "string", "pattern": "^[A-Za-z0-9-]{8,128}$" },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "requiresKeyMaterial": { "type": "boolean" },
+    "keyMaterialPaths": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/safePath" }
+    },
+    "manifestSha256": { "$ref": "#/$defs/sha256" },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "sha256", "bytes", "classification"],
+        "properties": {
+          "path": { "$ref": "#/$defs/safePath" },
+          "sha256": { "$ref": "#/$defs/sha256" },
+          "bytes": { "type": "integer", "minimum": 0 },
+          "classification": { "enum": ["internal", "personal", "secret"] }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "safePath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?![A-Za-z]:)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*//)[^\\u0000\\\\]+$"
+    }
+  }
+}

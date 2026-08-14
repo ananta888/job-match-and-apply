@@ -19,6 +19,7 @@ describe('matchJob', () => {
     const result = matchJob(profile, job);
     expect(result.accepted).toBe(true);
     expect(result.searchPreferenceScore).toBe(100);
+    expect(Object.values(result.scoreBreakdown).reduce((sum, value) => sum + value, 0)).toBe(100);
   });
 
   it('rejects excluded wording even when skills match', () => {

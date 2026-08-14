@@ -46,13 +46,17 @@ ng test
 
 ## Running end-to-end tests
 
-For end-to-end (e2e) testing, run:
+The Agent Center has an offline Playwright suite. It intercepts every `/api/*` request with
+synthetic fixtures, exercises controlled runs and stores visual-regression baselines without
+candidate, credential, mail or local runtime data.
 
 ```bash
-ng e2e
+npm run e2e:install
+npm run e2e
 ```
 
-Angular CLI does not come with an end-to-end testing framework by default. You can choose one that suits your needs.
+Use `npm run e2e:update` only after intentionally reviewing desktop, tablet and mobile changes.
+Failure traces, screenshots and the local HTML report are ignored by Git.
 
 ## Additional Resources
 

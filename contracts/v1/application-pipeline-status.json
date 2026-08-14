@@ -1,0 +1,16 @@
+{
+  "contract": "bewerbungs-pipeline",
+  "contract_version": "1.0",
+  "run_id": "synthetic-run",
+  "state": "review",
+  "completed_stages": ["validate_profiles", "analyze_job", "build_match_matrix", "draft"],
+  "findings": [
+    {
+      "id": "finding-synthetic-gap",
+      "severity": "medium",
+      "category": "evidence",
+      "status": "open"
+    }
+  ],
+  "artifacts": ["job-analysis.yaml", "match-matrix.yaml", "annotated.md"]
+}

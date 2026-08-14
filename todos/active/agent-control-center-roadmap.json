@@ -1,0 +1,1878 @@
+{
+  "$schema": "../todo.track.schema.json",
+  "version": 1,
+  "owner": "job-match-and-apply",
+  "track": "agent-control-center-roadmap",
+  "created": "2026-08-13",
+  "updated": "2026-08-14",
+  "purpose": "Die Angular-Plattform zu einer lokalen, providerneutralen und sicher kontrollierten Arbeitsoberflaeche fuer Codex CLI, OpenCode, Claude CLI und weitere Agenten ausbauen.",
+  "goal": "Agentenlaeufe vollstaendig ueber Angular konfigurieren, starten, beobachten, steuern, freigeben, abbrechen, fortsetzen, evaluieren und fachlich Bewerbungen, Firmen, Stellen, Nachrichten und Dokumentrevisionen zuordnen, ohne Repository-Grenzen, Evidence-Regeln oder Datenschutzkontrollen zu umgehen.",
+  "status_scale": [
+    "todo",
+    "in_progress",
+    "partial",
+    "blocked",
+    "done"
+  ],
+  "priority_scale": [
+    "low",
+    "medium",
+    "high"
+  ],
+  "risk_scale": [
+    "low",
+    "medium",
+    "high"
+  ],
+  "planning_policy": {
+    "delivery_scope": "Vollstaendiger Produkt- und Betriebsumfang; kein MVP und keine dauerhaft provisorische Terminaleinbettung.",
+    "root_scope": "Angular UI, Agenten-Orchestrierung, providerneutrale Ports, lokale API, Eventmodell, Persistenz, Freigaben, Audit, MCP-Fassade und Cross-Repository-Vertraege.",
+    "job_search_scope": "Portalzugriff, Login, Browsersitzungen, Portal-Credentials, Quellrichtlinien und portalbezogene Werkzeuge bleiben im job-search-mcp.",
+    "application_scope": "Claims, Evidence Policy, Match-Matrix, Entwurf, Review, Finalisierung und Dokumentqualitaet bleiben im bewerbungs-schreib-assistent.",
+    "upstream_change_rule": "Falls ein Submodule einen neuen Vertrag benoetigt, wird dort vor der Implementierung ein eigenes schema-valides Todo angelegt, getestet und committed; der Root-Track referenziert danach nur den veroeffentlichten Vertrag und Commit-Pointer.",
+    "schema_policy": "Bestehende Todo-JSON-Schemas werden nicht veraendert.",
+    "data_policy": "Prompts, Antworten, Tokens, Credentials, Bewerbungsdaten und Agentenartefakte bleiben lokal, verschluesselt oder im ignorierten Arbeitsbereich und werden nie in Git geschrieben.",
+    "external_action_policy": "Versand, Bewerbung, Portalaktion, Loeschung, Freigabe eines finalen Dokuments und Nutzung einer realen Identitaet erfordern eine explizite, kontextgebundene Nutzerfreigabe.",
+    "implementation_order": "Vertraege, Threat Model und Fake-Provider werden vor produktiven CLI-Adaptern und UI-Automatisierung umgesetzt."
+  },
+  "product_principles": [
+    "Provider austauschbar: Fachlogik kennt keine CLI-spezifischen Textausgaben oder Exitcodes.",
+    "Strukturierte Events statt Terminal-Scraping; Roh-stdout und Roh-stderr bleiben Diagnoseartefakte.",
+    "Read-only und kein Netzwerk sind der sichere Standard jedes neuen Agentenprofils.",
+    "Freigaben sind eng, zeitlich begrenzt, widerrufbar, an Run, Tool, Ziel und Parameter gebunden.",
+    "Agentenaussagen sind Vorschlaege; autoritative Anwendungszustaende entstehen nur ueber validierte Domain-Commands.",
+    "Ein Suchprofil ist keine Candidate Evidence und ein Agent darf fehlende Kandidatenfakten nie erfinden.",
+    "Inkognito bleibt auf Vorschau und Tests begrenzt, unabhaengig davon welcher Provider den Lauf ausfuehrt.",
+    "Jeder Lauf ist reproduzierbar, exportierbar, loeschbar und mit Provider-, Policy-, Prompt- und Toolversionen nachvollziehbar.",
+    "Lokaler Betrieb auf Windows und WSL2 ist gleichwertig dokumentiert und getestet.",
+    "Experimentelle Providerprotokolle liegen hinter Feature Flags und besitzen einen stabilen Fallback."
+  ],
+  "non_goals": [
+    "Keine ungefilterte Browser-Shell oder beliebige Kommandozeile aus Angular.",
+    "Kein globales dangerously-bypass-approvals, kein pauschales yolo und keine unbeschraenkte Host-Dateisystemfreigabe.",
+    "Keine Weitergabe von Portal-, Mail- oder API-Credentials an Agentenprompts oder deren Kindprozesse ohne expliziten Credential-Broker-Vertrag.",
+    "Kein automatischer Versand von E-Mails, Bewerbungen oder Nachrichten und kein Umgehen von Captcha, 2FA oder Portalrichtlinien.",
+    "Keine Vermischung von Entwicklungs-Todos mit konkreten Bewerbungsfaellen oder Agentenlaufdaten.",
+    "Keine Behauptung unabhaengiger Multi-Agent-Pruefung, wenn Rollen denselben Kontext oder denselben Run verwenden.",
+    "Keine Abhaengigkeit der kanonischen Run-Historie von proprietaeren, unversionierten CLI-Ausgabeformaten.",
+    "Kein Zwang zu einem Cloud-Dienst fuer Kernfunktionen, Logging, Auswertung oder Wiederherstellung."
+  ],
+  "supported_provider_targets": [
+    {
+      "id": "codex-exec",
+      "maturity_target": "production",
+      "transport": "JSONL ueber stdio",
+      "note": "Stabiler primaerer Codex-Weg mit expliziter Sandbox und strukturierten Events."
+    },
+    {
+      "id": "codex-app-server",
+      "maturity_target": "experimental",
+      "transport": "stdio oder lokaler WebSocket",
+      "note": "Feature-Flag fuer interaktive Threads; stabiler exec-Fallback bleibt verpflichtend."
+    },
+    {
+      "id": "opencode",
+      "maturity_target": "production",
+      "transport": "opencode run --format json; spaeter optional ACP nd-JSON",
+      "note": "Versionserkennung und Contract-Fixtures statt Textannahmen; kein --auto."
+    },
+    {
+      "id": "claude-cli",
+      "maturity_target": "production",
+      "transport": "print mode mit stream-json",
+      "note": "Plan-Permission-Modus und Sitzungsisolation; kein bypassPermissions."
+    },
+    {
+      "id": "generic-jsonl",
+      "maturity_target": "extension",
+      "transport": "versioniertes JSONL",
+      "note": "Dokumentierter Adaptervertrag fuer weitere lokale Agenten."
+    }
+  ],
+  "reference_baseline": [
+    {
+      "id": "codex-noninteractive",
+      "url": "https://learn.chatgpt.com/docs/non-interactive-mode",
+      "verified": "2026-08-13",
+      "used_for": [
+        "codex exec",
+        "JSONL-Events",
+        "Sandbox-Defaults",
+        "Automation-Authentifizierung"
+      ]
+    },
+    {
+      "id": "codex-developer-commands",
+      "url": "https://learn.chatgpt.com/docs/developer-commands?surface=cli",
+      "verified": "2026-08-13",
+      "used_for": [
+        "CLI-Reifegrade",
+        "codex app-server",
+        "stdio- und WebSocket-Transport"
+      ]
+    },
+    {
+      "id": "opencode-cli",
+      "url": "https://dev.opencode.ai/docs/cli/",
+      "verified": "2026-08-13",
+      "used_for": [
+        "opencode run",
+        "JSON-Events",
+        "ACP nd-JSON",
+        "Headless Server"
+      ]
+    },
+    {
+      "id": "claude-cli",
+      "url": "https://code.claude.com/docs/en/cli-usage",
+      "verified": "2026-08-13",
+      "used_for": [
+        "Print Mode",
+        "stream-json",
+        "Permission Mode",
+        "Budget- und Session-Grenzen"
+      ]
+    },
+    {
+      "id": "root-agent-policy",
+      "path": "AGENTS.md",
+      "used_for": [
+        "Repository-Grenzen",
+        "Todo-Policy",
+        "Bewerbungs- und Inkognito-Sicherheit"
+      ]
+    },
+    {
+      "id": "application-agent-system",
+      "path": "docs/application-agent-system.md",
+      "used_for": [
+        "Skill-Routing",
+        "Reviewrollen",
+        "Evidence-Lebenszyklus"
+      ]
+    }
+  ],
+  "canonical_run_states": [
+    "queued",
+    "starting",
+    "running",
+    "waiting_for_input",
+    "waiting_for_approval",
+    "cancelling",
+    "cancelled",
+    "succeeded",
+    "failed",
+    "timed_out",
+    "orphaned",
+    "recovering"
+  ],
+  "canonical_event_kinds": [
+    "run_created",
+    "process_started",
+    "agent_message_delta",
+    "agent_message_completed",
+    "tool_requested",
+    "tool_started",
+    "tool_output",
+    "tool_completed",
+    "approval_requested",
+    "approval_resolved",
+    "user_input_requested",
+    "user_input_received",
+    "artifact_created",
+    "usage_updated",
+    "warning",
+    "error",
+    "heartbeat",
+    "run_completed",
+    "capabilities_negotiated"
+  ],
+  "milestones": [
+    {
+      "id": "M1",
+      "title": "Produktvertraege und Architektur",
+      "task_ids": [
+        "AGENT-001",
+        "AGENT-002",
+        "AGENT-003",
+        "AGENT-004"
+      ],
+      "status": "done"
+    },
+    {
+      "id": "M2",
+      "title": "Sicherer Prozess- und Laufzeitkern",
+      "task_ids": [
+        "AGENT-005",
+        "AGENT-006",
+        "AGENT-007",
+        "AGENT-008"
+      ],
+      "status": "in_progress"
+    },
+    {
+      "id": "M3",
+      "title": "Provideradapter",
+      "task_ids": [
+        "AGENT-009",
+        "AGENT-010",
+        "AGENT-011",
+        "AGENT-012"
+      ],
+      "status": "in_progress"
+    },
+    {
+      "id": "M4",
+      "title": "MCP- und Domain-Tool-Fassade",
+      "task_ids": [
+        "AGENT-013",
+        "AGENT-014",
+        "AGENT-015",
+        "AGENT-016"
+      ],
+      "status": "in_progress"
+    },
+    {
+      "id": "M5",
+      "title": "Sandbox, Secrets und Sicherheitsmodell",
+      "task_ids": [
+        "AGENT-017",
+        "AGENT-018",
+        "AGENT-019",
+        "AGENT-020"
+      ],
+      "status": "in_progress"
+    },
+    {
+      "id": "M6",
+      "title": "Human-in-the-loop und Policy Engine",
+      "task_ids": [
+        "AGENT-021",
+        "AGENT-022",
+        "AGENT-023",
+        "AGENT-024"
+      ],
+      "status": "in_progress"
+    },
+    {
+      "id": "M7",
+      "title": "Persistenz, Audit und Datenschutz",
+      "task_ids": [
+        "AGENT-025",
+        "AGENT-026",
+        "AGENT-027",
+        "AGENT-028"
+      ],
+      "status": "in_progress"
+    },
+    {
+      "id": "M8",
+      "title": "Streaming- und Steuerungs-API",
+      "task_ids": [
+        "AGENT-029",
+        "AGENT-030",
+        "AGENT-031",
+        "AGENT-032"
+      ],
+      "status": "in_progress"
+    },
+    {
+      "id": "M9",
+      "title": "Angular Agent Center",
+      "task_ids": [
+        "AGENT-033",
+        "AGENT-034",
+        "AGENT-035",
+        "AGENT-036"
+      ],
+      "status": "in_progress"
+    },
+    {
+      "id": "M10",
+      "title": "Orchestrierung und Multi-Agent-Zusammenarbeit",
+      "task_ids": [
+        "AGENT-037",
+        "AGENT-038",
+        "AGENT-039",
+        "AGENT-040"
+      ],
+      "status": "in_progress"
+    },
+    {
+      "id": "M11",
+      "title": "Bewerbungsfachliche Agentenablaeufe",
+      "task_ids": [
+        "AGENT-041",
+        "AGENT-042",
+        "AGENT-043",
+        "AGENT-044"
+      ],
+      "status": "in_progress"
+    },
+    {
+      "id": "M12",
+      "title": "Observability, Kosten und Evaluation",
+      "task_ids": [
+        "AGENT-045",
+        "AGENT-046",
+        "AGENT-047",
+        "AGENT-048"
+      ],
+      "status": "in_progress"
+    },
+    {
+      "id": "M13",
+      "title": "Installation, Migration und Betrieb",
+      "task_ids": [
+        "AGENT-049",
+        "AGENT-050",
+        "AGENT-051",
+        "AGENT-052"
+      ],
+      "status": "in_progress"
+    },
+    {
+      "id": "M14",
+      "title": "Qualitaet, Abnahme und Release",
+      "task_ids": [
+        "AGENT-053",
+        "AGENT-054",
+        "AGENT-055",
+        "AGENT-056"
+      ],
+      "status": "in_progress"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "AGENT-001",
+      "title": "Providerneutralen AgentRunnerPort und Capability-Vertrag definieren",
+      "type": "contracts",
+      "target_repository": "root",
+      "status": "done",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 100,
+      "dependencies": [],
+      "deliverables": [
+        "AgentRunnerPort mit discover, start, sendInput, resolveApproval, cancel, resume und dispose",
+        "Versioniertes Capability-Dokument fuer Streaming, Resume, Tools, Images, Structured Output, Sandbox und Usage",
+        "Contract-Tests fuer fehlende und unbekannte Capabilities"
+      ],
+      "acceptance_criteria": [
+        "Kein Domain-Service importiert Codex-, OpenCode- oder Claude-spezifische Typen.",
+        "Provider koennen unbekannte optionale Capabilities melden, ohne alte Clients zu brechen.",
+        "Inkompatible Major-Versionen werden vor einem Prozessstart verstaendlich abgelehnt."
+      ]
+    },
+    {
+      "id": "AGENT-002",
+      "title": "Kanonisches Run-, Event-, Tool- und Approval-Modell versionieren",
+      "type": "domain",
+      "target_repository": "root",
+      "status": "done",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 100,
+      "dependencies": [
+        "AGENT-001"
+      ],
+      "deliverables": [
+        "AgentRun, AgentEvent, ToolInvocation, ApprovalRequest, UsageSnapshot und ArtifactReference",
+        "Explizite Zustandsmaschine mit erlaubten Transitionen und terminalen Zustaenden",
+        "JSON-Schemas und Forward-Compatibility-Regeln"
+      ],
+      "acceptance_criteria": [
+        "Jedes Event besitzt runId, sequence, timestamp, provider, schemaVersion und correlationId.",
+        "Doppelte, verspaetete und unbekannte Events werden deterministisch behandelt.",
+        "Unzulaessige Zustandswechsel schlagen fehl und erzeugen einen Audit-Eintrag."
+      ]
+    },
+    {
+      "id": "AGENT-003",
+      "title": "Architekturentscheidungen und Trust Boundaries dokumentieren",
+      "type": "architecture",
+      "target_repository": "root",
+      "status": "done",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 100,
+      "dependencies": [
+        "AGENT-001",
+        "AGENT-002"
+      ],
+      "deliverables": [
+        "ADR fuer CLI-Adapter versus SDK/App-Server",
+        "Datenflussdiagramm Browser, API, Runner, Kindprozess, MCP, Submodules und Vaults",
+        "Trust-Boundary- und Deployment-Matrix fuer Windows, WSL2 und Container"
+      ],
+      "acceptance_criteria": [
+        "Experimentelle Codex-App-Server-Nutzung besitzt einen dokumentierten exec-Fallback.",
+        "Browserdaten koennen nie direkt einen Hostprozess oder ein Kommando bestimmen.",
+        "Repository- und Submodule-Verantwortungen entsprechen AGENTS.md."
+      ]
+    },
+    {
+      "id": "AGENT-004",
+      "title": "Kompatibilitaets-, Deprecation- und Provider-Update-Policy festlegen",
+      "type": "governance",
+      "target_repository": "root",
+      "status": "done",
+      "priority": "high",
+      "risk": "medium",
+      "progress_percent": 100,
+      "dependencies": [
+        "AGENT-001"
+      ],
+      "deliverables": [
+        "Unterstuetzungsmatrix aus CLI-Version, Adapterversion und Protokollversion",
+        "Deprecation-Fenster und Feature-Flag-Regeln",
+        "Fixture-basierte Upgrade-Checkliste pro Provider"
+      ],
+      "acceptance_criteria": [
+        "Nicht getestete CLI-Versionen werden gewarnt oder gemaess Policy blockiert.",
+        "Providerupdates veraendern niemals stillschweigend Sandbox- oder Approval-Defaults.",
+        "Die UI zeigt erkannte Version, Supportstatus und relevante Einschraenkungen."
+      ]
+    },
+    {
+      "id": "AGENT-005",
+      "title": "Robusten lokalen ProcessSupervisor implementieren",
+      "type": "runtime",
+      "target_repository": "root",
+      "status": "partial",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 90,
+      "dependencies": [
+        "AGENT-002",
+        "AGENT-003"
+      ],
+      "deliverables": [
+        "Spawn ohne Shell-Interpolation mit getrennten Argumentarrays",
+        "Process-Tree-Tracking, Heartbeat, Exitklassifikation und sichere Beendigung",
+        "Begrenzte stdout-/stderr-Puffer und Rohlog-Rotation"
+      ],
+      "acceptance_criteria": [
+        "Browserinput kann weder Executable noch freie Kommandoargumente einschleusen.",
+        "Cancel beendet nach Grace Period den vollstaendigen Kindprozessbaum.",
+        "Crash, Signal, Timeout und regulaerer Exit werden kanonisch unterschieden."
+      ]
+    },
+    {
+      "id": "AGENT-006",
+      "title": "Windows-, WSL2- und Pfadabstraktion bereitstellen",
+      "type": "runtime",
+      "target_repository": "root",
+      "status": "partial",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 90,
+      "dependencies": [
+        "AGENT-005"
+      ],
+      "deliverables": [
+        "RuntimeTarget windows, wsl und optional container",
+        "Sichere Windows-/WSL-Pfadabbildung ohne String-Shell",
+        "Diagnose fuer Distribution, Benutzer, Arbeitsverzeichnis, CLI und Dateirechte"
+      ],
+      "acceptance_criteria": [
+        "Ein Run verwendet nur vorab validierte Workspace-Wurzeln.",
+        "UNC-, Symlink-, Junction- und Case-Normalisierung verhindern Workspace-Ausbruch.",
+        "Gleiche Contract-Fixtures laufen unter Windows und Ubuntu/WSL2."
+      ]
+    },
+    {
+      "id": "AGENT-007",
+      "title": "Ressourcenlimits, Queueing und Fairness implementieren",
+      "type": "runtime",
+      "target_repository": "root",
+      "status": "done",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 100,
+      "dependencies": [
+        "AGENT-005"
+      ],
+      "deliverables": [
+        "Konfigurierbare Parallelitaet global, je Provider, Workspace und Nutzer",
+        "Walltime-, Idle-, Output-, Speicher- und Prozesslimits",
+        "Prioritaetsqueue mit Starvation-Schutz und Backpressure"
+      ],
+      "acceptance_criteria": [
+        "Ein fehlerhafter Run kann API und andere Runs nicht dauerhaft blockieren.",
+        "Ueberschrittene Limits fuehren zu einem erklaerbaren terminalen Zustand.",
+        "Queueposition und Limitgrund sind in Angular sichtbar."
+      ]
+    },
+    {
+      "id": "AGENT-008",
+      "title": "Crash-Recovery und verwaiste Prozesse beherrschen",
+      "type": "reliability",
+      "target_repository": "root",
+      "status": "done",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 100,
+      "dependencies": [
+        "AGENT-005",
+        "AGENT-025"
+      ],
+      "deliverables": [
+        "Startup-Reconciliation zwischen Persistenz und laufenden Prozessen",
+        "Orphan-Erkennung, Recovery-Lease und operatorgestuetzte Bereinigung",
+        "Idempotente Wiederaufnahme nur bei Provider-Capability"
+      ],
+      "acceptance_criteria": [
+        "Nach API-Neustart bleibt kein Run faelschlich dauerhaft running.",
+        "Ein fremder oder nicht verifizierbarer Prozess wird niemals automatisch adoptiert.",
+        "Recovery-Aktionen sind auditierbar und koennen keine abgeschlossenen Runs veraendern."
+      ]
+    },
+    {
+      "id": "AGENT-009",
+      "title": "Produktionsreifen Codex-exec-JSONL-Adapter implementieren",
+      "type": "provider",
+      "target_repository": "root",
+      "status": "done",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 100,
+      "dependencies": [
+        "AGENT-001",
+        "AGENT-005",
+        "AGENT-017"
+      ],
+      "deliverables": [
+        "codex exec --json Adapter mit stdin-Prompt und explizitem Arbeitsverzeichnis",
+        "Mapping aller bekannten JSONL-Events, Usage, Toolcalls, Fehler und finaler Nachricht",
+        "Read-only-, workspace-write- und Netzwerkprofile ohne yolo"
+      ],
+      "acceptance_criteria": [
+        "Partielle JSONL-Zeilen, stderr-Fortschritt und unbekannte Eventtypen verursachen keinen Streamabbruch.",
+        "Gespeicherte CLI-Authentifizierung oder kurzlebige Run-Credentials werden nie geloggt.",
+        "Adaptertests nutzen aufgezeichnete offizielle und synthetische Event-Fixtures."
+      ]
+    },
+    {
+      "id": "AGENT-010",
+      "title": "Codex-App-Server als experimentellen interaktiven Adapter kapseln",
+      "type": "provider",
+      "target_repository": "root",
+      "status": "partial",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 90,
+      "dependencies": [
+        "AGENT-009",
+        "AGENT-004"
+      ],
+      "deliverables": [
+        "Feature-Flag fuer stdio und lokal authentifizierten WebSocket",
+        "Thread-/Turn-Mapping, Resume, Eingabe und Approval-Bruecke",
+        "Automatischer Healthcheck und expliziter Fallback auf codex exec"
+      ],
+      "acceptance_criteria": [
+        "Nicht-lokale unverschluesselte Listener werden abgelehnt.",
+        "Protokollaenderungen koennen nur diesen Adapter deaktivieren, nicht das Agent Center.",
+        "Die UI kennzeichnet experimentelle Sitzungen und Fallbacks eindeutig."
+      ]
+    },
+    {
+      "id": "AGENT-011",
+      "title": "OpenCode-Adapter mit versionierten Fixtures implementieren",
+      "type": "provider",
+      "target_repository": "root",
+      "status": "partial",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 80,
+      "dependencies": [
+        "AGENT-001",
+        "AGENT-005",
+        "AGENT-004"
+      ],
+      "deliverables": [
+        "CLI-/Server-Discovery und nichtinteraktiver strukturierter Transport",
+        "Normalisierung von Sessions, Messages, Toolcalls, Usage, Permissions und Fehlern",
+        "Providerfixtures fuer unterstuetzte Versionen"
+      ],
+      "acceptance_criteria": [
+        "Der Adapter parst keine farbige Terminaldarstellung als autoritative Daten.",
+        "Fehlende strukturierte Capabilities werden transparent degradiert oder blockiert.",
+        "Authentifizierung und Providerkonfiguration bleiben ausserhalb versionierter Projektdateien."
+      ]
+    },
+    {
+      "id": "AGENT-012",
+      "title": "Claude-CLI-Adapter und generisches Erweiterungs-SDK bereitstellen",
+      "type": "provider",
+      "target_repository": "root",
+      "status": "partial",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 80,
+      "dependencies": [
+        "AGENT-001",
+        "AGENT-005",
+        "AGENT-004"
+      ],
+      "deliverables": [
+        "Claude-CLI-Adapter mit strukturiertem Eventmapping und Permission-Bruecke",
+        "GenericJsonlAgentAdapter mit Manifest, Schema und Beispielprovider",
+        "Provider-Conformance-Testkit und Adapterentwickler-Dokumentation"
+      ],
+      "acceptance_criteria": [
+        "Claude-spezifische Permission-Modi werden auf engere kanonische Policies abgebildet.",
+        "Ein Drittadapter kann ohne Aenderung der Domain- oder Angular-Komponenten registriert werden.",
+        "Unsignierte oder nicht erlaubte Adaptermanifeste werden nicht automatisch ausgefuehrt."
+      ]
+    },
+    {
+      "id": "AGENT-013",
+      "title": "Root-Anwendung als eingeschraenkten lokalen MCP-Server exponieren",
+      "type": "mcp",
+      "target_repository": "root",
+      "status": "partial",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 85,
+      "dependencies": [
+        "AGENT-002",
+        "AGENT-017"
+      ],
+      "deliverables": [
+        "Versionierter MCP-Server ueber stdio und optional localhost",
+        "Toolkatalog mit read, propose, confirm und execute Risikoklassen",
+        "Per-Run Capability-Token statt globalem API-Zugriff"
+      ],
+      "acceptance_criteria": [
+        "Agenten erhalten nur fuer den Run freigegebene Tools und Bewerbungsfaelle.",
+        "MCP-Toolbeschreibungen markieren externe Seiteneffekte und notwendige Freigaben.",
+        "Der MCP-Server kann keine Portal- oder Bewerbungsregeln umgehen."
+      ]
+    },
+    {
+      "id": "AGENT-014",
+      "title": "Read-only Werkzeuge fuer Jobs, Firmen, Bewerbungen und Nachrichten anbieten",
+      "type": "mcp",
+      "target_repository": "root",
+      "status": "partial",
+      "priority": "high",
+      "risk": "medium",
+      "progress_percent": 85,
+      "dependencies": [
+        "AGENT-013"
+      ],
+      "deliverables": [
+        "search/list/get Werkzeuge mit Pagination und Feldminimierung",
+        "Gezielte Kontextabfragen fuer Job, Firma, ApplicationCase, Tracking und Mail",
+        "PII- und Inkognito-sensible Ansichten"
+      ],
+      "acceptance_criteria": [
+        "Ein Tool liefert nur den explizit angeforderten fachlichen Scope.",
+        "Mailtexte und reale Identitaet werden gemaess Run-Policy reduziert oder maskiert.",
+        "Toolantworten enthalten stabile IDs, Versionen und Quellenreferenzen."
+      ]
+    },
+    {
+      "id": "AGENT-015",
+      "title": "Vorschlags- und Command-Werkzeuge mit Domainvalidierung implementieren",
+      "type": "mcp",
+      "target_repository": "root",
+      "status": "partial",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 80,
+      "dependencies": [
+        "AGENT-013",
+        "AGENT-021"
+      ],
+      "deliverables": [
+        "Werkzeuge fuer Mailzuordnungsvorschlag, Reminder, Statusvorschlag und Dokumentrevision",
+        "Separater confirm/execute Commandpfad mit optimistic concurrency",
+        "Idempotency Keys und Dry-Run-Darstellung"
+      ],
+      "acceptance_criteria": [
+        "Ein Agentenvorschlag veraendert keinen autoritativen Zustand.",
+        "Jeder Schreibcommand validiert erwartete Revision, Nutzerfreigabe und aktuelle Policy.",
+        "Wiederholte Requests erzeugen keine doppelten Nachrichten, Events oder Artefakte."
+      ]
+    },
+    {
+      "id": "AGENT-016",
+      "title": "Submodule-Werkzeuge ueber schmale versionierte Vertraege vermitteln",
+      "type": "integration",
+      "target_repository": "root",
+      "status": "partial",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 60,
+      "dependencies": [
+        "AGENT-013",
+        "AGENT-015"
+      ],
+      "deliverables": [
+        "Proxy/Adapter fuer job-search-mcp Capabilities und erlaubte Portaltools",
+        "Proxy/Adapter fuer Bewerbungsanalyse, Evidence-Matrix, Audit und Finalisierung",
+        "Cross-Repository-Contract- und Negativtests"
+      ],
+      "acceptance_criteria": [
+        "Portal-Credentials bleiben vollstaendig im Job-Search-Submodule.",
+        "Dokumentvorschlaege und Claims durchlaufen die Bewerbungs-Skill-Pipeline.",
+        "Erforderliche Upstream-Aenderungen besitzen eigene Submodule-Todos und veroeffentlichte Commits."
+      ]
+    },
+    {
+      "id": "AGENT-017",
+      "title": "Allowlist-basierte Executable-, Argument- und Workspace-Policy implementieren",
+      "type": "security",
+      "target_repository": "root",
+      "status": "partial",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 90,
+      "dependencies": [
+        "AGENT-003"
+      ],
+      "deliverables": [
+        "Admin-/Local-Config fuer erlaubte Provider-Binaries und feste Argumenttemplates",
+        "Workspace-Registry mit kanonischen Pfaden und Zugriffsmodi",
+        "Policy-Entscheidungsprotokoll mit deny-by-default"
+      ],
+      "acceptance_criteria": [
+        "UI-Werte werden nie zu Shellstrings zusammengesetzt.",
+        "Relative Pfade, Symlinks und zusaetzliche Verzeichnisse werden vor Start kanonisch geprueft.",
+        "Policy-Aenderungen gelten nur fuer neue Freigaben und werden auditiert."
+      ]
+    },
+    {
+      "id": "AGENT-018",
+      "title": "Sandbox- und Netzwerkprofile provideruebergreifend erzwingen",
+      "type": "security",
+      "target_repository": "root",
+      "status": "partial",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 85,
+      "dependencies": [
+        "AGENT-017",
+        "AGENT-006"
+      ],
+      "deliverables": [
+        "Profile read_only_offline, workspace_write_offline, workspace_write_limited_network und isolated_full",
+        "Provider-Mapping mit effective-policy Nachweis",
+        "Optionaler Container-/OS-Sandbox-Backendvertrag"
+      ],
+      "acceptance_criteria": [
+        "Der effektive Zugriff ist nie weiter als die angeforderte kanonische Policy.",
+        "Nicht erzwingbare Policies blockieren den Lauf statt nur zu warnen.",
+        "Netzwerkfreigaben sind ziel-/domainbezogen, zeitlich begrenzt und sichtbar."
+      ]
+    },
+    {
+      "id": "AGENT-019",
+      "title": "Credential Broker und Secret-Isolation entwickeln",
+      "type": "security",
+      "target_repository": "root",
+      "status": "done",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 100,
+      "dependencies": [
+        "AGENT-017",
+        "AGENT-027"
+      ],
+      "deliverables": [
+        "Kurzlebige, rungebundene Credential Handles",
+        "Providerauth ohne Secret-Roundtrip durch Browser, Logs oder Prompts",
+        "Redaction fuer Environment, argv, Events, Tooloutput und Crashreports"
+      ],
+      "acceptance_criteria": [
+        "Angular kann gespeicherte Secrets weder lesen noch exportieren.",
+        "Kindprozesse erhalten nur explizit benoetigte Secrets und keine komplette Serverumgebung.",
+        "Automatisierte Canary-Tests erkennen Secret-Leaks in allen persistierten Kanaelen."
+      ]
+    },
+    {
+      "id": "AGENT-020",
+      "title": "Prompt-Injection-, Exfiltration- und Tool-Misuse-Abwehr umsetzen",
+      "type": "security",
+      "target_repository": "root",
+      "status": "done",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 100,
+      "dependencies": [
+        "AGENT-014",
+        "AGENT-018",
+        "AGENT-019"
+      ],
+      "deliverables": [
+        "Kennzeichnung und Trennung von Nutzeranweisung, Stellenanzeige, E-Mail und Tooldaten",
+        "Content-origin Metadaten und untrusted-data Policy",
+        "Abwehrtests fuer indirekte Injection, Datenabfluss und Confused Deputy"
+      ],
+      "acceptance_criteria": [
+        "In Stellenanzeigen oder Mails enthaltene Anweisungen koennen keine Freigabe oder Toolpolicy aendern.",
+        "Agenten koennen keine fremden ApplicationCases durch ID-Raten lesen.",
+        "Sicherheitsrelevante Blockaden zeigen einen nuetzlichen, aber nicht sensitiven Grund."
+      ]
+    },
+    {
+      "id": "AGENT-021",
+      "title": "Zentrale risikobasierte Policy Engine implementieren",
+      "type": "approval",
+      "target_repository": "root",
+      "status": "done",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 100,
+      "dependencies": [
+        "AGENT-002",
+        "AGENT-017"
+      ],
+      "deliverables": [
+        "Risikoklassen read, local_write, sensitive_read, network, external_write und destructive",
+        "Regeln nach Tool, Provider, Runprofil, Identitaetsmodus und Domainzustand",
+        "Explain-API fuer Entscheidung und benoetigte Freigabe"
+      ],
+      "acceptance_criteria": [
+        "Deny hat Vorrang vor Provider- oder Agentenwunsch.",
+        "Inkognito blockiert Finalisierung, Versand und used-Markierung serverseitig.",
+        "Policyentscheidungen sind deterministisch und mit Tests reproduzierbar."
+      ]
+    },
+    {
+      "id": "AGENT-022",
+      "title": "Kontextgebundene Approval-Queue und Freigabetokens bauen",
+      "type": "approval",
+      "target_repository": "root",
+      "status": "done",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 100,
+      "dependencies": [
+        "AGENT-021",
+        "AGENT-030"
+      ],
+      "deliverables": [
+        "ApprovalRequest mit diff, Ziel, Parametern, Risiko, Ablaufzeit und Alternativen",
+        "Einmalige signierte Approval-Tokens",
+        "Approve, deny, edit-and-approve und revoke Workflows"
+      ],
+      "acceptance_criteria": [
+        "Eine Freigabe kann nicht fuer ein anderes Tool, andere Parameter oder einen anderen Run wiederverwendet werden.",
+        "Geaenderte Parameter erzeugen eine neue Vorschau und Freigabe.",
+        "Abgelaufene, bereits verwendete und widerrufene Tokens werden abgelehnt."
+      ]
+    },
+    {
+      "id": "AGENT-023",
+      "title": "Interaktive Rueckfragen und Nutzerantworten standardisieren",
+      "type": "approval",
+      "target_repository": "root",
+      "status": "done",
+      "priority": "high",
+      "risk": "medium",
+      "progress_percent": 100,
+      "dependencies": [
+        "AGENT-002",
+        "AGENT-030"
+      ],
+      "deliverables": [
+        "UserInputRequest fuer Freitext, Auswahl, Datei und Bestaetigung",
+        "Validierung, Ablaufzeit, Abbruch und Wiederholung",
+        "Trennung fachlicher Rueckfrage von Sicherheitsfreigabe"
+      ],
+      "acceptance_criteria": [
+        "Eine normale Agentenfrage kann keine Approval ersetzen.",
+        "Antworten werden mit Autor, Zeitpunkt und Run-Sequenz auditiert.",
+        "Sensible Eingabefelder werden maskiert und nicht in normale Runlogs kopiert."
+      ]
+    },
+    {
+      "id": "AGENT-024",
+      "title": "Cancel-, Pause-, Timeout- und Emergency-Stop-Semantik vollstaendig umsetzen",
+      "type": "approval",
+      "target_repository": "root",
+      "status": "partial",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 85,
+      "dependencies": [
+        "AGENT-005",
+        "AGENT-021"
+      ],
+      "deliverables": [
+        "Graceful Cancel und erzwungener Process-Tree-Stop",
+        "Providerabhaengige Pause/Resume-Capability",
+        "Globaler Emergency Stop fuer neue Starts, Netzwerk und externe Actions"
+      ],
+      "acceptance_criteria": [
+        "Cancel waehrend Approval, Toolcall und Streaming endet deterministisch.",
+        "Emergency Stop widerruft offene externe Freigaben und verhindert neue Seiteneffekte.",
+        "Bereits abgeschlossene Domain-Commands bleiben unveraendert und nachvollziehbar."
+      ]
+    },
+    {
+      "id": "AGENT-025",
+      "title": "Append-only Run- und Event-Persistenz mit Snapshots implementieren",
+      "type": "persistence",
+      "target_repository": "root",
+      "status": "partial",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 95,
+      "dependencies": [
+        "AGENT-002"
+      ],
+      "deliverables": [
+        "Atomare Eventablage und materialisierte Run-Snapshots",
+        "Monotone Sequence und Idempotenz je Provider-Event",
+        "Schema-Migrationen und Korruptionsdiagnose"
+      ],
+      "acceptance_criteria": [
+        "Ein Run kann allein aus Events reproduziert werden.",
+        "Teilweise Schreibvorgaenge werden erkannt und sicher wiederhergestellt.",
+        "Verwendete Dokument- und Approval-Ereignisse sind unveraenderlich."
+      ]
+    },
+    {
+      "id": "AGENT-026",
+      "title": "Agentenartefakt-, Diff- und Provenance-Store entwickeln",
+      "type": "persistence",
+      "target_repository": "root",
+      "status": "partial",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 85,
+      "dependencies": [
+        "AGENT-025"
+      ],
+      "deliverables": [
+        "Content-addressed Artefakte mit SHA-256, MIME, Groesse und Erzeuger",
+        "Vorher-/Nachher-Diffs und Workspace-Dateireferenzen",
+        "Verknuepfung zu Job, Firma, ApplicationCase, Mail und Dokumentrevision"
+      ],
+      "acceptance_criteria": [
+        "Ein Artefakt kann nicht still durch neuen Inhalt unter gleicher ID ersetzt werden.",
+        "Pfade werden relativ zu validierten Arbeitswurzeln gespeichert.",
+        "Die UI unterscheidet Agentenvorschlag, freigegebenes Ergebnis und tatsaechlich verwendete Revision."
+      ]
+    },
+    {
+      "id": "AGENT-027",
+      "title": "Run-Vault, Verschluesselung und PII-Redaction implementieren",
+      "type": "privacy",
+      "target_repository": "root",
+      "status": "done",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 100,
+      "dependencies": [
+        "AGENT-025"
+      ],
+      "deliverables": [
+        "AES-GCM-verschluesselte sensible Runinhalte und getrennte lokale Schluessel",
+        "Feldklassifikation public, internal, personal, secret",
+        "Redacted Views fuer UI, Export, Diagnose und Supportbundle"
+      ],
+      "acceptance_criteria": [
+        "Prompts, Mailtexte und reale Identitaeten liegen nicht im Klartext-Eventindex.",
+        "Manipulierte Ciphertexte schlagen authentifiziert und ohne Teilinhalt fehl.",
+        "Backups dokumentieren gemeinsam zu sichernde Daten- und Schluesseldateien."
+      ]
+    },
+    {
+      "id": "AGENT-028",
+      "title": "Retention, Export, Loeschung und Legal-Safety-Funktionen bereitstellen",
+      "type": "privacy",
+      "target_repository": "root",
+      "status": "partial",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 70,
+      "dependencies": [
+        "AGENT-025",
+        "AGENT-027"
+      ],
+      "deliverables": [
+        "Aufbewahrungsregeln nach Runstatus, Sensitivitaet und ApplicationCase",
+        "Portabler Export mit Manifest, Hashes und Redactionoptionen",
+        "Bestaetigte Loeschung fuer Run, Providerdaten, Rohlogs und Artefakte"
+      ],
+      "acceptance_criteria": [
+        "Loeschvorschau listet exakte Auswirkungen und geschuetzte Referenzen.",
+        "Used-Dokument-Metadaten bleiben gemaess Nachvollziehbarkeit erhalten, auch wenn temporaerer Rohinhalt geloescht wird.",
+        "Export und Loeschung sind selbst auditierte Benutzeraktionen."
+      ]
+    },
+    {
+      "id": "AGENT-029",
+      "title": "Resumierbaren SSE-Ereignisstrom mit Backpressure bauen",
+      "type": "api",
+      "target_repository": "root",
+      "status": "partial",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 90,
+      "dependencies": [
+        "AGENT-002",
+        "AGENT-025"
+      ],
+      "deliverables": [
+        "SSE Endpoint je Run und gefilterter globaler Stream",
+        "Last-Event-ID Resume und Snapshot-then-stream",
+        "Heartbeat, Bufferlimits und Slow-Consumer-Policy"
+      ],
+      "acceptance_criteria": [
+        "Browser-Reconnect verliert oder dupliziert keine fachliche Sequenz.",
+        "Langsame oder getrennte Clients blockieren den Providerprozess nicht.",
+        "Der Stream gibt nur fuer den Nutzer autorisierte Runs und redaktierte Payloads aus."
+      ]
+    },
+    {
+      "id": "AGENT-030",
+      "title": "Idempotente Run- und Steuerungs-REST-API bereitstellen",
+      "type": "api",
+      "target_repository": "root",
+      "status": "done",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 100,
+      "dependencies": [
+        "AGENT-001",
+        "AGENT-021",
+        "AGENT-025"
+      ],
+      "deliverables": [
+        "Create/list/get/start/cancel/resume/input/approval Endpoints",
+        "Idempotency-Key, expectedRevision und Request-Correlation",
+        "Einheitliches Fehler- und Retrymodell"
+      ],
+      "acceptance_criteria": [
+        "Doppelklick und Netzwerk-Retry starten keinen zweiten Run.",
+        "Konflikte liefern aktuellen Zustand und sichere naechste Aktion.",
+        "API-Logs enthalten Metadaten, aber keine Prompts, Tokens oder Secrets."
+      ]
+    },
+    {
+      "id": "AGENT-031",
+      "title": "Optionale bidirektionale Echtzeitverbindung sicher kapseln",
+      "type": "api",
+      "target_repository": "root",
+      "status": "done",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 100,
+      "dependencies": [
+        "AGENT-029",
+        "AGENT-030"
+      ],
+      "deliverables": [
+        "WebSocket nur fuer Funktionen, die SSE plus REST nicht abdecken",
+        "Origin-, Auth-, Framegroessen-, Rate- und Idle-Schutz",
+        "Reconnect und serverseitige Sessionbindung"
+      ],
+      "acceptance_criteria": [
+        "SSE plus REST bleibt vollstaendiger Fallback.",
+        "Nicht-lokale Verbindungen verlangen TLS und starke Authentifizierung.",
+        "Frames koennen keine Freigabebindung oder Runrevision umgehen."
+      ]
+    },
+    {
+      "id": "AGENT-032",
+      "title": "Provider-, Runner- und Stream-Health sowie Diagnose-API erweitern",
+      "type": "api",
+      "target_repository": "root",
+      "status": "done",
+      "priority": "high",
+      "risk": "medium",
+      "progress_percent": 100,
+      "dependencies": [
+        "AGENT-004",
+        "AGENT-005",
+        "AGENT-029"
+      ],
+      "deliverables": [
+        "Discoverystatus, Version, Authstatus, Sandboxfaehigkeit und letzte Probe",
+        "Sichere Selbsttests ohne externen Seiteneffekt",
+        "Supportbundle mit redaktierten Konfigurationen und Korrelationen"
+      ],
+      "acceptance_criteria": [
+        "Diagnose unterscheidet fehlt, nicht authentifiziert, inkompatibel, policy-blocked und runtime-fehlerhaft.",
+        "Healthchecks starten keinen kostenpflichtigen Agentenlauf ohne Bestaetigung.",
+        "Supportbundles bestehen Secret- und PII-Scan."
+      ]
+    },
+    {
+      "id": "AGENT-033",
+      "title": "Angular Agent-Center-Dashboard und Run-Erstellung entwickeln",
+      "type": "frontend",
+      "target_repository": "root",
+      "status": "done",
+      "priority": "high",
+      "risk": "medium",
+      "progress_percent": 100,
+      "dependencies": [
+        "AGENT-030",
+        "AGENT-032"
+      ],
+      "deliverables": [
+        "Providerkarten, Capabilitystatus, Queue, aktive und letzte Runs",
+        "Gefuehrte Run-Erstellung mit Tasktemplate, Scope, Sandbox, Budget und Kontext",
+        "Explizite Zusammenfassung vor Start"
+      ],
+      "acceptance_criteria": [
+        "Unsichere Kombinationen sind blockiert oder verlangen begruendete Freigabe.",
+        "Der Nutzer sieht vor Start Provider, Workspace, Datenumfang, Tools, Netzwerk und Limits.",
+        "Formulare funktionieren per Tastatur, Screenreader und auf kleinen Bildschirmen."
+      ]
+    },
+    {
+      "id": "AGENT-034",
+      "title": "Live-Timeline fuer Messages, Toolcalls, Logs und Usage bauen",
+      "type": "frontend",
+      "target_repository": "root",
+      "status": "done",
+      "priority": "high",
+      "risk": "medium",
+      "progress_percent": 100,
+      "dependencies": [
+        "AGENT-029",
+        "AGENT-033"
+      ],
+      "deliverables": [
+        "Virtualisierte Event-Timeline mit gruppierten Deltas",
+        "Ansichten fuer Agententext, Toolinput/-output, Warnungen, Usage und Rohdiagnose",
+        "Pause der Darstellung, Suche, Filter und Copy mit Redaction"
+      ],
+      "acceptance_criteria": [
+        "Grosse Runs bleiben responsiv und verlieren keine kanonischen Events.",
+        "Toolstatus und Agentenaussage werden visuell und semantisch unterschieden.",
+        "Auto-Scroll respektiert Nutzerposition und reduced-motion Einstellungen."
+      ]
+    },
+    {
+      "id": "AGENT-035",
+      "title": "Approval-, Rueckfrage- und Eingabearbeitsplatz implementieren",
+      "type": "frontend",
+      "target_repository": "root",
+      "status": "done",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 100,
+      "dependencies": [
+        "AGENT-022",
+        "AGENT-023",
+        "AGENT-033"
+      ],
+      "deliverables": [
+        "Priorisierte Approval-Inbox mit Risiko, Diff, Ziel und Ablauf",
+        "Approve, deny, edit-and-approve und sichere sensible Eingabe",
+        "Globale Pending-Anzeige und Runkontext"
+      ],
+      "acceptance_criteria": [
+        "Keine Freigabe ist nur ueber Farbe oder unklaren Sammelbutton dargestellt.",
+        "Externe und destruktive Aktionen erfordern exakte, sichtbare Ziele.",
+        "Abgelaufene oder durch Runfortschritt veraltete Dialoge koennen nicht bestaetigt werden."
+      ]
+    },
+    {
+      "id": "AGENT-036",
+      "title": "Run-Detail, Replay, Vergleich und Artefaktuebernahme vervollstaendigen",
+      "type": "frontend",
+      "target_repository": "root",
+      "status": "partial",
+      "priority": "high",
+      "risk": "medium",
+      "progress_percent": 85,
+      "dependencies": [
+        "AGENT-026",
+        "AGENT-034"
+      ],
+      "deliverables": [
+        "Runzusammenfassung mit Versionen, Kontext, Policies, Usage und Ergebnis",
+        "Replay ohne Ausfuehrung und Vergleich zweier Runs",
+        "Bewusste Uebernahme von Vorschlaegen in Domain-Commands oder Dokumentrevisionen"
+      ],
+      "acceptance_criteria": [
+        "Replay zeigt exakt gespeicherte Events und startet keine Tools.",
+        "Vergleich markiert Prompt-, Provider-, Policy-, Kontext- und Ergebnisunterschiede.",
+        "Uebernahme bewahrt Provenance und verlangt erforderliche fachliche Validierungen."
+      ]
+    },
+    {
+      "id": "AGENT-037",
+      "title": "Versionierte Tasktemplates und Prompt-Assembly entwickeln",
+      "type": "orchestration",
+      "target_repository": "root",
+      "status": "done",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 100,
+      "dependencies": [
+        "AGENT-001",
+        "AGENT-014",
+        "AGENT-020"
+      ],
+      "deliverables": [
+        "Templates fuer Recherche, Analyse, Entwurf, Review, Mailtriage und Datenpflege",
+        "Strukturierter Prompt aus Systempolicy, Aufgabe, Kontextreferenzen und Ausgabecontract",
+        "Templateversion, Hash und Eignung je Provider"
+      ],
+      "acceptance_criteria": [
+        "Untrusted Stellen- und Mailinhalte sind klar vom Instruktionsteil getrennt.",
+        "Templates enthalten keine realen Personen- oder Zugangsdaten.",
+        "Jeder Run speichert Templateversion und finalen redaktierten Assembly-Nachweis."
+      ]
+    },
+    {
+      "id": "AGENT-038",
+      "title": "Kontextbuilder mit Tokenbudget und Evidence-Grenzen implementieren",
+      "type": "orchestration",
+      "target_repository": "root",
+      "status": "done",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 100,
+      "dependencies": [
+        "AGENT-014",
+        "AGENT-027",
+        "AGENT-037"
+      ],
+      "deliverables": [
+        "Selektiver Kontext fuer Job, Firma, Bewerbungsfall, Claims, Mails und Artefakte",
+        "Budgetierung, Priorisierung, Trunkierung und Quellenmanifest",
+        "Providerneutrale Anhange und sichere Zusammenfassungen"
+      ],
+      "acceptance_criteria": [
+        "Ein Run erhaelt keine Daten anderer Firmen oder Bewerbungen ausser bei explizitem Multi-Scope.",
+        "Trunkierung entfernt keine Quellenkennzeichnung und wird sichtbar protokolliert.",
+        "Suchpraeferenzen werden niemals als Kandidatenevidence markiert."
+      ]
+    },
+    {
+      "id": "AGENT-039",
+      "title": "Multi-Agent-Plan, Rollen und Abhaengigkeitsgraph orchestrieren",
+      "type": "orchestration",
+      "target_repository": "root",
+      "status": "partial",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 70,
+      "dependencies": [
+        "AGENT-001",
+        "AGENT-021",
+        "AGENT-025",
+        "AGENT-038"
+      ],
+      "deliverables": [
+        "DAG aus Tasks, Rollen, Inputs, Outputs, Gates und Budgets",
+        "Parallele unabhaengige Runs sowie explizit sequentielle Chains",
+        "Fan-out/Fan-in mit Provenance und Konfliktbehandlung"
+      ],
+      "acceptance_criteria": [
+        "Nur wirklich getrennte Kontexte werden als independent_agents ausgewiesen.",
+        "Fehler, Cancel oder Policyblock eines Knotens propagieren gemaess deklarierter Strategie.",
+        "Kein Agent kann still weitere Provider oder Unteragenten ausserhalb des Plans starten."
+      ]
+    },
+    {
+      "id": "AGENT-040",
+      "title": "Budget-, Retry-, Konflikt- und Konsensstrategien implementieren",
+      "type": "orchestration",
+      "target_repository": "root",
+      "status": "partial",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 70,
+      "dependencies": [
+        "AGENT-039",
+        "AGENT-045"
+      ],
+      "deliverables": [
+        "Limits fuer Zeit, Tokens, Kosten, Toolcalls und Iterationen",
+        "Retry nur fuer klassifizierte transiente Fehler mit Backoff",
+        "Konfliktansicht und regelbasierte Zusammenfuehrung statt Mehrheitsfiktion"
+      ],
+      "acceptance_criteria": [
+        "Budgetueberschreitung stoppt weitere kosten- oder seiteneffektbehaftete Schritte.",
+        "Retry wiederholt keine nicht-idempotente Aktion ohne neuen sicheren Check.",
+        "Widersprechende Agentenergebnisse bleiben sichtbar und erfordern fachliche Aufloesung."
+      ]
+    },
+    {
+      "id": "AGENT-041",
+      "title": "Agentengestuetzte Jobsuche und Stellenanalyse integrieren",
+      "type": "business",
+      "target_repository": "root",
+      "status": "done",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 100,
+      "dependencies": [
+        "AGENT-016",
+        "AGENT-037",
+        "AGENT-038"
+      ],
+      "deliverables": [
+        "Gefuehrter Such- und Analyse-Run aus SearchProfile",
+        "Quellenvergleich, Deduplizierungsvorschlag und erklaerbare Priorisierung",
+        "Uebergabe ausgewaehlter Stelle an ApplicationCase"
+      ],
+      "acceptance_criteria": [
+        "Portalzugriffe laufen ausschliesslich ueber den JobSource/MCP-Vertrag.",
+        "Ranking bleibt searchPreferenceScore und wird nicht als ATS-Score bezeichnet.",
+        "Agenten koennen keine Stelle automatisch bewerben oder verstecken."
+      ]
+    },
+    {
+      "id": "AGENT-042",
+      "title": "Evidence-basierte CV-, Anschreiben- und E-Mail-Pipeline orchestrieren",
+      "type": "business",
+      "target_repository": "root",
+      "status": "partial",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 75,
+      "dependencies": [
+        "AGENT-016",
+        "AGENT-039"
+      ],
+      "deliverables": [
+        "Vollstaendiger Skillablauf Profilvalidierung, Jobanalyse, Match, Fragen, Entwurf, Audit, Reviews und Finalisierung",
+        "Rollen Author, Evidence, ATS, Recruiter/Style und Finalizer als deklarierter Plan",
+        "ArtifactRevision mit Claim-, Review-, Provider- und Run-Provenance"
+      ],
+      "acceptance_criteria": [
+        "Nicht belegte, inferred, unverified und do_not_use Claims gelangen nicht in finale Dokumente.",
+        "Inkognito kann nur Vorschauartefakte erzeugen.",
+        "Eine used-Revision verweist unveraenderlich auf exakten Inhalt und Bewerbungsfall."
+      ]
+    },
+    {
+      "id": "AGENT-043",
+      "title": "Unternehmensantworten, Termine und Mailtriage agentisch unterstuetzen",
+      "type": "business",
+      "target_repository": "root",
+      "status": "partial",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 70,
+      "dependencies": [
+        "AGENT-014",
+        "AGENT-015",
+        "AGENT-020"
+      ],
+      "deliverables": [
+        "Zusammenfassung und Klassifikationsvorschlag fuer neue Antworten",
+        "Zuordnungsvorschlaege zu Firma und Stelle mit Evidence und Alternativen",
+        "Termin-, Follow-up- und Antwortentwurfsvorschlaege"
+      ],
+      "acceptance_criteria": [
+        "Mailinhalt gilt als untrusted und kann keine Tools oder Freigaben steuern.",
+        "Unsichere Zuordnungen bleiben bis zur Nutzerbestaetigung in der Inbox.",
+        "Antwortentwuerfe werden nie automatisch versendet und erben reale/Inkognito-Sperren."
+      ]
+    },
+    {
+      "id": "AGENT-044",
+      "title": "End-to-end Bewerbungs-Cockpit und proaktive sichere Vorschlaege entwickeln",
+      "type": "business",
+      "target_repository": "root",
+      "status": "partial",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 65,
+      "dependencies": [
+        "AGENT-041",
+        "AGENT-042",
+        "AGENT-043"
+      ],
+      "deliverables": [
+        "Stellenbezogene naechste Schritte und offene Gates",
+        "Firmenweite Kollisionswarnungen bei mehreren Bewerbungen",
+        "Opt-in Vorschlaege fuer Reminder, Vorbereitung und Dokumentaktualisierung"
+      ],
+      "acceptance_criteria": [
+        "Proaktive Vorschlaege sind deaktivierbar und fuehren keine Aktion selbst aus.",
+        "Mehrere Stellen derselben Firma behalten getrennte Historien und Dokumente.",
+        "Jeder Vorschlag erklaert Datenquellen, Unsicherheit und erforderliche Nutzerentscheidung."
+      ]
+    },
+    {
+      "id": "AGENT-045",
+      "title": "Providerneutrale Usage-, Kosten- und Laufzeitmessung implementieren",
+      "type": "observability",
+      "target_repository": "root",
+      "status": "partial",
+      "priority": "high",
+      "risk": "medium",
+      "progress_percent": 70,
+      "dependencies": [
+        "AGENT-002",
+        "AGENT-025"
+      ],
+      "deliverables": [
+        "Tokens, Cache, Toolcalls, Laufzeit und optional gemeldete Kosten",
+        "Unknown-/estimated-Markierung statt erfundener Werte",
+        "Budgets und Trends je Provider, Template und Workflow"
+      ],
+      "acceptance_criteria": [
+        "Nicht vom Provider gelieferte Kosten werden nie als exakt dargestellt.",
+        "Messwerte enthalten Einheit, Quelle, Erfassungszeit und Providerversion.",
+        "Nutzer koennen harte Limits und Warnschwellen konfigurieren."
+      ]
+    },
+    {
+      "id": "AGENT-046",
+      "title": "Strukturierte Logs, Traces und lokale Metriken bereitstellen",
+      "type": "observability",
+      "target_repository": "root",
+      "status": "partial",
+      "priority": "high",
+      "risk": "medium",
+      "progress_percent": 85,
+      "dependencies": [
+        "AGENT-019",
+        "AGENT-025"
+      ],
+      "deliverables": [
+        "Correlation ueber HTTP, Run, Providerprozess, MCP und Domaincommand",
+        "Lokale Metriken fuer Queue, Fehler, Approvalzeit, Streamlag und Recovery",
+        "Redaction-getestete Logprofile fuer normal und debug"
+      ],
+      "acceptance_criteria": [
+        "Debuglogging kann keine Secrets, kompletten Mailtexte oder reale Identitaet ausgeben.",
+        "Ein Fehler ist ohne Rohprompt bis zur verantwortlichen Schicht verfolgbar.",
+        "Observability bleibt lokal und benoetigt keinen externen Telemetriedienst."
+      ]
+    },
+    {
+      "id": "AGENT-047",
+      "title": "Deterministisches Provider-Conformance- und Replay-Eval-System bauen",
+      "type": "evaluation",
+      "target_repository": "root",
+      "status": "done",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 100,
+      "dependencies": [
+        "AGENT-009",
+        "AGENT-011",
+        "AGENT-012",
+        "AGENT-025"
+      ],
+      "deliverables": [
+        "FakeAgentProvider und versionierte Eventkorpora",
+        "Replay-Evals fuer Mapping, Reihenfolge, Recovery, Usage und Fehler",
+        "Kompatibilitaetsbericht pro Providerrelease"
+      ],
+      "acceptance_criteria": [
+        "Tests benoetigen weder Accounts noch Netzwerk noch kostenpflichtige Modellaufrufe.",
+        "Unbekannte Events, Abbrueche und fehlerhafte Streams sind abgedeckt.",
+        "Ein Providerupgrade darf erst nach gruenem Conformance-Bericht aktiviert werden."
+      ]
+    },
+    {
+      "id": "AGENT-048",
+      "title": "Fachliche Qualitaets-, Safety- und Regression-Evals etablieren",
+      "type": "evaluation",
+      "target_repository": "root",
+      "status": "done",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 100,
+      "dependencies": [
+        "AGENT-020",
+        "AGENT-042",
+        "AGENT-043"
+      ],
+      "deliverables": [
+        "Synthetischer Goldensatz fuer Jobs, Claims, Mails, Termine und Dokumente",
+        "Evals fuer Halluzination, Evidence-Abdeckung, Injection, PII und falsche Zuordnung",
+        "Providervergleich ohne realen Kandidatendatensatz"
+      ],
+      "acceptance_criteria": [
+        "Keine Evalfixture enthaelt echte personenbezogene Daten oder Credentials.",
+        "Safety-Negativtests blockieren externe Aktion, Inkognito-Finalisierung und unbelegte Claims.",
+        "Qualitaetsregressionen sind getrennt von Transport- und Runtimefehlern sichtbar."
+      ]
+    },
+    {
+      "id": "AGENT-049",
+      "title": "CLI-Discovery, Installation und Auth-Onboarding entwickeln",
+      "type": "operations",
+      "target_repository": "root",
+      "status": "done",
+      "priority": "high",
+      "risk": "medium",
+      "progress_percent": 100,
+      "dependencies": [
+        "AGENT-004",
+        "AGENT-006",
+        "AGENT-032"
+      ],
+      "deliverables": [
+        "Discovery fuer Windows und WSL2 mit expliziter Nutzerauswahl",
+        "Anbieterbezogene Installationshinweise ohne ungefragte globale Installation",
+        "Authstatus und sichtbarer Login ausserhalb Angular-Secrets"
+      ],
+      "acceptance_criteria": [
+        "Die Anwendung installiert oder aktualisiert keine CLI ohne explizite Aktion.",
+        "Mehrere gefundene Binaries werden mit Pfad und Version angezeigt und nicht willkuerlich gewaehlt.",
+        "Diagnose zeigt sichere naechste Schritte fuer fehlende oder abgelaufene Authentifizierung."
+      ]
+    },
+    {
+      "id": "AGENT-050",
+      "title": "Konfigurationsprofile, Feature Flags und sichere Defaults bereitstellen",
+      "type": "operations",
+      "target_repository": "root",
+      "status": "partial",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 90,
+      "dependencies": [
+        "AGENT-017",
+        "AGENT-018",
+        "AGENT-049"
+      ],
+      "deliverables": [
+        "Lokale Provider-, Sandbox-, Budget- und Netzwerkprofile",
+        "Feature Flags fuer experimentelle Adapter und Multi-Agent-Funktionen",
+        "Validierung, Migration und Reset auf sichere Defaults"
+      ],
+      "acceptance_criteria": [
+        "Neue Provider und Features starten deaktiviert oder read-only.",
+        "Konfigurationen koennen keine Secrets in Workspace- oder Git-Dateien schreiben.",
+        "Ungueltige Profile werden atomar abgelehnt und die letzte gueltige Version bleibt nutzbar."
+      ]
+    },
+    {
+      "id": "AGENT-051",
+      "title": "Backup, Restore, Migration und Disaster-Recovery vervollstaendigen",
+      "type": "operations",
+      "target_repository": "root",
+      "status": "done",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 100,
+      "dependencies": [
+        "AGENT-025",
+        "AGENT-027",
+        "AGENT-028"
+      ],
+      "deliverables": [
+        "Konsistentes Backupmanifest fuer Config, Workspace, Run-Vault, Keys und Artefakte",
+        "Restore-Validierung und Schema-Migrationen mit Dry Run",
+        "Recovery-Runbook fuer Korruption, verlorenen Key, Providerausfall und Orphans"
+      ],
+      "acceptance_criteria": [
+        "Daten und Schluessel werden als zusammengehoerige, sensible Einheit dokumentiert.",
+        "Migration ueberschreibt keine unbekannte Major-Version.",
+        "Restore wird automatisiert mit synthetischen Runs und Hashpruefung getestet."
+      ]
+    },
+    {
+      "id": "AGENT-052",
+      "title": "Umfassende Betriebs-, Sicherheits- und Adapterdokumentation erstellen",
+      "type": "documentation",
+      "target_repository": "root",
+      "status": "partial",
+      "priority": "high",
+      "risk": "medium",
+      "progress_percent": 95,
+      "dependencies": [
+        "AGENT-003",
+        "AGENT-049",
+        "AGENT-051"
+      ],
+      "deliverables": [
+        "Installation und Betrieb fuer Windows, WSL2 und optionale Isolation",
+        "Threat Model, Berechtigungsmodell, Incident- und Datenschutzrunbook",
+        "Provideradapter-, MCP-Tool- und Workflow-Entwicklerhandbuch"
+      ],
+      "acceptance_criteria": [
+        "Ein frischer Checkout kann den synthetischen Offlinepfad ohne Credentials reproduzieren.",
+        "Dokumentation erklaert Grenzen, experimentelle Features und keine-Automatik-Garantien.",
+        "Alle Beispiele verwenden reservierte Domains, Platzhalter und synthetische Daten."
+      ]
+    },
+    {
+      "id": "AGENT-053",
+      "title": "Unit-, Property- und Contract-Testabdeckung vervollstaendigen",
+      "type": "quality",
+      "target_repository": "root",
+      "status": "done",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 100,
+      "dependencies": [
+        "AGENT-002",
+        "AGENT-017",
+        "AGENT-021",
+        "AGENT-025"
+      ],
+      "deliverables": [
+        "State-Machine-, Parser-, Policy-, Redaction- und Migrations-Tests",
+        "Propertytests fuer Eventreihenfolge, Idempotenz und Pfadnormalisierung",
+        "Mutationstests fuer kritische Policy- und Approval-Logik"
+      ],
+      "acceptance_criteria": [
+        "Jeder terminale Runzustand und jede Risikoklasse besitzt Positiv- und Negativtests.",
+        "Windows- und Linux-Pfadfaelle inklusive Symlink/Junction sind abgedeckt.",
+        "Kritische Sicherheitsmutationen werden durch Tests erkannt."
+      ]
+    },
+    {
+      "id": "AGENT-054",
+      "title": "Integrationstests mit Fake-CLIs und isolierten Prozessen aufbauen",
+      "type": "quality",
+      "target_repository": "root",
+      "status": "partial",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 85,
+      "dependencies": [
+        "AGENT-005",
+        "AGENT-029",
+        "AGENT-047"
+      ],
+      "deliverables": [
+        "Fake-Executables fuer normal, langsam, interaktiv, abstuerzend und boesartig",
+        "Tests fuer Cancel, Timeout, Backpressure, Restart und Orphan-Recovery",
+        "CI-Matrix Windows und Ubuntu"
+      ],
+      "acceptance_criteria": [
+        "Testprozesse koennen niemals ausserhalb temporaerer Workspaces schreiben.",
+        "Haengende und Kindprozesse werden nach jedem Test vollstaendig beendet.",
+        "Kein Integrationstest benoetigt echte Providerauthentifizierung."
+      ]
+    },
+    {
+      "id": "AGENT-055",
+      "title": "Angular-E2E-, Accessibility- und visuelle Regressionstests erstellen",
+      "type": "quality",
+      "target_repository": "root",
+      "status": "done",
+      "priority": "high",
+      "risk": "medium",
+      "progress_percent": 100,
+      "dependencies": [
+        "AGENT-033",
+        "AGENT-034",
+        "AGENT-035",
+        "AGENT-036"
+      ],
+      "deliverables": [
+        "E2E fuer Start, Liveevents, Rueckfrage, Approval, Cancel, Resume und Artefaktuebernahme",
+        "WCAG-orientierte Tastatur-, Fokus-, Screenreader- und Kontrasttests",
+        "Desktop-, Tablet- und Mobile-Screenshots mit stabilen Fixtures"
+      ],
+      "acceptance_criteria": [
+        "Kritische Agentensteuerung ist vollstaendig ohne Maus bedienbar.",
+        "Streaming verursacht keine unkontrollierten Live-Region-Ansagen oder Fokusverluste.",
+        "Freigabe- und Risikoinformation bleibt auf allen Viewports vollstaendig sichtbar."
+      ]
+    },
+    {
+      "id": "AGENT-056",
+      "title": "Security-, Chaos-, Last- und Release-Abnahme durchfuehren",
+      "type": "release",
+      "target_repository": "root",
+      "status": "partial",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 70,
+      "dependencies": [
+        "AGENT-048",
+        "AGENT-051",
+        "AGENT-053",
+        "AGENT-054",
+        "AGENT-055"
+      ],
+      "deliverables": [
+        "Threat-Model-Abnahme, Secret-/PII-Scan und Dependencyreview",
+        "Chaosfaelle Prozesskill, API-Restart, Disk-full, Streamverlust und Providerbruch",
+        "Lasttest fuer Queue, Eventstream und grosse Runhistorien",
+        "Release-Matrix mit Cross-Repository-Commits, bekannten Grenzen und Rollback"
+      ],
+      "acceptance_criteria": [
+        "Keine offene kritische Sicherheitsluecke oder unkontrollierte externe Aktion bleibt bestehen.",
+        "Recovery und Rollback sind mit synthetischem Backup praktisch nachgewiesen.",
+        "Root- und erforderliche Submodule-Tests, Builds, Schemas, Contracts und Diagnose sind gruen.",
+        "Produktionsfreigabe dokumentiert Provider- und Featurestatus einzeln statt einer pauschalen Bereitschaft."
+      ]
+    }
+  ],
+  "implementation_audit": {
+    "assessed_at": "2026-08-14",
+    "assessment_policy": "Status und Prozentwerte bewerten jedes urspruengliche Acceptance-Kriterium streng. Vorhandene Bausteine ohne produktive Verdrahtung zaehlen nur als partial; nicht implementierte Grossfunktionen werden nicht als done deklariert.",
+    "implemented_and_verified": [
+      "Providerneutraler Runnervertrag, versionierte Run-/Eventmodelle, persistierte Invalid-Transition-Audits, exakte Provider-Supportpolicy und additive Schemas.",
+      "Shellfreier ProcessSupervisor mit Wall-/Idle-/Input-/Outputlimits, optionalen Speicher-/Kindprozess-Probes, begrenzten Rohlogs und synthetischen Last-/Chaospruefungen; POSIX-Prozessbaum-Cancel ist praktisch getestet, der Windows-taskkill-/T-Pfad statisch und ueber injizierte Executorpruefungen.",
+      "Windows-/WSL-Discovery mit expliziter Installationswahl; Codex 0.147 ist exakt freigegeben, nutzt stdin und --ignore-user-config. OpenCode und Claude bleiben ohne Versionsfixture fail-closed.",
+      "Der Job-Search-MCP besitzt einen versionierten trusted-host-Startvertrag und laeuft direkt nativ oder ueber WSL-stdio, niemals in einer Agenten-, Bubblewrap-, Container- oder Netzwerksandbox. Shell-/Wrapperpfade und verschachtelte Agent-MCP-Konfigurationen werden vor Spawn blockiert.",
+      "Side-effect-freier Run-Preflight zeigt serverbelegt Provider, Runtime, Workspace, Datenkategorien, vollstaendige Root-MCP-Tool-Allowlist, Netzwerk, Limits und Scheduling, ohne Prompt, Pfad oder Prozessstart.",
+      "Persistente append-only Runs/Events mit Sequenzkontrolle, Event-only Replay, Tail-Recovery, Orphan-/Lease-Recovery, AES-256-GCM-Vault und bekannten Datenmigrationen.",
+      "Risikobasierte Policy, HMAC-One-Time-Approvals, Emergency Stop und standardisierte Rueckfragen mit servergebundenem Actor sowie Redaction sensibler Antworten in Store, REST, SSE, Export und Audit.",
+      "REST, SSE und optionaler lokaler WebSocket-Kanal mit Cursor/Backpressure, Revisionen, Idempotenz, Redaction, Origin-, Ticket-, Frame-, Rate- und Idle-Schutz.",
+      "Angular Agent Center mit Provider-/WSL-Auswahl, Preflight-Startschranke, Queue/Recovery, Timeline, Usage, Approval, Rueckfrage, Replay/Vergleich, redigiertem Export und responsiver Accessibility-Abnahme.",
+      "Der Workflow guided-job-analysis ruft die aktive JobSource vor dem Agentenstart auf: im stdio-Modus den validierten trusted-host Job-Search-MCP, im aktuellen diagnostizierten Demo-Modus ausschlie?lich synthetische Offline-Daten. Der Agent erhaelt nur normalisierte untrusted Ergebnisse; firmenweite Next-Actions erhalten getrennte Faelle und Trackingereignisse.",
+      "Property-/Mutation-, Contract-, Load-, Recovery-, Secret-/PII-Canary-, Unit- und Integrationssuites sowie 14 Playwright-Flows mit Axe und vier visuellen Baselines.",
+      "Versionierte Backup-/Restore-Helfer mit Hashes, Dry-run, Migration, Key-Material-Pruefung, atomarem Swap und Rollbacktests; umfassende Betriebs-/Threat-/Contractdokumentation.",
+      "MCP-Startvertrag, Pipelinepfade und MCP-Environment sind serverseitig; die allgemeine Browserkonfiguration kann weder Kommando/Argumente noch Environmentwerte setzen. Portalzugriff bleibt der bestaetigten Spezialroute vorbehalten."
+    ],
+    "productively_wired_limits": [
+      "Die rungebundene RestrictedAgentMcpFacade ist sicher implementiert und getestet, wird normalen Providerlaeufen aber noch nicht mit echten Domainports injiziert; die im Preflight vollstaendig ausgewiesene Root-MCP-Allowlist ist deshalb leer.",
+      "Read-/Propose-/Confirm-/Execute-Werkzeuge und Submodule-Proxies sind vorhanden, jedoch noch nicht durchgaengig mit den autoritativen Job-, Bewerbungs-, Mail- und Artefaktports verdrahtet.",
+      "Codex App Server ist protokollseitig hinter einem Feature Flag implementiert, faellt produktiv aber vor dem ersten Turn auf codex exec zurueck, solange die Userconfig-Isolation nicht verifiziert ist.",
+      "OpenCode und Claude sind entdeckt und adapterseitig vorbereitet, bleiben mangels versionsgenauer Conformance-Fixtures und Freigabe blockiert.",
+      "Multi-Agent-DAG, Budget, Retry, Konflikt und Konsens sind getestet, die normale Angular-Startaktion fuehrt aber weiterhin einen einzelnen Provider-Run statt des vollstaendigen DAG aus.",
+      "Artefaktstore, Diff, Review und server-only Adoptionport existieren; Angular zeigt noch keine vollstaendige Artefaktuebernahme, und die Bewerbungspipeline ist nicht als durchgehende Multi-Run-Rollenkette verdrahtet.",
+      "Run-Idempotenz ist im einzelnen API-Prozess atomar und Retention-bereinigt; eine durable, prozessuebergreifende Unique-Constraint fehlt.",
+      "SSE und lokaler WebSocket besitzen keine echte Mehrbenutzer-Authentifizierung; der aktuelle Sicherheitsvertrag setzt Loopback-/Single-User-Betrieb voraus.",
+      "Pause ist bewusst fail-closed deaktiviert. Recovery Resume startet einen neuen Prozess und adoptiert nie eine fremde PID.",
+      "Speicher-/Kindprozesslimits benoetigen injizierte plattformspezifische ResourceProbes und sind im normalen Providerstart noch nicht aktiv.",
+      "Retention/Export sind vorhanden, aber fallbezogene Loeschvorschau, Legal Holds und die komplette Artefakt-/Schluesselkaskade sind nicht als ein Produktworkflow verdrahtet.",
+      "Die CI-Matrix ist lokal definiert, aber im uncommitted Worktree nicht remote bewiesen; beide Submodule enthalten noch nicht separat veroeffentlichte Aenderungen.",
+      "Der Windows-Prozessbaum-Cancel und eine harte Dateisystemgrenze fuer generische Fake-Testprozesse sind nicht als echter Windows-Descendant-/Escape-Negativtest nachgewiesen."
+    ],
+    "not_implemented_tasks": [
+      {
+        "id": "AGENT-016",
+        "reason": "Erforderliche Submodule-Aenderungen sind lokal und getestet, aber noch nicht als eigene Upstream-Commits veroeffentlicht; Root-Pointer koennen deshalb noch nicht reproduzierbar aktualisiert werden."
+      },
+      {
+        "id": "AGENT-054",
+        "reason": "Fake-/Supervisorprozesse besitzen keine OS-seitig erzwungene temporaere Dateisystemgrenze; der echte stubborn-descendant-Test ist auf Windows uebersprungen."
+      },
+      {
+        "id": "AGENT-039",
+        "reason": "Der deklarative DAG und Coordinator werden vom normalen Angular-Startpfad noch nicht als mehrere isolierte Provider-Runs ausgefuehrt."
+      },
+      {
+        "id": "AGENT-042",
+        "reason": "Die vollstaendige Evidence-/Author-/ATS-/Recruiter-/Finalizer-Rollenkette erzeugt noch keine durchgehend verknuepften ArtifactRevisions aus separaten Runs."
+      },
+      {
+        "id": "AGENT-056",
+        "reason": "Remote-CI, Submodule-Releasefolge, Disk-full/Key-loss und vollstaendige Release-/Rollbackmatrix sind noch nicht abschliessend nachgewiesen."
+      },
+      {
+        "id": "AGENT-052",
+        "reason": "Die Offline-Dokumentation ist lokal vorhanden, aber wegen untracked Rootdateien und unveroeffentlichter Submodule-Aenderungen noch nicht aus einem frischen Checkout reproduzierbar."
+      }
+    ],
+    "release_blockers": [
+      "Beide Submodule-Arbeitsbaeume enthalten noch nicht separat veroeffentlichte Aenderungen; gemaess AGENTS.md muessen Upstream-Commits vor einem Root-Pointer-Commit erfolgen.",
+      "OpenCode und Claude bleiben blockiert, bis exakte installierte Versionen mit strukturierten No-Network-/Sandbox-/Approval-Conformance-Fixtures freigegeben sind.",
+      "Die normale Run-Ausfuehrung darf Domain-MCP-Werkzeuge erst erhalten, wenn RestrictedFacade, Policy, Approval, Capability und konkrete schmale Ports als eine produktive rungebundene Kette komponiert sind.",
+      "Remote Windows-/Ubuntu-CI, vollstaendige Submodule-Gates sowie Disk-full-/Key-loss-/Rollback-Abnahme muessen vor einer pauschalen Produktionsfreigabe gruen sein.",
+      "Der Windows-taskkill-/T-Prozessbaum und die Testprozess-Dateisystemisolation benoetigen noch einen echten Windows-/CI-Negativnachweis."
+    ]
+  },
+  "critical_path_tasks": [
+    "AGENT-001",
+    "AGENT-002",
+    "AGENT-003",
+    "AGENT-005",
+    "AGENT-009",
+    "AGENT-013",
+    "AGENT-017",
+    "AGENT-018",
+    "AGENT-019",
+    "AGENT-020",
+    "AGENT-021",
+    "AGENT-025",
+    "AGENT-027",
+    "AGENT-029",
+    "AGENT-030",
+    "AGENT-033",
+    "AGENT-035",
+    "AGENT-038",
+    "AGENT-042",
+    "AGENT-048",
+    "AGENT-051",
+    "AGENT-055",
+    "AGENT-056"
+  ],
+  "tasks_status_summary": {
+    "total": 56,
+    "by_status": {
+      "todo": 0,
+      "in_progress": 0,
+      "partial": 28,
+      "blocked": 0,
+      "done": 28
+    },
+    "progress_percent_done": 90.54,
+    "by_priority": {
+      "low": 0,
+      "medium": 0,
+      "high": 56
+    },
+    "by_risk": {
+      "low": 0,
+      "medium": 12,
+      "high": 44
+    },
+    "critical_path": {
+      "total": 23,
+      "done": 15,
+      "remaining": 8
+    },
+    "milestones": {
+      "total": 14,
+      "todo": 0,
+      "in_progress": 13,
+      "partial": 0,
+      "blocked": 0,
+      "done": 1
+    }
+  },
+  "progress_summary": {
+    "state": "partial",
+    "todo_remaining": 0,
+    "in_progress": 0,
+    "partial": 28,
+    "blocked": 0,
+    "done": 28
+  },
+  "execution_stage_summary": {
+    "foundation": [
+      "M1",
+      "M2",
+      "M5",
+      "M7"
+    ],
+    "provider_and_tools": [
+      "M3",
+      "M4",
+      "M6",
+      "M8"
+    ],
+    "product": [
+      "M9",
+      "M10",
+      "M11"
+    ],
+    "assurance_and_operations": [
+      "M12",
+      "M13",
+      "M14"
+    ]
+  },
+  "summary_notes": [
+    "Codex exec 0.147 ist der freigegebene primaere Codex-Weg; er ignoriert Userconfig, uebergibt den Prompt per stdin und erzwingt die ausgewaehlte Sandbox.",
+    "Codex App Server ist experimentell implementiert, bleibt aber bis nachgewiesener Userconfig-Isolation im automatischen exec-Fallback.",
+    "OpenCode 1.14.41 und Claude Code 2.1.228 wurden in Ubuntu/WSL2 entdeckt, sind mangels freigegebener Versionsfixtures bewusst nicht startbar.",
+    "Der Job-Search-MCP laeuft ausschliesslich als trusted-host stdio ausserhalb jeder Agentensandbox; Agenten sehen nur normalisierte, als untrusted markierte Ergebnisse.",
+    "Provideradapter duerfen fachliche Bewerbungsregeln weder duplizieren noch umgehen; normale Runs erhalten aktuell keine Root-MCP-Domainwerkzeuge.",
+    "Agentenlaeufe, Prompts und Ausgaben sind Runtime-Daten und gehoeren nicht in todos/ oder Git.",
+    "Der Track ist aktiv; 28 Aufgaben sind done und 28 partial. Der Fortschrittswert 90.54 ist der Durchschnitt der Task-Prozente, nicht der Anteil abgeschlossener Tasks; done sind 50 Prozent."
+  ]
+}

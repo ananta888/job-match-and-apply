@@ -1,0 +1,10 @@
+{
+  "contract": "agent-runner",
+  "contract_version": "1.0",
+  "compatible_major_versions": [1],
+  "run_states": ["queued", "starting", "running", "waiting_for_input", "waiting_for_approval", "cancelling", "cancelled", "succeeded", "failed", "timed_out", "orphaned", "recovering"],
+  "event_kinds": ["run_created", "capabilities_negotiated", "process_started", "agent_message_delta", "agent_message_completed", "tool_requested", "tool_started", "tool_output", "tool_completed", "approval_requested", "approval_resolved", "user_input_requested", "user_input_received", "artifact_created", "usage_updated", "warning", "error", "heartbeat", "run_completed"],
+  "sandbox_profiles": ["read_only_offline", "workspace_write_offline", "workspace_write_limited_network", "isolated_full"],
+  "required_operations": ["discover", "start", "cancel"],
+  "optional_operations": ["send_input", "resolve_approval", "resume", "usage", "structured_output"]
+}

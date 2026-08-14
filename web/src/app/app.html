@@ -1,3 +1,4 @@
+<a class="skip-link" href="#main-content">Zum Hauptinhalt</a>
 <div class="shell">
   <aside class="sidebar">
     <div class="brand">
@@ -16,27 +17,27 @@
       <div><strong>Lokal & privat</strong><p>Profile, Sitzungen und Entwürfe bleiben auf diesem Gerät.</p></div>
     </div>
     <div class="sidebar-footer">
-      <span class="avatar">{{ activeIdentity()?.fullName?.slice(0, 2) || 'AB' }}</span>
-      <div><strong>{{ activeIdentity()?.fullName || 'Profil laden' }}</strong><span>{{ activeIdentity()?.mode === 'incognito' ? 'Inkognito aktiv' : 'Reales Profil' }}</span></div>
+      <span class="avatar">{{ activeIdentity()?.mode === 'incognito' || revealSensitiveIdentity ? activeIdentity()?.fullName?.slice(0, 2) : 'RP' }}</span>
+      <div><strong>{{ displayIdentityName(activeIdentity()) }}</strong><span>{{ activeIdentity()?.mode === 'incognito' ? 'Inkognito aktiv' : 'Reales Profil' }}</span></div>
       <span class="dot online"></span>
     </div>
   </aside>
 
-  <main>
+  <main id="main-content" tabindex="-1">
     <header class="topbar">
       <div>
         <p class="eyebrow">Arbeitsbereich</p>
-        <h1>{{ section === 'overview' ? 'Guten Tag' : section === 'search' ? 'Jobsuche' : section === 'identity' ? 'Profil & Identität' : section === 'sources' ? 'Quellen & MCP' : 'Bewerbungswerkstatt' }}</h1>
+        <h1>{{ section === 'overview' ? 'Guten Tag' : section === 'search' ? 'Jobsuche' : section === 'identity' ? 'Profil & Identität' : section === 'sources' ? 'Quellen & MCP' : section === 'crm' ? 'Firmen & Antworten' : section === 'agents' ? 'Agent Center' : section === 'operations' ? 'Daten & Betrieb' : 'Bewerbungswerkstatt' }}</h1>
       </div>
       <div class="top-actions">
-        <span class="mode-pill"><i></i>{{ config?.mcp?.mode === 'stdio' ? 'MCP verbunden' : 'Sicherer Demo-Modus' }}</span>
+        <span class="mode-pill" [attr.data-runtime-state]="mcpRuntimeState()"><i></i>{{ mcpRuntimeLabel() }}</span>
         <button class="icon-button" type="button" aria-label="Quellen aktualisieren" (click)="refreshSources()">↻</button>
         <button class="primary compact" type="button" (click)="saveConfig()" [disabled]="busy || !config">Speichern</button>
       </div>
     </header>
 
-    @if (notice) { <div class="toast success">{{ notice }}</div> }
-    @if (error) { <div class="toast error">{{ error }}</div> }
+    @if (notice) { <div class="toast success" role="status" aria-live="polite">{{ notice }}</div> }
+    @if (error) { <div class="toast error" role="alert" aria-live="assertive">{{ error }}</div> }
 
     @if (loading || !config) {
       <section class="loading"><span></span><p>Lokalen Arbeitsbereich laden …</p></section>
@@ -65,7 +66,7 @@
           <article><span class="stat-icon purple">⌕</span><div><small>Gefundene Jobs</small><strong>{{ matches.length || '—' }}</strong><p>letzter Suchlauf</p></div></article>
           <article><span class="stat-icon green">✓</span><div><small>Gute Matches</small><strong>{{ acceptedCount() || '—' }}</strong><p>Muss-Kriterien erfüllt</p></div></article>
           <article><span class="stat-icon amber">◇</span><div><small>Aktive Quellen</small><strong>{{ sources.length }}</strong><p>MCP & Profile</p></div></article>
-          <article><span class="stat-icon blue">◎</span><div><small>Identität</small><strong class="stat-text">{{ activeIdentity()?.mode === 'incognito' ? 'Inkognito' : 'Real' }}</strong><p>{{ activeIdentity()?.fullName }}</p></div></article>
+          <article><span class="stat-icon blue">◎</span><div><small>Identität</small><strong class="stat-text">{{ activeIdentity()?.mode === 'incognito' ? 'Inkognito' : 'Real' }}</strong><p>{{ displayIdentityName(activeIdentity()) }}</p></div></article>
         </section>
 
         <section class="two-column">
@@ -97,23 +98,27 @@
             <label>Wünschenswert<input [ngModel]="list('niceToHave')" (ngModelChange)="updateList('niceToHave', $event)"></label>
             <label>Ausschließen<input class="danger-input" [ngModel]="list('exclude')" (ngModelChange)="updateList('exclude', $event)"></label>
             <div class="check-grid">
-              @for (source of sources; track source.id) { <label class="check"><input type="checkbox" [checked]="sourceSelected(source.id)" (change)="toggleSource(source.id, $any($event.target).checked)"><span>{{ source.name }}</span></label> }
+              @for (source of sources; track source.id) { <label class="check"><input type="checkbox" [checked]="sourceSelected(source.id)" [disabled]="sourceCapability(source.id)?.compatible === false" (change)="toggleSource(source.id, $any($event.target).checked)"><span>{{ source.name }}</span></label> }
             </div>
+            @if (unsupportedActiveFilters().length) { <div class="info-box"><strong>Quellenfilter transparent</strong><p>Diese Regeln werden nicht an alle Quellen übertragen, sondern lokal angewandt oder sind dort nicht verfügbar: {{ unsupportedActiveFilters().join(', ') }}.</p></div> }
             <button class="primary wide" type="button" (click)="runSearch()" [disabled]="busy">{{ busy ? 'Quellen werden abgefragt …' : 'Suche starten' }}</button>
           </article>
           <section class="results">
-            <div class="results-head"><div><span class="kicker">ERGEBNISSE</span><h2>{{ matches.length ? matches.length + ' Stellen bewertet' : 'Bereit für die erste Suche' }}</h2></div><span class="legend"><i></i> Alle Regeln nachvollziehbar</span></div>
+            <div class="results-head"><div><span class="kicker">ERGEBNISSE</span><h2>{{ matches.length ? matches.length + ' Stellen bewertet' : 'Bereit für die erste Suche' }}</h2></div><label>Sortierung<select [(ngModel)]="resultSort"><option value="score">Suchscore</option><option value="title">Stellentitel</option><option value="company">Unternehmen</option></select></label><button class="secondary compact" type="button" (click)="compareSelectedJobs()">{{ comparisonJobIds.length }} vergleichen</button><span class="legend"><i></i> Alle Regeln nachvollziehbar</span></div>
+            @if (comparison; as result) { <div class="panel"><strong>Erklärbarer Stellenvergleich</strong><p>{{ result.disclaimer }}</p>@for (item of result.comparison; track item.jobId) { <div class="summary-row"><span>{{ item.total }}</span><div><strong>{{ item.title }} · {{ item.company }}</strong><small>Suchpräferenz {{ item.factors['searchPreference'] }} · Evidence {{ item.factors['evidenceCoverage'] }} · Gaps {{ item.factors['gaps'] }} · Gehalt {{ item.factors['salary'] }}</small></div></div> }</div> }
+            @for (failure of searchFailures; track failure.sourceId) { <div class="warning-box" role="status"><strong>{{ failure.sourceId }}: {{ failure.category }}</strong><p>{{ failure.detail }} {{ failure.retryable ? 'Die Quelle kann bewusst erneut versucht werden.' : 'Eingabe oder Policy prüfen.' }}</p></div> }
+            @if (hiddenMatches().length) { <div class="info-box"><strong>{{ hiddenMatches().length }} ausgeblendet</strong><p>@for (match of hiddenMatches(); track match.job.id) { <button class="text-button" type="button" (click)="setJobDecision(match.job.id, 'neutral')">{{ match.job.title }} wieder anzeigen</button> }</p></div> }
             @if (!matches.length) {
               <div class="empty"><span>⌕</span><h3>Noch keine Ergebnisse</h3><p>Starte links eine Suche. Im Demo-Modus funktioniert der komplette Ablauf ohne externe Zugriffe.</p></div>
             }
-            @for (match of matches; track match.job.id) {
+            @for (match of visibleMatches(); track match.job.id) {
               <article class="job-card" [class.selected]="selectedMatch?.job?.id === match.job.id" (click)="chooseMatch(match)">
                 <div class="score-ring" [class.good]="match.accepted"><strong>{{ match.searchPreferenceScore }}</strong><small>%</small></div>
                 <div class="job-main"><div class="job-title"><span class="source-logo">{{ match.job.sourceId.slice(0, 2) }}</span><div><h3>{{ match.job.title }}</h3><p>{{ match.job.company }} · {{ match.job.location }}</p></div></div>
                   <p class="description">{{ match.job.description }}</p>
                   <div class="chips">@for (skill of match.matchedMustHave; track skill) { <span class="chip match">✓ {{ skill }}</span> } @for (skill of match.matchedNiceToHave; track skill) { <span class="chip">{{ skill }}</span> } @for (gap of match.missingMustHave; track gap) { <span class="chip gap">Fehlt: {{ gap }}</span> }</div>
                 </div>
-                <div class="job-actions"><span class="status" [class.ok]="match.accepted">{{ match.accepted ? 'Passend' : 'Prüfen' }}</span><button class="secondary compact" type="button" (click)="$event.stopPropagation(); prepareApplication(match)">Bewerbung →</button></div>
+                <div class="job-actions"><label class="check"><input type="checkbox" [checked]="comparisonJobIds.includes(match.job.id)" (click)="$event.stopPropagation()" (change)="toggleComparison(match.job.id, $any($event.target).checked)"><span>Vergleich</span></label><span class="status" [class.ok]="match.accepted">{{ match.accepted ? 'Passend' : 'Prüfen' }}</span><button class="secondary compact" type="button" (click)="$event.stopPropagation(); setJobDecision(match.job.id, jobDecision(match.job.id) === 'saved' ? 'neutral' : 'saved')">{{ jobDecision(match.job.id) === 'saved' ? 'Nicht mehr merken' : 'Merken' }}</button><button class="secondary compact" type="button" (click)="$event.stopPropagation(); setJobDecision(match.job.id, 'hidden')">Ausblenden</button><button class="secondary compact" type="button" (click)="$event.stopPropagation(); prepareApplication(match)">Bewerbung →</button></div>
               </article>
             }
           </section>
@@ -126,18 +131,30 @@
           <article class="panel identities"><h3>Identitäten</h3>
             @for (identity of config.identities; track identity.id) {
               <button class="identity-card" [class.active]="config.activeIdentityId === identity.id" (click)="config.activeIdentityId = identity.id">
-                <span class="avatar large">{{ identity.fullName.slice(0, 2) }}</span><div><strong>{{ identity.label }}</strong><small>{{ identity.fullName }} · {{ identity.mode }}</small></div><i></i>
+                <span class="avatar large">{{ identity.mode === 'incognito' || revealSensitiveIdentity ? identity.fullName.slice(0, 2) : 'RP' }}</span><div><strong>{{ identity.label }}</strong><small>{{ displayIdentityName(identity) }} · {{ identity.mode }}</small></div><i></i>
               </button>
             }
             <div class="info-box"><strong>Was Inkognito bedeutet</strong><p>Die Identität dient für Vorschau und Vorbefüllung. <code>example.invalid</code> verhindert versehentlichen Versand. Qualifikationen werden nie erfunden.</p></div>
           </article>
           @if (activeIdentity(); as identity) {
             <article class="panel identity-form"><div class="panel-head"><div><span class="kicker">AKTIVE IDENTITÄT</span><h3>{{ identity.label }}</h3></div><span class="mode-pill"><i></i>{{ identity.mode }}</span></div>
-              <div class="form-grid"><label>Anzeigename<input [(ngModel)]="identity.label"></label><label>Vollständiger Name<input [(ngModel)]="identity.fullName"></label><label>E-Mail<input [(ngModel)]="identity.email"></label><label>Telefon<input [(ngModel)]="identity.phone"></label><label>Ort<input [(ngModel)]="identity.location"></label><label>LinkedIn / Profil-URL<input [(ngModel)]="identity.linkedin"></label></div>
+              <button class="secondary compact" type="button" (click)="revealSensitiveIdentity = !revealSensitiveIdentity" [attr.aria-pressed]="revealSensitiveIdentity">{{ revealSensitiveIdentity ? 'Sensible Werte verbergen' : 'Sensible Werte bewusst anzeigen' }}</button>
+              <div class="form-grid"><label>Anzeigename<input [(ngModel)]="identity.label"></label><label>Vollständiger Name<input [type]="revealSensitiveIdentity ? 'text' : 'password'" [(ngModel)]="identity.fullName"></label><label>E-Mail<input [type]="revealSensitiveIdentity ? 'email' : 'password'" [(ngModel)]="identity.email"></label><label>Telefon<input [type]="revealSensitiveIdentity ? 'tel' : 'password'" [(ngModel)]="identity.phone"></label><label>Ort<input [type]="revealSensitiveIdentity ? 'text' : 'password'" [(ngModel)]="identity.location"></label><label>LinkedIn / Profil-URL<input [type]="revealSensitiveIdentity ? 'url' : 'password'" [(ngModel)]="identity.linkedin"></label></div>
               <h4>Platzhalter-Vorschau</h4><div class="placeholder-grid">@for (entry of identity.placeholders | keyvalue; track entry.key) { <div><code>{{ entry.key }}</code><span>→</span><strong>{{ entry.value }}</strong></div> }</div>
-              <div class="form-footer"><p>Diese Daten werden nur in <code>.local-data/config.json</code> gespeichert.</p><button class="primary" (click)="saveConfig('Identität gespeichert.')">Änderungen speichern</button></div>
+              <div class="form-footer"><p>Diese Daten werden verschlüsselt unter <code>.local-data/</code> gespeichert.</p><button class="primary" (click)="saveConfig('Identität gespeichert.')">Änderungen speichern</button></div>
             </article>
           }
+        </section>
+        <section class="panel" style="margin-top: 18px">
+          <div class="panel-head"><div><span class="kicker">EVIDENCE-PROFIL</span><h3>Belegte Kandidatenclaims</h3></div><button class="secondary" (click)="loadCandidateProfile()">Profil prüfen</button></div>
+          <p>Änderungen werden validiert und erst mit dem Speichern ausdrücklich bestätigt. Importierte Inhalte bleiben zunächst unbestätigte Vorschläge.</p>
+          <label class="secondary" style="display:inline-block">Lebenslauf oder Profil-Export prüfen<input type="file" accept=".txt,.md,.json,.pdf,.docx" (change)="importFile($event)" hidden></label>
+          @if (candidateProfile; as profile) {
+            @for (claim of profile.claims; track claim.id) {
+              <div class="summary-row"><span>✓</span><div style="flex:1"><small>{{ claim.id }} · {{ claim.evidenceRefs.join(', ') || 'ohne Quelldokument' }}</small><input [(ngModel)]="claim.statement"><select [(ngModel)]="claim.status"><option value="verified">verified</option><option value="user_confirmed">user_confirmed</option><option value="unverified">unverified</option><option value="inferred">inferred</option><option value="do_not_use">do_not_use</option></select></div><button class="secondary compact" (click)="saveClaim(claim.id, claim.statement, claim.status)">Bestätigen & speichern</button></div>
+            }
+          }
+          @if (importPreview; as preview) { <div class="warning-box"><strong>Nur Vorschau – nicht gespeichert</strong><p>{{ preview.proposals.length }} Vorschläge aus {{ preview.fileName }}. Jeder Claim muss einzeln geprüft und bestätigt werden.</p>@for (proposal of preview.proposals; track proposal.id) { <div class="summary-row"><div style="flex:1"><small>{{ proposal.source.anchor }} @if (proposal.conflict) { · {{ proposal.conflict.kind }} mit {{ proposal.conflict.existingClaimId }} }</small><input [(ngModel)]="proposal.statement" aria-label="Importvorschlag bearbeiten"></div>@if (proposal.conflict) { <button class="secondary compact" type="button" (click)="mergeImportProposal(proposal)">Zusammenführen</button> }<button class="secondary compact" type="button" (click)="discardProposal(proposal.id)">Verwerfen</button></div> }<button class="primary" type="button" (click)="acceptImportProposals()">Verbleibende ausdrücklich als unverified übernehmen</button></div> }
         </section>
       }
 
@@ -145,15 +162,38 @@
         <section class="page-intro"><div><span class="kicker">ADAPTER-ARCHITEKTUR</span><h2>Quellen & MCP verwalten</h2><p>Jede Quelle läuft hinter derselben Schnittstelle. Externe Zugriffe bleiben explizit, prüfbar und standardmäßig deaktiviert.</p></div><button class="secondary" (click)="refreshSources()">↻ Status aktualisieren</button></section>
         <section class="source-grid">
           @for (source of sources; track source.id) {
-            <article class="panel source-card"><div class="source-card-head"><span class="source-logo big">{{ source.name.slice(0, 2) }}</span><span class="status" [class.ok]="source.connected">{{ source.connected ? 'Verbunden' : 'Nicht verbunden' }}</span></div><h3>{{ source.name }}</h3><p>{{ source.note }}</p><div class="source-meta"><span>{{ source.kind }}</span><span>{{ source.sessionAvailable ? 'Sitzung aktiv' : 'Keine Sitzung' }}</span></div>@if (source.supportsLogin) { <button class="secondary wide" (click)="login(source)" [disabled]="busy">Sichtbaren Login öffnen</button> }</article>
+            <article class="panel source-card"><div class="source-card-head"><span class="source-logo big">{{ source.name.slice(0, 2) }}</span><span class="status" [class.ok]="source.connected">{{ source.connected ? 'Verbunden' : 'Nicht verbunden' }}</span></div><h3>{{ source.name }}</h3><p>{{ source.note }}</p><div class="source-meta"><span>{{ sourceCapability(source.id)?.access ?? source.kind }}</span><span>{{ source.sessionAvailable ? 'Sitzung aktiv' : 'Keine Sitzung' }}</span></div>@if (sourceCapability(source.id); as capability) { <p>Filter: {{ capability.filters.join(', ') || 'keine' }} · Policy: {{ capability.policyStatus }}</p> }@if (source.supportsLogin && !source.sessionAvailable) { <button class="secondary wide" (click)="login(source)" [disabled]="busy">Sichtbaren Login öffnen</button> } @if (source.sessionAvailable) { <button class="secondary wide" (click)="logout(source)" [disabled]="busy">Sitzung lokal löschen</button> }</article>
           }
           <article class="panel source-card add-card"><span>+</span><h3>Neue Quelle</h3><p>Einen weiteren Adapter für Feed, API oder erlaubten Profilimport implementieren.</p></article>
         </section>
-        <article class="panel mcp-config"><div class="panel-head"><div><span class="kicker">JOB-SEARCH-MCP</span><h3>Lokaler MCP-Prozess</h3></div><select [(ngModel)]="config.mcp.mode"><option value="demo">Demo-Modus</option><option value="stdio">stdio-MCP</option></select></div>
-          <div class="form-grid"><label>Startkommando<input [(ngModel)]="config.mcp.command"></label><label>Argumente<input [ngModel]="config.mcp.args.join(' ')" (ngModelChange)="updateMcpArgs($event)"></label><label>Externe Portale<input [ngModel]="config.mcp.env['ALLOW_EXTERNAL_PORTALS']" (ngModelChange)="config.mcp.env['ALLOW_EXTERNAL_PORTALS'] = $event"><small>0 = gesperrt, 1 = ausdrücklich erlaubt</small></label><label>Lokales State-Verzeichnis<input [(ngModel)]="config.mcp.env['JOB_MCP_STATE_DIR']"></label></div>
+        <article class="panel mcp-config" data-testid="mcp-runtime-panel"><div class="panel-head"><div><span class="kicker">JOB-SEARCH-MCP</span><h3>Trusted-Host-Runtime</h3></div><span class="status runtime-status" [class.ok]="mcpRuntime?.connected || mcpRuntime?.state === 'ready_to_connect'" [attr.data-runtime-state]="mcpRuntimeState()">{{ mcpRuntimeLabel() }}</span></div>
+          <div class="info-box"><strong>Vertrauenswürdiger Hostprozess</strong><p>Die Jobsuche läuft bewusst außerhalb der Agenten-Sandbox. Nur so bleiben StepStone-Anmeldung, sichtbarer Browser und freigegebener Portalzugriff funktionsfähig. Agenten greifen ausschließlich über den MCP-Vertrag darauf zu.</p></div>
+          <section class="mcp-runtime-grid" aria-label="Schreibgeschützter MCP-Runtimestatus">
+            <div><small>Zustand</small><strong>{{ mcpRuntimeLabel() }}</strong></div>
+            <div><small>Laufzeit</small><strong>{{ mcpRuntimeTargetLabel() }}</strong></div>
+            <div><small>Startvalidierung</small><strong>{{ mcpRuntime?.launchValidated ? 'Bestätigt' : 'Nicht bestätigt' }}</strong></div>
+            <div><small>Protokollverbindung</small><strong>{{ mcpRuntime?.connected ? 'Verbunden' : 'Nicht verbunden' }}</strong></div>
+          </section>
+          <p class="runtime-note">{{ mcpRuntime?.note || 'Runtime-Status wird ausschließlich über GET /api/sources/runtime geprüft.' }}</p>
+          <section class="mcp-managed-config" aria-labelledby="mcp-managed-config-heading"><h4 id="mcp-managed-config-heading">Serverseitig verwalteter Startvertrag</h4><p>Command, Argumente, State-Verzeichnis und Environment-Werte sind in Angular nicht bearbeitbar. Sichtbar bleiben nur nicht-geheime Metadaten.</p><dl><div><dt>Isolation</dt><dd>trusted-host</dd></div><div><dt>Konfigurierte Environment-Keys</dt><dd>@for (key of mcpConfiguredEnvironmentKeys(); track key) { <code>{{ key }}</code> } @empty { Keine }</dd></div></dl></section>
+          <section class="portal-permission" aria-labelledby="portal-permission-heading"><div><h4 id="portal-permission-heading">Explizite Portal-Freigabe</h4><p>Der aktuelle Wert bleibt absichtlich verborgen. Jede Änderung setzt ausschließlich <code>ALLOW_EXTERNAL_PORTALS</code> auf <code>1</code> oder <code>0</code>.</p></div><div class="portal-permission-actions"><button class="secondary" type="button" (click)="openPortalPermissionDialog('disable')" [disabled]="busy || !!portalPermissionUnavailableReason('disable')">Portalzugriff sperren</button><button class="primary" type="button" (click)="openPortalPermissionDialog('enable')" [disabled]="busy || !!portalPermissionUnavailableReason('enable')">Portalzugriff freigeben</button></div>
+            @if (portalPermissionUnavailableReason('enable'); as reason) { <p class="approval-block-reason" role="status">Fail-closed: {{ reason }}</p> }
+          </section>
+          <div class="info-box config-save-guard"><strong>Verborgene Werte bleiben erhalten</strong><p>Normales Speichern sendet nur leere Platzhalter zusammen mit <code>configuredEnvironmentKeys</code>. Der Server bewahrt ausschließlich dort bereits vorhandene Werte und lehnt unbekannte oder nichtleere Platzhalter ab.</p></div>
           <div class="warning-box"><strong>Wichtig</strong><p>StepStone-Login öffnet das vorhandene sichtbare Camoufox-Fenster. Captchas und 2FA werden nicht umgangen; Credentials bleiben im verschlüsselten Upstream-Speicher.</p></div>
-          <button class="primary" (click)="saveConfig('MCP-Konfiguration gespeichert.')">MCP-Konfiguration speichern</button>
         </article>
+
+        @if (portalPermissionIntent; as intent) {
+          <div class="recovery-dialog-backdrop">
+            <dialog class="recovery-dialog portal-permission-dialog" open aria-modal="true" aria-labelledby="portal-dialog-title" aria-describedby="portal-dialog-description" (keydown.escape)="closePortalPermissionDialog()">
+              <span class="kicker">EXPLIZITE PORTAL-FREIGABE</span><h3 id="portal-dialog-title">Portalzugriff {{ intent === 'enable' ? 'freigeben' : 'sperren' }}</h3>
+              <p id="portal-dialog-description">Es wird ausschließlich <code>ALLOW_EXTERNAL_PORTALS={{ intent === 'enable' ? '1' : '0' }}</code> an den lokalen Server gesendet. Command, Argumente und andere Environment-Werte sind nicht Teil einer freien Eingabe.</p>
+              @if (intent === 'enable') { <div class="warning-box"><strong>Externer Portalzugriff</strong><p>Diese Berechtigung ermöglicht dem trusted-host Job-Search-MCP erlaubte Portalverbindungen. Login, Captcha, 2FA und jede spätere externe Aktion behalten ihre eigenen Grenzen.</p></div> }
+              <label class="recovery-confirmation"><input #portalPermissionConfirm type="checkbox" [(ngModel)]="portalPermissionConfirmed"><span>Ich bestätige diese einzelne Änderung der Variable ALLOW_EXTERNAL_PORTALS.</span></label>
+              <div class="recovery-dialog-actions"><button class="secondary" type="button" (click)="closePortalPermissionDialog()">Abbrechen</button><button class="primary" type="button" (click)="confirmPortalPermission()" [disabled]="busy || !portalPermissionConfirmed">{{ busy ? 'Wird geprüft …' : (intent === 'enable' ? 'Portalzugriff verbindlich freigeben' : 'Portalzugriff verbindlich sperren') }}</button></div>
+            </dialog>
+          </div>
+        }
       }
 
       @if (section === 'applications') {
@@ -161,10 +201,302 @@
         @if (!selectedMatch) { <div class="empty"><span>▤</span><h3>Noch keine Stelle ausgewählt</h3><p>Wähle zuerst ein Suchergebnis aus.</p><button class="primary" (click)="select('search')">Zur Jobsuche</button></div> }
         @if (selectedMatch; as match) {
           <section class="page-grid application-layout"><article class="panel application-context"><span class="kicker">ZIELSTELLE</span><h3>{{ match.job.title }}</h3><p>{{ match.job.company }} · {{ match.job.location }}</p><div class="mini-score"><strong>{{ match.searchPreferenceScore }}%</strong><span>Suchprofil-Score</span></div><h4>Suchkriterien gefunden</h4><div class="chips">@for (term of [...match.matchedMustHave, ...match.matchedNiceToHave]; track term) { <span class="chip match">✓ {{ term }}</span> }</div>@if (match.missingMustHave.length) { <h4>Suchkriterien nicht gefunden</h4><div class="chips">@for (term of match.missingMustHave; track term) { <span class="chip gap">{{ term }}</span> }</div> }</article>
-            <article class="panel editor"><div class="editor-toolbar"><div class="segmented"><button [class.active]="documentType === 'cover_letter'" (click)="documentType = 'cover_letter'; prepareApplication()">Anschreiben</button><button [class.active]="documentType === 'email'" (click)="documentType = 'email'; prepareApplication()">E-Mail</button></div><button class="primary compact" (click)="prepareApplication()">Neu erzeugen</button></div>
+            <article class="panel editor"><div class="editor-toolbar"><div class="segmented"><button [class.active]="documentType === 'cv'" (click)="documentType = 'cv'; prepareApplication()">Lebenslauf</button><button [class.active]="documentType === 'cover_letter'" (click)="documentType = 'cover_letter'; prepareApplication()">Anschreiben</button><button [class.active]="documentType === 'email'" (click)="documentType = 'email'; prepareApplication()">E-Mail</button></div><div><button class="secondary compact" (click)="analyzeApplication()">Evidence-Match</button> <button class="primary compact" (click)="createApplicationCase()">Fall anlegen</button></div></div>
               @if (draft) { <textarea [(ngModel)]="draft.content" aria-label="Bewerbungsentwurf"></textarea><div class="warnings">@for (warning of draft.warnings; track warning) { <p>◇ {{ warning }}</p> }</div> } @else { <div class="empty compact-empty"><span>✦</span><h3>Entwurf erstellen</h3><p>Der lokale Assistent formuliert eine sichere Basis ohne erfundene Erfahrung.</p><button class="primary" (click)="prepareApplication()">Entwurf erzeugen</button></div> }
             </article></section>
+            @if (matchAnalysis?.matchMatrix?.matches; as evidenceMatches) { <section class="panel" style="margin-top:18px"><div class="panel-head"><div><span class="kicker">CLAIM-MATRIX</span><h3>Belegtes Kandidatenmatching</h3><p>Dieser Coverage-Bericht ist kein ATS-Prozentscore.</p></div><button class="secondary compact" type="button" (click)="validateMatchMatrix()">Evidence prüfen</button></div>@for (item of evidenceMatches; track item.competency) { <div class="summary-row" [class.danger]="item.classification === 'gap'"><span>{{ item.classification === 'gap' ? '!' : '✓' }}</span><div><select [(ngModel)]="item.classification" aria-label="Match-Klassifikation"><option value="direct_match">direct_match</option><option value="transferable_match">transferable_match</option><option value="partial_match">partial_match</option><option value="gap">gap</option></select><p>{{ item.competency }} · {{ item.evidence_claim_ids.join(', ') || 'keine Evidence' }}</p><small>{{ item.rationale }}</small></div></div> }</section> }
+            @if (applicationCases.length) { <section class="panel" style="margin-top:18px"><span class="kicker">LOKALER WORKFLOW</span><h3>Bewerbungsfälle</h3>@for (item of applicationCases; track item.id) { <div class="summary-row"><span>▤</span><div style="flex:1"><small>{{ item.state }} · Revision {{ item.revision }}</small><p>{{ item.job.title }} bei {{ item.job.company }} · {{ item.identityMode }}</p></div>@if (nextApplicationState(item); as next) { <button class="secondary compact" type="button" (click)="advanceApplication(item)" [disabled]="busy">Weiter: {{ next }}</button> } @else if (item.identityMode === 'incognito') { <span class="status">Finalisierung gesperrt</span> }</div> }</section> }
         }
+      }
+      @if (section === 'crm') {
+        <section class="page-intro"><div><span class="kicker">BEWERBUNGS-CRM</span><h2>Firmen, Stellen und Antworten</h2><p>Mehrere Bewerbungen beim selben Unternehmen bleiben getrennt, während Nachrichten, Termine, Absagen und verwendete Dokumentstände eindeutig zugeordnet werden.</p></div><div><button class="secondary" type="button" (click)="importLocalMailDrop()">SMTP-Ablage einlesen</button> <label class="secondary">EML importieren<input type="file" accept=".eml,message/rfc822" (change)="importEml($event)" hidden></label></div></section>
+        <section class="page-grid two-column crm-top">
+          <article class="panel"><span class="kicker">MAILKONTO</span><h3>IMAP-Zugang verschlüsselt hinterlegen</h3><p class="description">Das Passwort oder Zugriffstoken wird nie an die Oberfläche zurückgegeben. Neue Konten bleiben bis zur bewussten Aktivierung deaktiviert.</p>
+            <div class="form-grid"><label>Bezeichnung<input [(ngModel)]="mailAccountForm.label"></label><label>E-Mail<input type="email" [(ngModel)]="mailAccountForm.email"></label><label>IMAP-Host<input [(ngModel)]="mailAccountForm.host"></label><label>Port<input type="number" min="1" max="65535" [(ngModel)]="mailAccountForm.port"></label><label>Benutzername<input autocomplete="username" [(ngModel)]="mailAccountForm.username"></label><label>Passwort / Token<input type="password" autocomplete="new-password" [(ngModel)]="mailAccountForm.secret"></label><label>Postfach<input [(ngModel)]="mailAccountForm.mailbox"></label><label class="check"><input type="checkbox" [(ngModel)]="mailAccountForm.secure"><span>TLS verwenden</span></label></div>
+            <button class="primary" type="button" (click)="saveMailAccount()" [disabled]="busy">Deaktiviert speichern</button>
+            @for (account of mailAccounts; track account.id) { <div class="summary-row"><span>@</span><div style="flex:1"><strong>{{ account.label }}</strong><small>{{ account.email }} · {{ account.host }}:{{ account.port }} · {{ account.enabled ? 'aktiv' : 'deaktiviert' }}</small></div><button class="secondary compact" type="button" (click)="testMail(account)" [disabled]="busy">Testen</button><button class="secondary compact" type="button" (click)="setMailAccountEnabled(account, !account.enabled)">{{ account.enabled ? 'Deaktivieren' : 'Aktivieren' }}</button><button class="secondary compact" type="button" (click)="syncMail(account)" [disabled]="busy || !account.enabled">Jetzt abrufen</button><button class="secondary compact" type="button" (click)="deleteMailAccount(account)">Löschen</button></div> }
+          </article>
+          <article class="panel"><span class="kicker">ZUORDNUNGS-INBOX</span><h3>{{ mailInbox.length }} ungeklärte Nachricht(en)</h3><p class="description">Automatische Treffer bleiben Vorschläge. Bei geringer oder mehrdeutiger Sicherheit entscheidet der Nutzer.</p>
+            @for (message of mailInbox; track message.id) { <div class="mail-card"><div class="panel-head"><strong>{{ message.subject || '(ohne Betreff)' }}</strong><span class="status">{{ message.responseKind }}</span></div><small>{{ message.from.join(', ') }} · {{ message.sentAt | date:'short' }}</small><p>{{ message.text | slice:0:220 }}</p><label>Bewerbungsfall<select [(ngModel)]="mailCorrelationTarget[message.id]"><option value="">Bitte wählen</option>@for (item of applicationCases; track item.id) { <option [value]="item.id">{{ item.job.company }} · {{ item.job.title }}</option> }</select></label><button class="secondary compact" type="button" (click)="confirmCorrelation(message.id)">Zuordnung bestätigen</button></div> } @empty { <p class="description">Keine ungeklärten Nachrichten vorhanden.</p> }
+          </article>
+        </section>
+        <section class="company-grid">
+          @for (company of companies; track company.key) { <article class="panel company-card"><div class="panel-head"><div><span class="kicker">UNTERNEHMEN</span><h3>{{ company.name }}</h3></div><span class="status ok">{{ company.applications.length }} Stelle(n)</span></div>
+            @for (application of company.applications; track application.id) { <section class="application-crm"><div class="panel-head"><div><strong>{{ application.job.title }}</strong><p>{{ application.job.location }} · {{ application.state }}</p></div>@if (draft?.jobId === application.job.id) { <button class="secondary compact" type="button" (click)="storeDraftRevision(application)">Aktuellen Entwurf speichern</button> }</div>
+              <div class="chips">@for (event of application.tracking; track event.id) { <span class="chip">{{ event.status }} · {{ event.occurredAt | date:'shortDate' }}</span> }</div>
+              @for (message of application.messages; track message.id) { <div class="summary-row"><span>✉</span><div><strong>{{ message.subject }}</strong><small>{{ message.responseKind }} · {{ message.sentAt | date:'short' }}</small>@for (event of message.calendarEvents; track event.title) { <p>Termin: {{ event.title }} · {{ event.start || 'Zeit aus Einladung prüfen' }} @if (event.location) { · {{ event.location }} }</p> }</div></div> }
+              @for (revision of application.artifacts; track revision.id) { <div class="summary-row"><span>▤</span><div style="flex:1"><strong>{{ revision.type }} · {{ revision.lifecycle }}</strong><small>{{ revision.createdAt | date:'short' }} · {{ revision.sha256.slice(0, 12) }}…</small></div>@if (revision.lifecycle !== 'used') { <button class="secondary compact" type="button" (click)="markRevisionUsed(application, revision)" [disabled]="application.identityMode === 'incognito'">Als verwendet markieren</button> }</div> }
+            </section> }
+          </article> } @empty { <div class="empty"><span>◇</span><h3>Noch keine Firmenakte</h3><p>Lege aus einem Suchergebnis zuerst einen Bewerbungsfall an.</p></div> }
+        </section>
+      }
+      @if (section === 'agents') {
+        <section class="page-intro agent-intro">
+          <div><span class="kicker">LOKALE AGENTENSTEUERUNG</span><h2>Eine sichere Oberfläche für alle Agenten</h2><p>Starte Codex, OpenCode, Claude und weitere Provider über einen einheitlichen Vertrag. Jeder Lauf ist einer klaren Aufgabe zugeordnet; Schreibzugriff, Netzwerk und sensible Aktionen bleiben sichtbar und bewusst steuerbar.</p></div>
+          <div class="agent-intro-actions"><button class="secondary" type="button" (click)="loadAgentProviders(true)" [disabled]="agentBusy">Installationen prüfen</button><button class="secondary" type="button" (click)="refreshAgentRuns()" [disabled]="agentBusy">↻ Runs aktualisieren</button></div>
+        </section>
+
+        <section class="stats-grid agent-metrics" aria-label="Agent-Center-Status">
+          <article><span class="stat-icon purple">⌘</span><div><small>Verfügbare Provider</small><strong>{{ availableAgentProvidersCount() }}/{{ agentProviders.length }}</strong><p>lokal erkannt</p></div></article>
+          <article><span class="stat-icon blue">▶</span><div><small>Aktive Runs</small><strong>{{ activeAgentRunsCount() }}</strong><p>inklusive Warteschlange</p></div></article>
+          <article><span class="stat-icon amber">!</span><div><small>Offene Freigaben</small><strong>{{ pendingAgentApprovalsCount() }}</strong><p>keine automatische Zustimmung</p></div></article>
+          <article><span class="stat-icon green">◇</span><div><small>Sicherheitsstandard</small><strong class="stat-text">Read-only</strong><p>Netzwerk aus</p></div></article>
+        </section>
+
+        <section class="agent-operations-grid" aria-label="Queue und Recovery">
+          <article class="panel agent-queue-diagnostics" data-testid="agent-queue-diagnostics" aria-labelledby="agent-queue-diagnostics-heading">
+            <div class="panel-head"><div><span class="kicker">QUEUE-DIAGNOSE</span><h3 id="agent-queue-diagnostics-heading">Kapazität, Fairness und Blockaden</h3></div>@if (agentQueue; as queue) { <span class="status">{{ queue.depth }} wartend · {{ queue.active }} aktiv</span> }</div>
+            <p class="description">Die Anzeige ist eine schreibgeschützte Momentaufnahme. Effektive Priorität enthält den serverseitigen Aging-Bonus; Limits werden nicht im Browser verändert.</p>
+            @if (agentQueue; as queue) {
+              <dl class="agent-limit-grid">
+                <div><dt>Global</dt><dd><strong>{{ queue.active }}/{{ queue.limits.global }}</strong> aktiv</dd><dd>{{ queue.depth }}/{{ agentLimitLabel(queue.limits.queuedGlobal) }} Queue</dd></div>
+                <div><dt>Je Provider</dt><dd><strong>{{ queue.limits.perProvider }}</strong> aktiv</dd><dd>gemeinsames Provider-Limit</dd></div>
+                <div><dt>Je Workspace</dt><dd><strong>{{ agentLimitLabel(queue.limits.perWorkspace) }}</strong> aktiv</dd><dd>{{ agentLimitLabel(queue.limits.queuedPerWorkspace) }} Queue</dd></div>
+                <div><dt>Je Owner</dt><dd><strong>{{ agentLimitLabel(queue.limits.perOwner) }}</strong> aktiv</dd><dd>{{ agentLimitLabel(queue.limits.queuedPerOwner) }} Queue</dd></div>
+              </dl>
+              <div class="agent-active-scopes" aria-label="Aktive Läufe nach Scope">
+                <section><h4>Provider</h4>@for (entry of queue.activeByProvider | keyvalue; track entry.key) { <p><code>{{ entry.key }}</code><span>{{ entry.value }} aktiv</span></p> } @empty { <p><span>Keine Provider aktiv</span></p> }</section>
+                <section><h4>Workspace</h4>@for (entry of queue.activeByWorkspace | keyvalue; track entry.key) { <p><code>{{ entry.key }}</code><span>{{ entry.value }} aktiv</span></p> } @empty { <p><span>Keine Workspaces aktiv</span></p> }</section>
+                <section><h4>Owner</h4>@for (entry of queue.activeByOwner | keyvalue; track entry.key) { <p><code>{{ entry.key }}</code><span>{{ entry.value }} aktiv</span></p> } @empty { <p><span>Keine Owner aktiv</span></p> }</section>
+              </div>
+              <p class="snapshot-time">Stand {{ queue.capturedAt | date:'medium' }}</p>
+              <ol class="agent-queue-entry-list" aria-label="Priorisierte Warteschlange">
+                @for (entry of queue.queue; track entry.runId) {
+                  <li>
+                    <div class="queue-position"><span>#{{ entry.position }}</span><small>Position</small></div>
+                    <div class="queue-entry-main"><div><strong>{{ agentProviderName(entry.provider) }}</strong><code>{{ entry.runId }}</code></div><p><b>Workspace:</b> <code>{{ entry.workspaceRoot }}</code></p><p><b>Owner:</b> {{ entry.ownerId || 'nicht zugeordnet' }} · wartet {{ formatDuration(entry.waitMs) }}</p></div>
+                    <dl class="queue-priority"><div><dt>Basis</dt><dd>{{ agentPriorityLabel(entry.basePriority) }}</dd></div><div><dt>Effektiv</dt><dd>{{ agentPriorityLabel(entry.effectivePriority) }}</dd></div></dl>
+                    <div class="queue-blocks">@for (reason of entry.blockedBy; track reason) { <span class="status blocked">{{ agentQueueBlockLabel(reason) }}</span> } @empty { <span class="status ok">bereit</span> }</div>
+                  </li>
+                } @empty { <li class="queue-empty"><strong>Keine wartenden Runs</strong><p>Neue Runs erscheinen mit Position, Priorität und jedem wirksamen Blockgrund.</p></li> }
+              </ol>
+            } @else { <div class="approval-empty"><strong>Queue-Diagnose wird geladen</strong><p>Bis zur bestätigten Serverantwort werden keine Kapazitäten angenommen.</p></div> }
+            @if (agentOperationalError) { <div class="warning-box" role="status"><strong>Betriebsdiagnose nicht aktuell</strong><p>{{ agentOperationalError }}</p></div> }
+          </article>
+
+          <article class="panel agent-recovery-console" data-testid="agent-recovery-console" aria-labelledby="agent-recovery-heading">
+            <div class="panel-head"><div><span class="kicker">ORPHAN RECOVERY</span><h3 id="agent-recovery-heading">Verwaiste Runs operatorgebunden entscheiden</h3></div><span class="status">{{ agentRecoveryRuns.length }} offen</span></div>
+            <p class="description">Eine Lease ist an genau einen Operator gebunden. Dieser Browser hält ihre geheime ID nur flüchtig; Prozess-Adoption ist immer gesperrt.</p>
+            @for (recovery of agentRecoveryRuns; track recovery.runId) {
+              <section class="recovery-card" [attr.data-state]="recovery.state">
+                <div class="recovery-card-head"><div><span class="status">{{ agentStatusLabel(recovery.state) }}</span><strong>{{ agentProviderName(recovery.provider) }}</strong><code>{{ recovery.runId }}</code></div><span class="session-witness" [class.present]="recovery.providerSessionPresent">Provider-Sitzung {{ recovery.providerSessionPresent ? 'gefunden' : 'nicht gefunden' }}</span></div>
+                <div class="info-box recovery-safety"><strong>Keine Prozess-Adoption</strong><p>Der alte Prozess wird niemals übernommen. „Neu starten“ erzeugt einen neuen Prozess und einen neuen Run; der verwaiste Run wird nachvollziehbar abgeschlossen.</p></div>
+                @if (agentRecoveryRunView(recovery); as run) { <p class="recovery-revision">Aktuelle Serverrevision: <strong>#{{ run.lastEventSequence }}</strong></p> } @else { <p class="approval-block-reason" role="status">Gesperrt: Der zugehörige Run fehlt in der aktuellen Runliste.</p> }
+                @if (recovery.lease) { <p class="recovery-lease"><strong>Aktive Lease:</strong> {{ recovery.lease.operatorId }} · bis {{ recovery.lease.expiresAt | date:'mediumTime' }}</p> }
+                @if (agentRecoveryLeaseFor(recovery.runId); as localLease) {
+                  <p class="recovery-local-lease"><strong>Dieser Browser hält die Lease-ID</strong><span>Operator {{ localLease.operatorId }} · läuft {{ localLease.expiresAt | date:'mediumTime' }} ab</span></p>
+                  <div class="recovery-actions">
+                    <button class="secondary compact" type="button" (click)="openAgentRecoveryDialog(recovery, 'cleanup')" [disabled]="agentBusy || !!agentRecoveryActionUnavailableReason(recovery, 'cleanup')">Bereinigung prüfen</button>
+                    <button class="primary compact" type="button" (click)="openAgentRecoveryDialog(recovery, 'resume')" [disabled]="agentBusy || !!agentRecoveryActionUnavailableReason(recovery, 'resume')">Als neuen Run starten</button>
+                  </div>
+                  @if (agentRecoveryActionUnavailableReason(recovery, 'resume'); as reason) { <p class="approval-block-reason" role="status">Gesperrt: {{ reason }}</p> }
+                } @else {
+                  <button class="secondary compact" type="button" (click)="acquireAgentRecoveryLease(recovery)" [disabled]="agentBusy || !!agentRecoveryAcquireUnavailableReason(recovery)">Operator-Lease übernehmen</button>
+                  @if (agentRecoveryAcquireUnavailableReason(recovery); as reason) { <p class="approval-block-reason" role="status">Gesperrt: {{ reason }}</p> }
+                }
+              </section>
+            } @empty { <div class="approval-empty"><strong>Keine verwaisten Runs</strong><p>Nach einem Neustart erkannte Orphans erscheinen hier; normale Runs werden nicht als Recovery-Fälle behandelt.</p></div> }
+          </article>
+        </section>
+
+        @if (agentRecoveryDialog; as dialog) {
+          <div class="recovery-dialog-backdrop">
+            <dialog class="recovery-dialog" open aria-modal="true" aria-labelledby="recovery-dialog-title" aria-describedby="recovery-dialog-description" (keydown.escape)="closeAgentRecoveryDialog()">
+              <span class="kicker">EXPLIZITE OPERATORBESTÄTIGUNG</span>
+              <h3 id="recovery-dialog-title">{{ dialog.decision === 'cleanup' ? 'Verwaisten Run bereinigen' : 'Neuen Prozess und neuen Run starten' }}</h3>
+              <p id="recovery-dialog-description">Run <code>{{ dialog.runId }}</code> wird ausschließlich mit Lease-ID und erwarteter Revision <strong>#{{ dialog.expectedRevision }}</strong> entschieden.</p>
+              @if (dialog.decision === 'resume') {
+                <div class="warning-box"><strong>Kein Prozess-Resume</strong><p>Diese Aktion adoptiert weder PID noch Providersitzung. Sie schließt den alten Run und plant einen eigenständigen Ersatz-Run in einem neuen Prozess ein.</p></div>
+                <label>Optionaler Auftrag für den neuen Run<textarea [(ngModel)]="agentRecoveryInput" rows="4" maxlength="262144" placeholder="Leer lassen, um den gespeicherten Auftrag unverändert für den neuen Run zu verwenden."></textarea></label>
+              } @else { <div class="warning-box"><strong>Endgültiger lokaler Abschluss</strong><p>Die Bereinigung schließt den verwaisten Run ohne Ersatz-Run ab. Der Auditverlauf bleibt erhalten.</p></div> }
+              <label class="recovery-confirmation"><input #agentRecoveryConfirm type="checkbox" [(ngModel)]="agentRecoveryConfirmed"><span>Ich habe Run, Operator-Lease, Aktion und Revision geprüft und bestätige diese einzelne Entscheidung.</span></label>
+              <div class="recovery-dialog-actions"><button class="secondary" type="button" (click)="closeAgentRecoveryDialog()">Abbrechen</button><button class="primary" type="button" (click)="confirmAgentRecovery()" [disabled]="agentBusy || !agentRecoveryConfirmed">{{ agentBusy ? 'Wird geprüft …' : (dialog.decision === 'cleanup' ? 'Bereinigung verbindlich bestätigen' : 'Neuen Run verbindlich starten') }}</button></div>
+            </dialog>
+          </div>
+        }
+
+        <section class="panel global-approval-inbox" aria-labelledby="global-approval-heading">
+          <div class="panel-head"><div><span class="kicker">GLOBALE FREIGABE-INBOX</span><h3 id="global-approval-heading">Offene Entscheidungen aller Runs</h3></div><span class="status approval-count">{{ pendingAgentApprovalsCount() }} ausführbar · {{ globalAgentApprovals().length }} angezeigt</span></div>
+          <p class="description">Jede Entscheidung bleibt an Run, Revision, Risiko und Ziel gebunden. Abgelaufene, fortgeschrittene oder unvollständige Anfragen werden sichtbar, aber nicht ausführbar.</p>
+          @for (item of globalAgentApprovals(); track item.run.id + ':' + item.approval.id) {
+            <article class="approval-card global-approval-card" [class.approval-blocked]="!item.actionable" [attr.data-risk]="item.approval.risk || 'unknown'">
+              <div class="approval-content">
+                <div class="approval-context"><span class="status">{{ agentProviderName(item.run.providerId) }}</span><code>{{ item.run.id }}</code><span>{{ agentStatusLabel(item.run.status) }}</span></div>
+                <small>Risiko: {{ agentApprovalRiskLabel(item.approval) }} · {{ item.approval.kind }}</small>
+                <strong>{{ item.approval.title || item.approval.summary || 'Agentenaktion freigeben?' }}</strong>
+                <p>{{ item.approval.description || item.approval.summary || 'Details stehen in der Ereignis-Timeline.' }}</p>
+                @if (item.approval.target) { <p><b>Exaktes Ziel:</b> <code>{{ item.approval.target }}</code></p> }
+                @if (item.approval.diff) { <pre>{{ item.approval.diff }}</pre> }
+                @if (item.approval.expiresAt) { <small>Ablauf: {{ item.approval.expiresAt | date:'medium' }}</small> }
+                @if (item.reason) { <p class="approval-block-reason" role="status">Gesperrt: {{ item.reason }}</p> }
+                <p class="approval-edit-note" [id]="'approval-edit-' + item.run.id + '-' + item.approval.id">{{ agentApprovalEditReason() }}</p>
+              </div>
+              <div class="approval-actions">
+                <button class="text-button" type="button" (click)="selectAgentRun(item.run)">Run öffnen</button>
+                <button class="secondary compact" type="button" (click)="decideAgentApproval(item.approval, 'deny', item.run)" [disabled]="agentBusy || !item.actionable">Ablehnen</button>
+                <button class="secondary compact" type="button" disabled [attr.aria-describedby]="'approval-edit-' + item.run.id + '-' + item.approval.id">Bearbeiten & freigeben</button>
+                <button class="primary compact" type="button" (click)="decideAgentApproval(item.approval, 'approve', item.run)" [disabled]="agentBusy || !item.actionable">Ausdrücklich freigeben</button>
+              </div>
+            </article>
+          } @empty {
+            <div class="approval-empty"><strong>Keine offenen Freigaben</strong><p>Neue Anfragen erscheinen hier runübergreifend und niemals als Sammelfreigabe.</p></div>
+          }
+        </section>
+
+        <section class="agent-provider-grid" aria-label="Agenten-Provider">
+          @for (provider of agentProviders; track provider.id) {
+            <article class="panel source-card agent-provider" [class.unavailable]="!provider.available">
+              <div class="source-card-head"><span class="source-logo big">{{ provider.name.slice(0, 2) }}</span><span class="status" [class.ok]="provider.available">{{ provider.experimental ? 'Experimentell · exec-Fallback' : (provider.available ? 'Bereit' : 'Nicht verfügbar') }}</span></div>
+              <h3>{{ provider.name }}</h3><p>{{ provider.note || 'Adapter wurde erkannt und kann kontrollierte Runs ausführen.' }}</p>
+              <div class="source-meta"><span>{{ provider.version || 'Version unbekannt' }}</span><span>{{ provider.transport || 'lokaler Prozess' }}</span><span>Auth: {{ provider.authStatus || 'unbekannt' }}</span></div>
+              <div class="agent-installation-list">
+                @for (installation of agentProviderInstallations(provider); track agentInstallationKey(installation)) {
+                  <div class="info-box" [attr.data-support]="installation.support"><strong>{{ agentRuntimeLabel(installation) }}</strong><p>{{ installation.version || 'Version unbekannt' }} · {{ installation.support }} · {{ agentInstallationAuthLabel(installation) }}</p>@if (installation.executable) { <p><code>{{ installation.executable }}</code></p> }@if (installation.note) { <p>{{ installation.note }}</p> }</div>
+                }
+              </div>
+            </article>
+          } @empty { <div class="warning-box"><strong>Keine Provider erkannt</strong><p>Installiere mindestens eine unterstützte CLI und aktualisiere den Status. Das Center akzeptiert keine frei eingegebenen Executables.</p></div> }
+        </section>
+
+        <section class="agent-workspace">
+          <div class="agent-left-column">
+            <article class="panel agent-create">
+              <span class="kicker">GEFÜHRTER START</span><h3>Neuen Agentenlauf planen</h3>
+              <form (ngSubmit)="createAgentRun()">
+                <fieldset><legend><b>1</b> Agent wählen</legend>
+                  <div class="agent-choice-grid">
+                    @for (provider of agentProviders; track provider.id) {
+                      <label class="agent-choice" [class.selected]="agentRunForm.providerId === provider.id" [class.disabled]="!provider.available"><input type="radio" name="agentProvider" [value]="provider.id" [ngModel]="agentRunForm.providerId" (ngModelChange)="selectAgentProvider($event)" [disabled]="!provider.available"><span><strong>{{ provider.name }}</strong><small>{{ provider.available ? 'einsatzbereit' : 'nicht installiert oder nicht authentifiziert' }}</small></span></label>
+                    }
+                  </div>
+                  <label>Installation und Laufzeit<select name="agentRuntime" [ngModel]="selectedAgentInstallationKey()" (ngModelChange)="selectAgentInstallation($event)">
+                    @for (installation of agentProviderInstallations(); track agentInstallationKey(installation)) { <option [value]="agentInstallationKey(installation)" [disabled]="installation.support !== 'supported'">{{ agentRuntimeLabel(installation) }} · {{ installation.version || 'Version unbekannt' }} · {{ installation.support }}</option> }
+                  </select></label>
+                  @if (selectedAgentInstallation(); as installation) { <div class="info-box runtime-hint" [attr.data-support]="installation.support"><strong>{{ agentRuntimeLabel(installation) }}</strong><p>{{ agentInstallationAuthLabel(installation) }} · {{ installation.note || 'Diese Installation wurde lokal erkannt und für den gewählten Adapter geprüft.' }}</p></div> }
+                </fieldset>
+                <fieldset><legend><b>2</b> Aufgabe und Kontext</legend>
+                  <label>Versionierter Workflow<select name="agentWorkflow" [ngModel]="agentRunForm.workflowId" (ngModelChange)="setAgentWorkflow($event)"><option [ngValue]="undefined">Allgemeiner Workspace-Auftrag</option>@for (workflow of agentWorkflows; track workflow.id) { <option [value]="workflow.id">{{ workflow.title }} · v{{ workflow.version }}</option> }</select></label>
+                  @if (selectedAgentWorkflow(); as workflow) { <div class="info-box"><strong>{{ workflow.title }}</strong><p>{{ workflow.description }}</p><small>Nur Vorschläge · gesperrt: {{ workflow.prohibitedActions.join(', ') }}</small></div> }
+                  @if (agentRunForm.parentRunId) { <div class="info-box replay-lineage"><strong>Replay-Vorlage aus {{ agentRunForm.parentRunId }}</strong><p>Die gespeicherte Konfiguration wurde nur in das Formular übernommen. Es läuft noch kein Tool; ein später gestarteter Run wird als neuer Kindlauf protokolliert.</p><button class="text-button" type="button" (click)="clearAgentParentRun()">Abstammung entfernen</button></div> }
+                  <label>Konkreter Auftrag<textarea name="agentPrompt" [ngModel]="agentRunForm.prompt" (ngModelChange)="setAgentPrompt($event)" rows="7" maxlength="20000" placeholder="z. B. Analysiere den Bewerbungsfall, prüfe die vorhandenen Tests und schlage nachvollziehbare Änderungen vor."></textarea><small>{{ agentRunForm.prompt.length }}/20.000 Zeichen</small></label>
+                  <label>Bewerbungsfall (optional)<select name="applicationCase" [ngModel]="agentRunForm.applicationCaseId" (ngModelChange)="setAgentApplicationCase($event)"><option [ngValue]="undefined">Kein Bewerbungsfall</option>@for (application of applicationCases; track application.id) { <option [value]="application.id">{{ application.job.company }} · {{ application.job.title }}</option> }</select></label>
+                  <p class="form-hint">Der Server begrenzt Kontext nach Workflow. Beim Antwort-Triage können dem gewählten Fall zugeordnete Mailinhalte als untrusted Daten enthalten sein; Zugangsdaten werden nicht als Formularwerte ergänzt.</p>
+                </fieldset>
+                <fieldset><legend><b>3</b> Berechtigungen</legend>
+                  <div class="permission-options">
+                    <label [class.selected]="agentRunForm.workspaceMode === 'read_only'" [class.disabled]="!agentProviderSupportsWorkspace('read_only')"><input type="radio" name="workspaceMode" value="read_only" [ngModel]="agentRunForm.workspaceMode" (ngModelChange)="setAgentWorkspaceMode($event)" [disabled]="!agentProviderSupportsWorkspace('read_only')"><span><strong>Nur lesen</strong><small>Empfohlen für Analyse, Review und Planung</small></span></label>
+                    <label [class.selected]="agentRunForm.workspaceMode === 'workspace_write'" [class.disabled]="!agentProviderSupportsWorkspace('workspace_write')"><input type="radio" name="workspaceMode" value="workspace_write" [ngModel]="agentRunForm.workspaceMode" (ngModelChange)="setAgentWorkspaceMode($event)" [disabled]="!agentProviderSupportsWorkspace('workspace_write')"><span><strong>Workspace schreiben</strong><small>{{ agentProviderSupportsWorkspace('workspace_write') ? 'Änderungen nur innerhalb des Projektbereichs' : 'Vom gewählten Provider nicht serverseitig freigegeben' }}</small></span></label>
+                  </div>
+                  <label class="network-permission disabled"><input type="checkbox" name="network" [(ngModel)]="agentRunForm.network" disabled><span><strong>Netzwerkzugriff serverseitig gesperrt</strong><small>Der produktive Startvertrag akzeptiert ausschließlich <code>network=false</code>.</small></span></label>
+                  @if (agentRunForm.network) { <div class="warning-box"><strong>Erweiterte Berechtigung aktiv</strong><p>Der Run darf auf das Netzwerk zugreifen. Prüfe Prompt, Provider und jede nachfolgende Freigabe besonders sorgfältig.</p></div> }
+                  <div class="permission-options"><label><span><strong>Zeitlimit (Minuten)</strong><input type="number" name="agentWallTime" min="1" max="120" [ngModel]="agentRunForm.budget.wallTimeMinutes" (ngModelChange)="setAgentWallTime($event)"></span></label><label><span><strong>Ausgabelimit (MiB)</strong><input type="number" name="agentOutputLimit" min="1" max="25" [ngModel]="agentRunForm.budget.maxOutputMiB" (ngModelChange)="setAgentOutputLimit($event)"></span></label></div>
+                </fieldset>
+                <section class="info-box agent-preflight" data-testid="agent-preflight" aria-labelledby="agent-preflight-heading" aria-live="polite" [attr.aria-busy]="agentPreflightLoading"><div><span class="kicker">STARTPRÜFUNG</span><h4 id="agent-preflight-heading">Konfiguration vor dem Start</h4><p>Diese Zusammenfassung verwendet ausschließlich den ausgewählten Serververtrag und gibt keine Executables, Pfade, Prompts oder Geheimnisse wieder.</p></div>
+                  @if (agentPreflight; as preflight) {
+                    <dl class="agent-preflight-grid">
+                      <div data-preflight-field="provider" [attr.data-state]="preflight.provider.available ? 'ready' : 'blocked'"><dt>Provider · Server erkannt</dt><dd><strong>{{ preflight.provider.name }}</strong><small>{{ agentPreflightProviderDetail(preflight) }}</small></dd></div>
+                      <div data-preflight-field="runtime" [attr.data-state]="preflight.runtime.supported ? 'ready' : 'blocked'"><dt>Runtime · Server erkannt</dt><dd><strong>{{ agentPreflightRuntimeLabel(preflight) }}</strong><small>{{ preflight.runtime.supported ? 'Unterstützte erkannte Installation' : 'Nicht unterstützt' }}</small></dd></div>
+                      <div data-preflight-field="workspace" [attr.data-state]="preflight.workspace.supported ? 'ready' : 'blocked'"><dt>Workspace · Server festgelegt</dt><dd><strong>{{ agentPreflightWorkspaceLabel(preflight) }}</strong><small>Pfad offengelegt: {{ preflight.workspace.pathDisclosed ? 'ja' : 'nein' }}</small></dd></div>
+                      <div data-preflight-field="data" data-state="declared"><dt>Datenumfang · Server deklariert</dt><dd><strong>{{ agentPreflightScopeLabel(preflight.data.declaredScope) }} · {{ preflight.data.selectedApplicationCaseCount }} ausgewählter Fall</strong><ul class="preflight-data-categories">@for (category of preflight.data.categories; track category.kind) { <li>{{ agentPreflightCategoryLabel(category) }}</li> }</ul><small>Exakte Quellenzahl: {{ preflight.data.exactSourceCount ?? 'erst nach Start' }} · Kontextlimit {{ preflight.data.maxContextCharacters }} Zeichen · tatsächliches Manifest {{ preflight.data.actualManifestAvailableAfterStart ? 'nach Start verfügbar' : 'nicht ausgewiesen' }}</small></dd></div>
+                      <div data-preflight-field="tools" [attr.data-state]="preflight.tools.allowlistComplete ? 'ready' : 'blocked'"><dt>Freigegebene Tools · Effektive Allowlist</dt><dd><strong>{{ agentPreflightToolLabel(preflight) }}</strong><small>{{ agentPreflightToolDetail(preflight) }}</small></dd></div>
+                      <div data-preflight-field="network" [attr.data-state]="preflight.network.enforced && preflight.network.effective === 'disabled' ? 'ready' : 'blocked'"><dt>Netzwerk · Server erzwungen</dt><dd><strong>{{ preflight.network.effective === 'disabled' ? 'Agent offline' : preflight.network.effective }}</strong><small>{{ agentPreflightNetworkDetail(preflight) }}</small></dd></div>
+                      <div data-preflight-field="workflow"><dt>Workflow · Server deklariert</dt><dd><strong>{{ preflight.workflow?.title || 'Allgemeiner Workspace-Auftrag' }}</strong><small>@if (preflight.workflow) { v{{ preflight.workflow.version }} · Scope {{ preflight.workflow.requiredScope }} · nur Vorschläge } @else { Scope workspace }</small></dd></div>
+                      <div data-preflight-field="limits" data-state="ready"><dt>Limits · Server effektiv</dt><dd><strong>{{ agentPreflightLimitsLabel(preflight) }}</strong><small>{{ agentPreflightLimitsDetail(preflight) }}</small></dd></div>
+                      <div data-preflight-field="scheduling"><dt>Scheduling · Momentaufnahme</dt><dd><strong>{{ agentPreflightSchedulingDetail(preflight) }}</strong><small>Queuewerte sind keine zusätzlichen Run-Ressourcen.</small></dd></div>
+                    </dl>
+                    @if (preflight.network.trustedHostServices.length) { <div class="trusted-host-workflow-note" role="note"><strong>Getrennte Jobsuche</strong><p>Jobsuche läuft im separaten Trusted-Host-MCP; Agent bleibt offline/sandboxed; Portalzugriff gemäß explizitem Server-Gate.</p></div> }
+                    @if (preflight.warnings.length) { <ul class="preflight-notices warning" aria-label="Hinweise der Startprüfung">@for (warning of preflight.warnings; track warning.code) { <li><strong>Hinweis:</strong> {{ warning.message }}</li> }</ul> }
+                    @if (preflight.blockers.length) { <ul class="preflight-notices blocked" aria-label="Blocker der Startprüfung" role="status">@for (blocker of preflight.blockers; track blocker.code) { <li><strong>Start blockiert:</strong> {{ blocker.message }}</li> }</ul> }
+                  } @else if (agentPreflightLoading) {
+                    <p class="preflight-pending" role="status">Serverseitige Startprüfung läuft …</p>
+                  } @else if (agentPreflightError) {
+                    <p class="preflight-blocking-reason" role="alert"><strong>Startprüfung nicht verfügbar:</strong> {{ agentPreflightError }}</p>
+                  } @else {
+                    <p class="preflight-pending">Gib zuerst einen konkreten Auftrag ein. Danach prüft der Server Provider, Runtime, Workspace, Datenumfang, Tools, Netzwerk und Limits ohne einen Agenten oder die Jobsuche zu starten.</p>
+                  }
+                </section>
+                <button class="primary wide" type="submit" [disabled]="agentBusy || agentRunForm.prompt.trim().length < 3 || !agentPreflightReadyForCurrentDraft()">{{ agentBusy ? 'Wird vorbereitet …' : 'Run kontrolliert starten' }}</button>
+                <p class="form-hint centered">Executable, Shell-Argumente und Geheimnisse können hier bewusst nicht frei eingegeben werden.</p>
+              </form>
+            </article>
+
+            <article class="panel agent-queue"><div class="panel-head"><div><span class="kicker">RUN-QUEUE</span><h3>Verlauf und Warteschlange</h3></div><span class="status">{{ filteredAgentRuns().length }}</span></div>
+              <div class="agent-filters"><label>Status<select [(ngModel)]="agentStatusFilter"><option value="all">Alle</option><option value="queued">Warteschlange</option><option value="running">Läuft</option><option value="waiting_for_input">Eingabe nötig</option><option value="waiting_for_approval">Freigabe nötig</option><option value="succeeded">Erfolgreich</option><option value="failed">Fehlgeschlagen</option><option value="cancelled">Abgebrochen</option></select></label><label>Provider<select [(ngModel)]="agentProviderFilter"><option value="all">Alle</option>@for (provider of agentProviders; track provider.id) { <option [value]="provider.id">{{ provider.name }}</option> }</select></label></div>
+              <div class="run-list" role="list">
+                @for (run of filteredAgentRuns(); track run.id) {
+                  <button type="button" role="listitem" class="run-card" [class.selected]="selectedAgentRun?.id === run.id" (click)="selectAgentRun(run)">
+                    <span class="run-state" [attr.data-state]="run.status"></span><span><strong>{{ agentProviderName(run.providerId) }}</strong><small>{{ run.request.prompt | slice:0:95 }}{{ run.request.prompt.length > 95 ? '…' : '' }}</small><em>{{ run.createdAt | date:'short' }} @if (run.request.applicationCaseId) { · mit Bewerbungsfall }</em></span><span class="status" [class.ok]="run.status === 'succeeded'">{{ agentStatusLabel(run.status) }}</span>
+                  </button>
+                } @empty { <div class="empty run-empty"><span>⌘</span><h3>Keine passenden Runs</h3><p>Starte oben einen neuen Lauf oder ändere die Filter.</p></div> }
+              </div>
+            </article>
+          </div>
+
+          <article class="panel agent-detail">
+            @if (selectedAgentRun; as run) {
+              <div class="agent-detail-head"><div><span class="kicker">RUN-DETAIL</span><h2>{{ agentProviderName(run.providerId) }}</h2><p><code>{{ run.id }}</code> · erstellt {{ run.createdAt | date:'medium' }}</p></div><span class="status run-status" [class.ok]="run.status === 'succeeded'" [attr.data-state]="run.status">{{ agentStatusLabel(run.status) }}</span></div>
+              <div class="agent-context"><div><small>Aufgabe</small><p>{{ run.request.prompt }}</p></div><div><small>Schutzbereich</small><p>{{ run.request.workspaceMode === 'read_only' ? 'Nur lesen' : 'Workspace schreiben' }} · Netzwerk {{ run.request.network ? 'erlaubt' : 'gesperrt' }}</p></div><div><small>Laufzeit</small><p>{{ run.request.runtimeTarget === 'wsl' ? 'WSL · ' + (run.request.wslDistribution || 'Distribution unbekannt') : run.request.runtimeTarget === 'darwin' ? 'macOS' : run.request.runtimeTarget === 'linux' ? 'Linux' : 'Windows' }}</p></div>@if (agentRunApplication(run); as application) { <div><small>Bewerbungsfall</small><p>{{ application.job.company }} · {{ application.job.title }}</p></div> }</div>
+              <section class="agent-provenance" aria-labelledby="agent-provenance-heading"><div class="panel-head"><div><span class="kicker">PROVENIENZ</span><h3 id="agent-provenance-heading">Version, Policy und Kontext</h3></div>@if (run.parentRunId) { <span class="status">Kindlauf von {{ run.parentRunId }}</span> }</div><dl><div><dt>Provider-Version</dt><dd>{{ agentRunProviderVersion(run) }}</dd></div><div><dt>Workflow</dt><dd>{{ agentRunWorkflowTitle(run) }} · {{ agentRunWorkflowVersion(run) }}</dd></div><div><dt>Policy</dt><dd>{{ agentRunPolicySummary(run) }} · {{ agentRunPolicyVersion(run) }}</dd></div><div><dt>Kontext</dt><dd>{{ agentRunContextSummary(run) }}</dd></div></dl></section>
+              <div class="agent-detail-actions"><button class="secondary compact" type="button" (click)="previewAgentExport()">Export-Vorschau</button><button class="secondary compact" type="button" (click)="loadAgentReplayTemplate()">Als Replay-Vorlage (kein Start)</button>@if (isAgentRunActive(run.status)) { <button class="danger-button compact" type="button" (click)="cancelAgentRun()" [disabled]="agentBusy || run.status === 'cancelling'">Run abbrechen</button> }</div>
+
+              @if (run.status === 'waiting_for_input') {
+                <section class="agent-input-box" aria-labelledby="agent-input-heading">
+                  <div class="agent-input-fields"><strong id="agent-input-heading">Der Agent wartet auf deine Antwort</strong><label class="sensitive-input-toggle"><input type="checkbox" [(ngModel)]="agentInputSensitive"><span>Sensible Eingabe maskieren</span></label>
+                    @if (agentInputSensitive) {
+                      <div class="warning-box sensitive-input-warning" role="note"><strong>Nur die Anzeige ist maskiert</strong><p>Der Inhalt wird im Klartext an den lokalen Agentenprozess übergeben. Keine Passwörter, Tokens oder unnötigen personenbezogenen Daten eingeben.</p></div>
+                      <label for="agent-user-input">Maskierte Antwort<input id="agent-user-input" type="password" [(ngModel)]="agentInput" maxlength="10000" autocomplete="off" spellcheck="false" placeholder="Sensible Information so knapp wie möglich eingeben."></label>
+                    } @else {
+                      <label for="agent-user-input">Antwort<textarea id="agent-user-input" [(ngModel)]="agentInput" rows="4" maxlength="10000" placeholder="Nur die angefragte Information oder Entscheidung eingeben."></textarea></label>
+                    }
+                  </div><button class="primary" type="button" (click)="sendAgentInput()" [disabled]="agentBusy || !agentInput.trim()">Antwort senden</button>
+                </section>
+              }
+
+              <section class="agent-usage" aria-label="Nutzung dieses Runs"><div><small>Eingabe-Tokens</small><strong>{{ run.usage?.inputTokens ?? '—' }}</strong></div><div><small>Ausgabe-Tokens</small><strong>{{ run.usage?.outputTokens ?? '—' }}</strong></div><div><small>Toolaufrufe</small><strong>{{ run.usage?.toolCalls ?? '—' }}</strong></div><div><small>Dauer</small><strong>{{ formatDuration(run.usage?.durationMs) }}</strong></div><div><small>Kosten</small><strong>{{ run.usage?.cost !== undefined ? (run.usage?.cost | number:'1.2-4') + ' ' + (run.usage?.currency || '') : '—' }}</strong></div></section>
+
+              @if (run.parentRunId) {
+                <section class="agent-comparison" aria-labelledby="agent-comparison-heading"><div class="panel-head"><div><span class="kicker">RUNVERGLEICH</span><h3 id="agent-comparison-heading">Ausgangslauf und Kindlauf</h3></div><span class="status">Parent {{ run.parentRunId }}</span></div><p class="description">Auftragstexte und Ergebnisse werden nicht dupliziert. Änderungen sind nach Abstammung, Version, Policy, Kontext, Usage und Ergebnis getrennt markiert.</p>
+                  <div class="comparison-grid">@for (section of agentRunComparison(run); track section.id) { <article><h4>{{ section.label }}</h4><dl>@for (row of section.rows; track row.label) { <div [class.changed]="row.changed"><dt>{{ row.label }} <span>{{ row.changed ? 'Geändert' : 'Unverändert' }}</span></dt><dd><small>Parent</small>{{ row.parent }}</dd><dd><small>Aktuell</small>{{ row.current }}</dd></div> }</dl></article> }</div>
+                </section>
+              }
+
+              <section class="agent-timeline" aria-labelledby="timeline-heading"><div class="panel-head"><div><span class="kicker">LIVE-EVENTS</span><h3 id="timeline-heading">Nachvollziehbare Timeline</h3></div><span class="live-indicator" [class.active]="isAgentRunActive(run.status) && !agentTimelinePaused"><i></i>{{ agentTimelinePaused ? 'Darstellung pausiert · ' + bufferedAgentEventsCount() + ' gepuffert' : (isAgentRunActive(run.status) ? 'SSE live' : 'Abgeschlossen') }}</span></div>
+                <div class="timeline-controls" aria-label="Timeline filtern und steuern">
+                  <label>Suche<input type="search" [(ngModel)]="agentEventSearch" placeholder="Text oder Eventtyp" autocomplete="off"></label>
+                  <label>Typ<select [(ngModel)]="agentEventTypeFilter"><option value="all">Alle Typen</option>@for (type of agentEventTypeOptions(); track type) { <option [value]="type">{{ type }}</option> }</select></label>
+                  <label>Level<select [(ngModel)]="agentEventLevelFilter"><option value="all">Alle Level</option><option value="debug">Debug</option><option value="info">Info</option><option value="warning">Warnung</option><option value="error">Fehler</option></select></label>
+                  <label>Ansicht<select [(ngModel)]="agentTimelineView"><option value="readable">Lesbare Aussage</option><option value="diagnostic">Redigierte Rohdiagnose</option></select></label>
+                  <button class="secondary compact" type="button" (click)="toggleAgentTimelinePause()">{{ agentTimelinePaused ? 'Darstellung fortsetzen' : 'Darstellung pausieren' }}</button>
+                  <label class="timeline-autoscroll"><input type="checkbox" [ngModel]="agentAutoScroll" (ngModelChange)="setAgentAutoScroll($event)"><span>Auto-Scroll</span></label>
+                </div>
+                <p class="motion-note" [attr.data-reduced-motion]="agentReducedMotionActive()">Auto-Scroll startet bewusst aus. {{ agentReducedMotionActive() ? 'Reduzierte Bewegung ist aktiv; Scrollen bleibt ohne Animation.' : 'Die Systempräferenz für reduzierte Bewegung wird jederzeit berücksichtigt.' }}</p>
+                @if (!agentTimelineNearBottom && agentAutoScroll) { <button class="text-button timeline-latest" type="button" (click)="jumpToLatestAgentEvent()">Zu den neuesten Events</button> }
+                @if (hiddenAgentTimelineEntriesCount() > 0) { <button class="secondary compact load-older-events" type="button" (click)="loadOlderAgentEvents()">{{ olderAgentTimelineBatchSize() }} ältere Einträge nachladen · {{ hiddenAgentTimelineEntriesCount() }} verborgen</button> }
+                <ol #agentTimelineList [attr.aria-live]="agentTimelinePaused ? 'off' : 'polite'" aria-relevant="additions" (scroll)="onAgentTimelineScroll($event)">
+                  @for (entry of renderedAgentTimelineEntries(); track entry.key) { <li [attr.data-level]="entry.level" [attr.data-category]="agentEventCategory(entry.type)" [attr.data-event-sequence]="entry.sequence"><span class="event-marker"></span><div class="event-meta"><strong>{{ agentEventCategoryLabel(entry.type) }}</strong><span class="event-type">{{ entry.type }}</span><small>#{{ entry.sequence }}{{ entry.sequenceEnd > entry.sequence ? '–' + entry.sequenceEnd : '' }} · {{ entry.timestamp | date:'mediumTime' }} @if (entry.groupedCount > 1) { · {{ entry.groupedCount }} Deltas gruppiert }</small><button class="text-button event-copy" type="button" (click)="copyAgentTimelineEntry(entry)" [attr.aria-label]="'Event ' + entry.sequence + ' redigiert kopieren'">Redigiert kopieren</button></div><pre>{{ agentTimelineDisplayText(entry) }}</pre></li> } @empty { <li class="timeline-empty"><span class="event-marker"></span><div><strong>Keine passenden Events</strong><p>Der Run ist noch leer oder Suche und Filter schließen alle gespeicherten Events aus.</p></div></li> }
+                </ol>
+              </section>
+
+              @if (run.output || run.error) { <section class="agent-result" [class.result-error]="!!run.error"><div class="panel-head"><span class="kicker">{{ run.error ? 'FEHLER' : 'ERGEBNIS' }}</span><button class="text-button" type="button" (click)="copyAgentResult(run)">Ergebnis redigiert kopieren</button></div><pre>{{ run.error || run.output }}</pre>@if (run.output) { <div class="artifact-proposal"><span class="status">PROPOSAL-ONLY</span><p id="agent-artifact-promotion-reason">{{ agentArtifactPromotionReason() }}</p><button class="secondary compact" type="button" [disabled]="!agentArtifactPromotionAvailable(run)" aria-describedby="agent-artifact-promotion-reason">In validierte Dokumentrevision übernehmen</button></div> }</section> }
+              @if (agentExportPreview) { <section class="agent-export"><div class="panel-head"><div><span class="kicker">EXPORT & REPLAY</span><h3>Portable, redigierte Run-Akte</h3></div><button class="text-button" type="button" (click)="agentExportPreview = undefined">Schließen</button></div><p>Die Vorschau enthält Run-Konfiguration, redigierte Events, Entscheidungen, Nutzung und Provenienz. Ein Replay startet nie automatisch.</p><pre>{{ agentExportPreview | json }}</pre></section> }
+            } @else {
+              <div class="empty agent-detail-empty"><span>⌘</span><h3>Run auswählen</h3><p>Wähle links einen bestehenden Lauf oder starte einen neuen. Ausgabe, Toolereignisse und Freigaben erscheinen dann hier.</p></div>
+            }
+          </article>
+        </section>
+      }
+      @if (section === 'operations') {
+        <section class="page-intro"><div><span class="kicker">LOKAL & TRANSPARENT</span><h2>Daten und Betrieb</h2><p>Gespeicherte Daten, deaktivierte Suchpläne, Export und Aufbewahrung bleiben vollständig unter deiner Kontrolle.</p></div><button class="secondary" type="button" (click)="loadOperations()">Status aktualisieren</button></section>
+        <section class="page-grid two-column">
+          <article class="panel"><div class="panel-head"><div><span class="kicker">DATENINVENTAR</span><h3>Lokale Speicherorte</h3></div><button class="secondary compact" type="button" (click)="previewPortableExport()">Export ohne Identitäten</button></div>
+            @for (store of dataInventory?.stores ?? []; track store.id) { <div class="summary-row"><span>◇</span><div><strong>{{ store.purpose }}</strong><small>{{ store.location }} · {{ store.records ?? 'extern/temporär' }} Einträge</small></div></div> }
+            @if (exportPreview) { <div class="info-box"><strong>Export erstellt</strong><p>Personenbezogene Identitäten wurden ausgeschlossen. Die Vorschau bleibt nur im Arbeitsspeicher dieser Seite.</p></div> }
+          </article>
+          <article class="panel"><div class="panel-head"><div><span class="kicker">SUCHPLÄNE</span><h3>Standardmäßig deaktiviert</h3></div><button class="secondary compact" type="button" (click)="createDisabledSchedule()">Deaktivierten Plan anlegen</button></div>
+            @for (schedule of schedules; track schedule.id) { <div class="summary-row"><span>{{ schedule.enabled ? '●' : '○' }}</span><div><strong>{{ schedule.name }}</strong><small>{{ schedule.enabled ? 'aktiv' : 'deaktiviert' }} · alle {{ schedule.intervalMinutes }} Minuten</small></div></div> }
+            <div class="warning-box"><strong>Aufbewahrung ausführen</strong><p>Entfernt alte Suchläufe, abgeschlossene Fälle, erledigte Reminder und alte Vergleichsnotizen. Aktive Fälle und gemerkte Stellen bleiben erhalten.</p><label>Tage<input type="number" min="1" max="3650" [(ngModel)]="retentionDays"></label><button class="secondary" type="button" (click)="applyRetentionPolicy()">Bewusst anwenden</button></div>
+          </article>
+        </section>
       }
     }
   </main>

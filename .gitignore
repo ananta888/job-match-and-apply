@@ -1,6 +1,7 @@
 node_modules/
 dist/
 .angular/
+.idea/
 .local-data/
 .application-work/
 *.log

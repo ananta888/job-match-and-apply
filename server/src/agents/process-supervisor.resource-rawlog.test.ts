@@ -101,9 +101,9 @@ describe('ProcessSupervisor injected resource boundaries', () => {
   });
 
   it('uses fixed platform commands and normalizes Windows and POSIX RSS units', async () => {
-    const calls: Array<{ executable: string; args: readonly string[] }> = [];
-    const windowsExecutor: ProcessTableCommandExecutor = { async run(executable, args) {
-      calls.push({ executable, args });
+    const calls: Array<{ executable: string; args: readonly string[]; timeoutMs: number }> = [];
+    const windowsExecutor: ProcessTableCommandExecutor = { async run(executable, args, timeoutMs) {
+      calls.push({ executable, args, timeoutMs });
       return { exitCode: 0, stdout: JSON.stringify([
         { ProcessId: 10, ParentProcessId: 1, WorkingSetSize: '200' },
         { ProcessId: 11, ParentProcessId: 10, WorkingSetSize: 300 },
@@ -112,19 +112,23 @@ describe('ProcessSupervisor injected resource boundaries', () => {
     await expect(new HostProcessTreeResourceProbe('win32', windowsExecutor).sample(10))
       .resolves.toEqual({ residentMemoryBytes: 500, childProcessCount: 1 });
     expect(calls[0]?.executable).toMatch(/^[A-Za-z]:\\.*\\powershell\.exe$/i);
+    expect(calls[0]?.timeoutMs).toBe(12_000);
     expect(calls[0]?.args).toEqual(expect.arrayContaining(['-NoProfile', '-NonInteractive', '-EncodedCommand']));
     const decodedWindowsProbe = Buffer.from(calls[0]?.args.at(-1) ?? '', 'base64').toString('utf16le');
     expect(decodedWindowsProbe).toContain('NtQueryInformationProcess');
     expect(decodedWindowsProbe).toContain('GetProcessMemoryInfo');
+    expect(decodedWindowsProbe).toContain('PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ');
     expect(decodedWindowsProbe).not.toContain('Get-CimInstance');
 
-    const posixExecutor: ProcessTableCommandExecutor = { async run(executable, args) {
-      calls.push({ executable, args });
+    const posixExecutor: ProcessTableCommandExecutor = { async run(executable, args, timeoutMs) {
+      calls.push({ executable, args, timeoutMs });
       return { exitCode: 0, stdout: '10 1 2\n11 10 3\n', stderr: '' };
     } };
     await expect(new HostProcessTreeResourceProbe('linux', posixExecutor).sample(10))
       .resolves.toEqual({ residentMemoryBytes: 5 * 1024, childProcessCount: 1 });
-    expect(calls[1]).toEqual({ executable: '/usr/bin/ps', args: ['-axo', 'pid=,ppid=,rss='] });
+    expect(calls[1]).toEqual({
+      executable: '/usr/bin/ps', args: ['-axo', 'pid=,ppid=,rss='], timeoutMs: 5_000,
+    });
   });
 
   it('fails closed for malformed tables, unsupported hosts, and a missing root process', async () => {
@@ -165,7 +169,7 @@ describe('ProcessSupervisor injected resource boundaries', () => {
       },
     }).completion;
 
-    expect(result.termination).toBe('memory_limit');
+    expect(result.termination, result.error).toBe('memory_limit');
     expect(result.lastResourceUsage).toEqual({ residentMemoryBytes: 101, childProcessCount: 0 });
   });
 
@@ -274,7 +278,7 @@ describe('ProcessSupervisor injected resource boundaries', () => {
       },
     }, { onStdout: (chunk) => { descendantPidText += chunk; } }).completion;
 
-    expect(result.termination).toBe('child_process_limit');
+    expect(result.termination, result.error).toBe('child_process_limit');
     expect(result.lastResourceUsage?.childProcessCount).toBeGreaterThan(0);
     const descendantPid = Number(descendantPidText);
     expect(descendantPid).toBeGreaterThan(0);

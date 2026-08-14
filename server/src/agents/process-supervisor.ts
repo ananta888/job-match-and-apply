@@ -138,6 +138,7 @@ public sealed class NativeProcessTableRow {
 
 public static class NativeProcessTable {
   private const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
+  private const uint PROCESS_VM_READ = 0x0010;
 
   [StructLayout(LayoutKind.Sequential)]
   private struct PROCESS_BASIC_INFORMATION {
@@ -191,7 +192,7 @@ public static class NativeProcessTable {
       IntPtr handle = IntPtr.Zero;
       try {
         int pid = process.Id;
-        handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
+        handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ, false, pid);
         if (handle == IntPtr.Zero) continue;
         var basic = new PROCESS_BASIC_INFORMATION();
         int returned;
@@ -229,6 +230,8 @@ const WINDOWS_PROCESS_TABLE_COMMAND = [
   '-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand',
   Buffer.from(WINDOWS_NATIVE_PROCESS_TABLE_SCRIPT, 'utf16le').toString('base64'),
 ] as const;
+const WINDOWS_RESOURCE_PROBE_TIMEOUT_MS = 12_000;
+const POSIX_RESOURCE_PROBE_TIMEOUT_MS = 5_000;
 
 function windowsSystemExecutable(name: 'powershell.exe' | 'taskkill.exe'): string {
   const configuredRoot = process.env.SystemRoot ?? process.env.WINDIR;
@@ -317,7 +320,13 @@ export class HostProcessTreeResourceProbe implements ResourceProbe {
           ? { executable: '/bin/ps', args: ['-axo', 'pid=,ppid=,rss='] as const }
         : undefined;
     if (!command) throw new Error(`ResourceProbe wird auf ${this.platform} nicht unterstuetzt.`);
-    const result = await this.executor.run(command.executable, command.args, 5_000);
+    // Add-Type is intentionally compiled in the short-lived, profile-free
+    // Windows helper. Cold hosted runners can need more than five seconds for
+    // that first compilation; keep the allowance explicit and still bounded.
+    const timeoutMs = this.platform === 'win32'
+      ? WINDOWS_RESOURCE_PROBE_TIMEOUT_MS
+      : POSIX_RESOURCE_PROBE_TIMEOUT_MS;
+    const result = await this.executor.run(command.executable, command.args, timeoutMs);
     if (result.exitCode !== 0) throw new Error(`Prozesstabelle konnte nicht gelesen werden: ${result.stderr.trim().slice(0, 512)}`);
     const entries = this.platform === 'win32' ? parseWindowsProcessTable(result.stdout) : parsePosixProcessTable(result.stdout);
     return summarizeProcessTree(rootPid, entries);

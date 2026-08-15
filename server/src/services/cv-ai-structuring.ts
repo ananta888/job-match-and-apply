@@ -1158,7 +1158,7 @@ export class CvAiStructuringService {
       && (event.data as Record<string, unknown>).phase === 'initialized');
     if (initialized.length !== 1) return false;
     const heartbeat = initialized[0]!.data as Record<string, unknown>;
-    return heartbeat.providerVersion === '2.1.232'
+    return (heartbeat.providerVersion === '2.1.232' || heartbeat.providerVersion === '2.1.233')
       && heartbeat.permissionMode === 'plan'
       && Array.isArray(heartbeat.tools) && heartbeat.tools.length === 0;
   }

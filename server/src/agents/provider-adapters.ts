@@ -72,7 +72,7 @@ export const OPENCODE_MANIFEST: AgentAdapterManifest = {
 export const CLAUDE_CLI_MANIFEST: AgentAdapterManifest = {
   schemaVersion: '1.0', id: 'claude-cli', displayName: 'Claude CLI', adapterVersion: '1.1.0',
   protocol: 'claude-stream-json', trust: 'builtin', enabled: true,
-  executableNames: ['claude'], versionArgs: ['--version'], testedVersionPatterns: ['^2\\.1\\.232 \\(Claude Code\\)$'],
+  executableNames: ['claude'], versionArgs: ['--version'], testedVersionPatterns: ['^2\\.1\\.23[23] \\(Claude Code\\)$'],
   command: {
     args: [
       '--safe-mode', '-p', '--output-format', 'stream-json', '--verbose',
@@ -278,7 +278,8 @@ export const mapClaudeStreamEvent: ProviderEventMapper = (value, context): Agent
     const exactTools = zeroToolsMode
       ? empty(event.tools)
       : Array.isArray(event.tools) && event.tools.length === 1 && event.tools[0] === 'Read';
-    const conforms = event.claude_code_version === '2.1.232' && event.permissionMode === 'plan' && exactTools
+    const conforms = (event.claude_code_version === '2.1.232' || event.claude_code_version === '2.1.233')
+      && event.permissionMode === 'plan' && exactTools
       && empty(event.mcp_servers) && empty(event.plugins) && empty(event.skills) && empty(event.slash_commands);
     if (!conforms) return [{ kind: 'error', data: {
       code: 'claude_runtime_conformance_mismatch',
@@ -299,6 +300,14 @@ export const mapClaudeStreamEvent: ProviderEventMapper = (value, context): Agent
     return [{ kind: 'warning', data: {
       code: 'provider_api_retry', attempt: event.attempt, maxRetries: event.max_retries,
       retryDelayMs: event.retry_delay_ms, errorCategory
+    } }];
+  }
+  if (type === 'rate_limit_event') {
+    const info = object(event.rate_limit_info);
+    return [{ kind: 'warning', data: {
+      code: 'provider_rate_limit',
+      status: typeof info?.status === 'string' ? info.status : 'unknown',
+      ...(typeof info?.rateLimitType === 'string' ? { rateLimitType: info.rateLimitType } : {}),
     } }];
   }
   if (type === 'system') return [{ kind: 'heartbeat', data: { phase: String(event.subtype ?? 'system') } }];

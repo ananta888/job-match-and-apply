@@ -82,7 +82,7 @@
       "adapterVersion": "1.1.0",
       "protocolVersion": "1.0",
       "status": "supported",
-      "testedVersionPatterns": ["^2\\.1\\.232 \\(Claude Code\\)$"],
+      "testedVersionPatterns": ["^2\\.1\\.23[23] \\(Claude Code\\)$"],
       "fixture": "contracts/fixtures/v1/claude-cli-events.json",
       "runtimeTargets": ["wsl"],
       "experimental": false,

@@ -17,7 +17,7 @@ export interface ProviderDiscoveryDefinition {
 export const BUILTIN_PROVIDER_DISCOVERY: readonly ProviderDiscoveryDefinition[] = [
   { provider: 'codex-exec', executableNames: ['codex'], versionArgs: ['--version'], testedVersionPatterns: [new RegExp(CODEX_CONFORMED_VERSION_PATTERN, 'i')], authStatusArgs: ['login', 'status'] },
   { provider: 'opencode', executableNames: ['opencode'], versionArgs: ['--version'], testedVersionPatterns: [/^1\.14\.41$/i] },
-  { provider: 'claude-cli', executableNames: ['claude'], versionArgs: ['--version'], testedVersionPatterns: [/^2\.1\.232 \(Claude Code\)$/i] }
+  { provider: 'claude-cli', executableNames: ['claude'], versionArgs: ['--version'], testedVersionPatterns: [/^2\.1\.23[23] \(Claude Code\)$/i] }
 ];
 
 export interface DiscoveryCommandResult { exitCode: number | null; stdout: string; stderr: string; }

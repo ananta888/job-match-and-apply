@@ -26,7 +26,9 @@ describe('AgentRuntimeDiscovery', () => {
     expect(opencode?.testedVersionPatterns.some((pattern) => pattern.test('1.14.41'))).toBe(true);
     expect(opencode?.testedVersionPatterns.some((pattern) => pattern.test('1.14.42'))).toBe(false);
     expect(claude?.testedVersionPatterns.some((pattern) => pattern.test('2.1.232 (Claude Code)'))).toBe(true);
+    expect(claude?.testedVersionPatterns.some((pattern) => pattern.test('2.1.233 (Claude Code)'))).toBe(true);
     expect(claude?.testedVersionPatterns.some((pattern) => pattern.test('2.1.231 (Claude Code)'))).toBe(false);
+    expect(claude?.testedVersionPatterns.some((pattern) => pattern.test('2.1.234 (Claude Code)'))).toBe(false);
     expect(claude?.testedVersionPatterns.some((pattern) => pattern.test('2.1.232'))).toBe(false);
   });
 

@@ -58,7 +58,7 @@ describe('exact provider conformance manifests', () => {
 
   it('allowlists only Claude Code 2.1.232 with a read-only plan-mode tool allowlist', () => {
     expect(CLAUDE_CLI_MANIFEST.adapterVersion).toBe('1.1.0');
-    expect(CLAUDE_CLI_MANIFEST.testedVersionPatterns).toEqual(['^2\\.1\\.232 \\(Claude Code\\)$']);
+    expect(CLAUDE_CLI_MANIFEST.testedVersionPatterns).toEqual(['^2\\.1\\.23[23] \\(Claude Code\\)$']);
     expect(CLAUDE_CLI_MANIFEST.command).toEqual({
       args: [
         '--safe-mode', '-p', '--output-format', 'stream-json', '--verbose',
@@ -213,6 +213,11 @@ describe('exact provider event corpora', () => {
       kind: 'heartbeat',
       data: { phase: 'initialized', sessionId: 'session-synthetic', providerVersion: '2.1.232', permissionMode: 'plan', tools: ['Read'] },
     }]);
+    // The pin also accepts the verified 2.1.233 line (identical narrow capability shape).
+    expect(mapClaudeStreamEvent({ ...valid, claude_code_version: '2.1.233' })[0]).toMatchObject({
+      kind: 'heartbeat', data: { providerVersion: '2.1.233', permissionMode: 'plan', tools: ['Read'] },
+    });
+    expect(mapClaudeStreamEvent({ ...valid, claude_code_version: '2.1.231' })[0]?.kind).toBe('error');
     expect(mapClaudeStreamEvent({ ...valid, tools: ['Read', 'Bash'] })).toEqual([{
       kind: 'error',
       data: { code: 'claude_runtime_conformance_mismatch', message: 'Claude-Runtime meldet breitere oder unvollstaendige Capabilities.', retryable: false },

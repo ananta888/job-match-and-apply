@@ -2,6 +2,7 @@
   "name": "job-match-and-apply",
   "version": "0.1.0",
   "private": true,
+  "license": "BSD-3-Clause",
   "scripts": {
     "dev": "concurrently -n api,web -c cyan,magenta \"npm --prefix server run dev\" \"npm --prefix web start\"",
     "build": "npm --prefix server run build && npm --prefix web run build",

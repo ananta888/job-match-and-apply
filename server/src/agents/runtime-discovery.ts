@@ -168,7 +168,13 @@ export class AgentRuntimeDiscovery {
     if (!isFullyQualifiedWindowsPath(windowsPath)) throw new Error('Windows-Pfad muss absolut sein.');
     if (!isSafeWslDistribution(distribution)) throw new Error('WSL-Distribution ist ungueltig.');
     if (!isSafeWslHostExecutable(wslExecutable)) throw new Error('WSL-Host-Executable ist ungueltig.');
-    const result = await this.executor.run(wslExecutable, ['-d', distribution, '--', 'wslpath', '-a', '-u', windowsPath]);
+    // wsl.exe forwards argv through the Linux command-line parser. A native
+    // Windows path therefore loses backslashes (for example `C:\Work` becomes
+    // `C:Work`) even though Node spawned wsl.exe with `shell:false`. wslpath
+    // accepts the equivalent drive-qualified forward-slash form as one fixed
+    // argv value, including spaces, without introducing shell interpretation.
+    const wslpathInput = windowsPath.replaceAll('\\', '/');
+    const result = await this.executor.run(wslExecutable, ['-d', distribution, '--', 'wslpath', '-a', '-u', wslpathInput]);
     const mapped = result.stdout.trim();
     if (result.exitCode !== 0 || !mapped.startsWith('/')) throw new Error(`WSL-Pfadabbildung fehlgeschlagen: ${result.stderr.trim()}`);
     return mapped;

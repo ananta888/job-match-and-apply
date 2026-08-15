@@ -40,7 +40,7 @@ npm.cmd --prefix server install
 npm.cmd run dev
 ```
 
-Danach: <http://localhost:4200>. Der Demo-Modus benötigt weder echte Accounts noch externe
+Danach: <http://localhost:4201>. Port 4200 bleibt für andere lokale Anwendungen frei. Der Demo-Modus benötigt weder echte Accounts noch externe
 Portalzugriffe.
 
 ## Echte Upstream-Integrationen
@@ -110,6 +110,11 @@ und Workflows folgen dem Leitfaden
 
 Entwicklungs-Todos, Skill-Routing und Agentenrollen sind in
 [docs/application-agent-system.md](docs/application-agent-system.md) getrennt beschrieben.
+
+Der lokale Import vorhandener PDF-, DOCX-, ODT- und HTML-Lebensläufe, vollständige auswählbare
+Erkennungsstände mit optionaler strikt quellverankerter KI-Strukturierung, die ausdrückliche
+Gesamtbestätigung, Formatvorlagen und der proof-gebundene HTML-Workflow sind im
+[Lebenslauf-Studio](docs/cv-studio.md) beschrieben.
 
 Architektur, Sicherheitsgrenzen und Providerstrategie des Agent Control Centers beschreibt
 [docs/agent-control-center.md](docs/agent-control-center.md).

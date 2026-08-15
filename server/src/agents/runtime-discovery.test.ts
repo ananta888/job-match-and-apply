@@ -72,10 +72,11 @@ describe('AgentRuntimeDiscovery', () => {
 
   it('maps Windows paths using fixed wslpath arguments', async () => {
     const executor: DiscoveryCommandExecutor = { async run(_executable, args) {
-      expect(args).toEqual(['-d', 'Ubuntu', '--', 'wslpath', '-a', '-u', 'C:\\Work']);
-      return { exitCode: 0, stdout: '/mnt/c/Work\n', stderr: '' };
+      expect(args).toEqual(['-d', 'Ubuntu', '--', 'wslpath', '-a', '-u', 'C:/Work/With spaces']);
+      return { exitCode: 0, stdout: '/mnt/c/Work/With spaces\n', stderr: '' };
     } };
-    await expect(new AgentRuntimeDiscovery(executor).windowsPathToWsl('C:\\Work', 'Ubuntu')).resolves.toBe('/mnt/c/Work');
+    await expect(new AgentRuntimeDiscovery(executor).windowsPathToWsl('C:\\Work\\With spaces', 'Ubuntu'))
+      .resolves.toBe('/mnt/c/Work/With spaces');
     await expect(new AgentRuntimeDiscovery(executor).windowsPathToWsl('/tmp/not-a-windows-path', 'Ubuntu'))
       .rejects.toThrow('Windows-Pfad muss absolut sein');
     await expect(new AgentRuntimeDiscovery(executor).windowsPathToWsl('C:\\Work', '--exec'))

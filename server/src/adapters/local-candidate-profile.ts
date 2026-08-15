@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import type { AppConfig } from '../domain/models.js';
@@ -18,13 +19,14 @@ export class LocalCandidateProfileAdapter implements CandidateProfilePort {
 
   async patch(operations: ClaimPatchOperation[], confirmed: boolean): Promise<{ status: string; updatedClaimIds: string[] }> {
     const candidate = this.path(this.settings.candidateProfilePath);
+    const expectedCandidateSha256 = await this.candidateSha256(candidate);
     const temporary = resolve(dirname(candidate), `.claim-patch-${process.pid}-${Date.now()}.json`);
     await mkdir(dirname(candidate), { recursive: true });
     await writeFile(temporary, JSON.stringify(operations.map((operation) => ({
       claim_id: operation.claimId, field: operation.field, value: operation.value
     }))), { encoding: 'utf8', mode: 0o600 });
     try {
-      const args = ['patch', '--candidate', candidate, '--operations', temporary];
+      const args = ['patch', '--candidate', candidate, '--operations', temporary, '--expected-candidate-sha256', expectedCandidateSha256];
       if (confirmed) args.push('--confirmed');
       const raw = await this.run(args);
       return { status: String(raw.status), updatedClaimIds: Array.isArray(raw.updated_claim_ids) ? raw.updated_claim_ids.map(String) : [] };
@@ -35,10 +37,11 @@ export class LocalCandidateProfileAdapter implements CandidateProfilePort {
 
   async addImportProposals(proposals: Array<{ id: string; statement: string; sha256: string }>, confirmed: boolean): Promise<{ status: string; addedClaimIds: string[] }> {
     const candidate = this.path(this.settings.candidateProfilePath);
+    const expectedCandidateSha256 = await this.candidateSha256(candidate);
     const temporary = resolve(dirname(candidate), `.import-proposals-${process.pid}-${Date.now()}.json`);
     await writeFile(temporary, JSON.stringify(proposals), { encoding: 'utf8', mode: 0o600 });
     try {
-      const args = ['add-import', '--candidate', candidate, '--proposals', temporary]; if (confirmed) args.push('--confirmed');
+      const args = ['add-import', '--candidate', candidate, '--proposals', temporary, '--expected-candidate-sha256', expectedCandidateSha256]; if (confirmed) args.push('--confirmed');
       const raw = await this.run(args);
       return { status: String(raw.status), addedClaimIds: Array.isArray(raw.added_claim_ids) ? raw.added_claim_ids.map(String) : [] };
     } finally { await rm(temporary, { force: true }); }
@@ -71,6 +74,11 @@ export class LocalCandidateProfileAdapter implements CandidateProfilePort {
         validTo: typeof claim.valid_to === 'string' ? claim.valid_to : undefined
       }))
     };
+  }
+
+  private async candidateSha256(candidate: string): Promise<string> {
+    const snapshot = await readFile(candidate);
+    return createHash('sha256').update(snapshot).digest('hex');
   }
 
   private path(value: string): string { return isAbsolute(value) ? value : resolve(process.cwd(), '..', value); }

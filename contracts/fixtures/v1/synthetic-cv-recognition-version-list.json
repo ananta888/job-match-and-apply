@@ -1,0 +1,31 @@
+{
+  "contract": "cv-recognition-version-list",
+  "contractVersion": "1.0",
+  "importId": "11111111-1111-4111-8111-111111111111",
+  "activeVersionId": "recognition-fedcba9876543210",
+  "versions": [
+    {
+      "id": "recognition-0123456789abcdef",
+      "ordinal": 1,
+      "kind": "deterministic",
+      "label": "Deterministische Erkennung",
+      "createdAt": "2026-08-14T12:00:00.000Z",
+      "updatedAt": "2026-08-14T12:00:00.000Z",
+      "active": false,
+      "factCounts": { "total": 3, "pending": 3, "confirmed": 0, "rejected": 0 },
+      "warningCount": 1
+    },
+    {
+      "id": "recognition-fedcba9876543210",
+      "ordinal": 2,
+      "kind": "ai",
+      "label": "KI-Erkennung 2",
+      "createdAt": "2026-08-14T12:01:00.000Z",
+      "updatedAt": "2026-08-14T12:01:00.000Z",
+      "active": true,
+      "factCounts": { "total": 4, "pending": 4, "confirmed": 0, "rejected": 0 },
+      "warningCount": 0,
+      "provider": { "id": "claude-cli", "version": "2.1.232" }
+    }
+  ]
+}

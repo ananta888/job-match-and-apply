@@ -43,7 +43,10 @@ export interface AgentAdapterManifest {
   maxJsonLineBytes?: number;
 }
 
-export type ProviderEventMapper = (value: unknown) => AgentEventDraft[];
+export type ProviderEventMapper = (
+  value: unknown,
+  context?: { request: Pick<ProviderRunContext['request'], 'approvalMode' | 'metadata'> },
+) => AgentEventDraft[];
 export type ProviderEnvironmentBuilder = (provider: string, installation: AgentProviderInstallation) => NodeJS.ProcessEnv;
 
 /** Browser/run input may tighten these ceilings, but can never raise them. */
@@ -98,6 +101,41 @@ export function validateAgentManifest(manifest: AgentAdapterManifest, trustedFin
 
 function replaceArgument(template: string, values: Record<string, string>): string {
   return template.replace(/\{([A-Za-z][A-Za-z0-9_]*)\}/g, (_whole, key: string) => values[key] ?? '');
+}
+
+/**
+ * Applies the exact-version, server-owned zero-tool contract used for private
+ * CV source data. Generic browser/API callers cannot set request metadata.
+ */
+export function applyServerOwnedProviderToolMode(
+  provider: string,
+  args: readonly string[],
+  request: Pick<ProviderRunContext['request'], 'approvalMode' | 'metadata'>,
+): string[] {
+  const mode = request.metadata?.providerToolMode;
+  if (mode === undefined) return [...args];
+  if (mode !== 'none' || request.metadata?.workflowId !== 'cv-ai-structuring'
+    || request.approvalMode !== 'deny'
+    || !Array.isArray(request.metadata?.requiredRootMcpTools)
+    || request.metadata.requiredRootMcpTools.length !== 0) {
+    throw new Error('server_owned_provider_tool_mode_invalid');
+  }
+  const result = [...args];
+  const replaceValue = (flag: string, expected: string, replacement: string): void => {
+    const index = result.indexOf(flag);
+    if (index < 0 || result[index + 1] !== expected) throw new Error('provider_zero_tools_argv_contract_invalid');
+    result[index + 1] = replacement;
+  };
+  if (provider === 'opencode') {
+    replaceValue('--agent', 'job-match-read-only', 'job-match-no-tools');
+    return result;
+  }
+  if (provider === 'claude-cli') {
+    replaceValue('--tools', 'Read', '');
+    replaceValue('--disallowedTools', 'mcp__*', '*');
+    return result;
+  }
+  throw new Error('provider_zero_tools_not_supported');
 }
 
 function redactProgress(value: string): string {
@@ -230,6 +268,7 @@ export class GenericJsonlAgentAdapter implements AgentRunnerPort {
     }
     const values = { workspace, sandbox: request.sandbox, model: request.model ?? '', profile: request.profile ?? '', prompt: request.task };
     let args = (overrideArgs ?? this.manifest.command.args).map((argument) => replaceArgument(argument, values));
+    args = applyServerOwnedProviderToolMode(this.provider, args, request);
     if (request.model && this.manifest.command.modelArgs) args.push(...this.manifest.command.modelArgs.map((argument) => replaceArgument(argument, values)));
     if (request.profile && this.manifest.command.profileArgs) args.push(...this.manifest.command.profileArgs.map((argument) => replaceArgument(argument, values)));
     let executable = installation.executable;
@@ -276,7 +315,7 @@ export class GenericJsonlAgentAdapter implements AgentRunnerPort {
           ? [Reflect.get(value, 'eventId'), Reflect.get(value, 'event_id')]
             .find((candidate): candidate is string => typeof candidate === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,180}$/.test(candidate))
           : undefined;
-        const drafts = this.mapper(value);
+        const drafts = this.mapper(value, context);
         drafts.forEach((draft, index) => queue(providerEventId
           ? { ...draft, providerEventId: `${providerEventId}:${index}` }
           : draft));
@@ -312,16 +351,23 @@ export class GenericJsonlAgentAdapter implements AgentRunnerPort {
     this.contexts.set(context.runId, context);
 
     const completion = (async () => {
-      const result = await processHandle.completion;
-      consume(parser.end());
-      const outcome = providerReportedError && result.termination === 'exit' && result.exitCode === 0
-        ? { state: 'failed' as const, failure: { code: 'provider_reported_error', message: 'Provider meldete einen strukturierten Fehler.', retryable: false } }
-        : this.outcome(result);
-      if (outcome.failure) queue({ kind: 'error', data: { code: outcome.failure.code, message: outcome.failure.message, retryable: outcome.failure.retryable } });
-      queue({ kind: 'run_completed', data: { state: outcome.state, exitCode: result.exitCode, termination: result.termination, failure: outcome.failure } });
-      await emitQueue;
-      this.active.delete(context.runId);
-      return outcome;
+      try {
+        const result = await processHandle.completion;
+        consume(parser.end());
+        const outcome = providerReportedError && result.termination === 'exit' && result.exitCode === 0
+          ? { state: 'failed' as const, failure: { code: 'provider_reported_error', message: 'Provider meldete einen strukturierten Fehler.', retryable: false } }
+          : this.outcome(result);
+        if (outcome.failure) queue({ kind: 'error', data: { code: outcome.failure.code, message: outcome.failure.message, retryable: outcome.failure.retryable } });
+        queue({ kind: 'run_completed', data: {
+          state: outcome.state, exitCode: result.exitCode, termination: result.termination,
+          ...(outcome.failure ? { failure: outcome.failure } : {}),
+        } });
+        await emitQueue;
+        return outcome;
+      } finally {
+        this.active.delete(context.runId);
+        this.contexts.delete(context.runId);
+      }
     })();
     return { runId: context.runId, completion };
   }
@@ -367,5 +413,6 @@ export class GenericJsonlAgentAdapter implements AgentRunnerPort {
     await Promise.allSettled([...this.active.values()].map((handle) => handle.cancel('Agentadapter wird beendet.')));
     await Promise.allSettled([...this.active.values()].map((handle) => handle.completion));
     this.active.clear();
+    this.contexts.clear();
   }
 }

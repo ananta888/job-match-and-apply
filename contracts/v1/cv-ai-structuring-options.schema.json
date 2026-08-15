@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://job-match-and-apply.local/contracts/v1/cv-ai-structuring-options.schema.json",
+  "title": "CV AI structuring provider options",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract", "contractVersion", "capturedAt", "cvImport", "providers", "disclosure"],
+  "properties": {
+    "contract": { "const": "cv-ai-structuring-options" }, "contractVersion": { "const": "1.0" },
+    "capturedAt": { "type": "string", "format": "date-time" },
+    "cvImport": {
+      "type": "object", "additionalProperties": false, "required": ["id", "revision", "sha256"],
+      "properties": { "id": { "$ref": "#/$defs/uuid" }, "revision": { "type": "integer", "minimum": 1 }, "sha256": { "$ref": "#/$defs/sha256" } }
+    },
+    "providers": {
+      "type": "array", "maxItems": 32,
+      "items": {
+        "type": "object", "additionalProperties": false, "required": ["providerId", "installations"],
+        "properties": {
+          "providerId": { "$ref": "#/$defs/safeId" },
+          "installations": {
+            "type": "array", "maxItems": 32,
+            "items": {
+              "type": "object", "additionalProperties": false,
+              "required": ["runtimeTarget", "support", "authStatus", "ready", "blockers", "network"],
+              "properties": {
+                "runtimeTarget": { "enum": ["windows", "wsl", "linux", "darwin"] },
+                "wslDistribution": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$" },
+                "version": { "type": "string", "minLength": 1, "maxLength": 256 }, "adapterVersion": { "type": "string", "minLength": 1, "maxLength": 64 },
+                "support": { "enum": ["supported", "unsupported", "untested", "unavailable"] },
+                "authStatus": { "enum": ["authenticated", "unauthenticated", "unknown", "not_required"] },
+                "ready": { "type": "boolean" }, "blockers": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/safeId" } },
+                "network": { "$ref": "#/$defs/network" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "disclosure": {
+      "type": "object", "additionalProperties": false,
+      "required": ["required", "version", "extractedCvTextSentToSelectedProvider", "toolNetwork", "rootMcpTools", "jobSearchMcpAccessible", "providerControlPlane"],
+      "properties": {
+        "required": { "const": true }, "version": { "const": "1.0" }, "extractedCvTextSentToSelectedProvider": { "const": true },
+        "toolNetwork": { "const": "disabled" }, "rootMcpTools": { "type": "array", "maxItems": 0 },
+        "jobSearchMcpAccessible": { "const": false }, "providerControlPlane": { "const": "provider_managed_may_use_network" }
+      }
+    }
+  },
+  "$defs": {
+    "uuid": { "type": "string", "format": "uuid" }, "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "safeId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$" },
+    "network": {
+      "type": "object", "additionalProperties": false,
+      "required": ["toolNetwork", "rootMcpTools", "jobSearchMcpAccessible", "providerControlPlane"],
+      "properties": {
+        "toolNetwork": { "const": "disabled" }, "rootMcpTools": { "type": "array", "maxItems": 0 },
+        "jobSearchMcpAccessible": { "const": false }, "providerControlPlane": { "const": "provider_managed_may_use_network" }
+      }
+    }
+  }
+}

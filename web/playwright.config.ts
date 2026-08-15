@@ -33,7 +33,7 @@ export default defineConfig({
   },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 1000 } } }],
   webServer: {
-    command: 'npm run start -- --host 127.0.0.1 --port 43117',
+    command: 'npm run start:e2e',
     url: 'http://127.0.0.1:43117',
     reuseExistingServer: !process.env['CI'],
     timeout: 120_000,

@@ -2,7 +2,9 @@ import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import type { AgentEvent, AgentRun, AgentRunStore } from '../ports/agent-runner.js';
+import type { AgentRunRecoveryCodec } from './run-store.js';
 
+const ENCRYPTED_NAMESPACE = 'agent-vault:';
 const ENCRYPTED_PREFIX = 'agent-vault:v1:';
 const SENSITIVE_KEY = /(?:prompt|task|text|message|input|output|stdin|stdout|stderr|content|raw|mail|identity|failure|secret|password|token|credential|authorization|cookie|workspace|executable)/i;
 const EXPORT_REDACTION_KEY = /(?:secret|password|token|credential|authorization|cookie|prompt|task|text|message|input|output|stdin|stdout|stderr|content|raw|workspace|executable)/i;
@@ -54,7 +56,10 @@ function seal(value: unknown, key: Buffer, context: string): string {
 }
 
 function openSealed(value: string, key: Buffer, context: string): unknown {
-  if (!value.startsWith(ENCRYPTED_PREFIX)) return value;
+  if (!value.startsWith(ENCRYPTED_PREFIX)) {
+    if (value.startsWith(ENCRYPTED_NAMESPACE)) throw new Error('agent_vault_version_unsupported');
+    return value;
+  }
   const parts = value.slice(ENCRYPTED_PREFIX.length).split('.');
   if (parts.length !== 3 || !parts[0] || !parts[1] || !parts[2]) throw new Error('agent_vault_ciphertext_malformed');
   try {
@@ -68,6 +73,10 @@ function openSealed(value: string, key: Buffer, context: string): unknown {
 }
 
 function protect(value: unknown, key: Buffer, context: string, field = ''): unknown {
+  // Optional event/run fields are routinely absent on successful paths. Do
+  // not pass JavaScript `undefined` to JSON.stringify/AES; JSON persistence
+  // omits the same value while authenticated defined values stay unchanged.
+  if (value === undefined) return undefined;
   if (field && classified(field, SENSITIVE_KEY)) return seal(value, key, context);
   if (Array.isArray(value)) return value.map((entry, index) => protect(entry, key, `${context}/${index}`));
   if (value && typeof value === 'object') {
@@ -85,7 +94,7 @@ function protectEvent(event: AgentEvent, key: Buffer): AgentEvent {
 }
 
 function reveal(value: unknown, key: Buffer, context: string): unknown {
-  if (typeof value === 'string' && value.startsWith(ENCRYPTED_PREFIX)) return openSealed(value, key, context);
+  if (typeof value === 'string' && value.startsWith(ENCRYPTED_NAMESPACE)) return openSealed(value, key, context);
   if (Array.isArray(value)) return value.map((entry, index) => reveal(entry, key, `${context}/${index}`));
   if (value && typeof value === 'object') {
     return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([name, entry]) => [name, reveal(entry, key, `${context}/${name}`)]));
@@ -146,24 +155,49 @@ export class EncryptedAgentRunStore implements AgentRunStore {
     return (await this.inner.events(runId, afterSequence)).map((event) => reveal(event, key, `event/${runId}/${event.sequence}`) as AgentEvent);
   }
   async recover(): ReturnType<AgentRunStore['recover']> {
+    const key = await this.keys.key();
+    const codec: AgentRunRecoveryCodec = {
+      decodeRun: (storedRun) => reveal(storedRun, key, `run/${storedRun.id}`) as AgentRun,
+      decodeEvent: (storedEvent) => reveal(
+        storedEvent,
+        key,
+        `event/${storedEvent.runId}/${storedEvent.sequence}`,
+      ) as AgentEvent,
+      encodeRun: (clearRun) => protectRun(clearRun, key),
+      repairRun: (storedRun, clearEvents, cause) => {
+        const terminal = [...clearEvents].reverse().find((event) => event.kind === 'run_completed');
+        const failure = terminal?.data && typeof terminal.data === 'object'
+          ? (terminal.data as Record<string, unknown>).failure
+          : undefined;
+        // A narrow compatibility path for pre-release v1 snapshots that copied
+        // event-AAD failure ciphertext into the run-AAD snapshot. All remaining
+        // fields must still authenticate, and the event log is authoritative.
+        if (!failure || typeof failure !== 'object' || storedRun.failure === undefined) throw cause;
+        const withoutFailure = structuredClone(storedRun);
+        delete withoutFailure.failure;
+        const clearRun = reveal(withoutFailure, key, `run/${storedRun.id}`) as AgentRun;
+        clearRun.failure = structuredClone(failure) as AgentRun['failure'];
+        return clearRun;
+      },
+    };
+    const semanticRecoveryStore = this.inner as AgentRunStore & {
+      recoverWithCodec?: (value: AgentRunRecoveryCodec) => ReturnType<AgentRunStore['recover']>;
+    };
+    if (typeof semanticRecoveryStore.recoverWithCodec === 'function') {
+      return semanticRecoveryStore.recoverWithCodec(codec);
+    }
+
     const result = await this.inner.recover();
     for (const encryptedRun of await this.inner.list()) {
       try {
         const events = await this.events(encryptedRun.id);
         const terminal = [...events].reverse().find((event) => event.kind === 'run_completed');
         const failure = terminal?.data && typeof terminal.data === 'object' ? (terminal.data as Record<string, unknown>).failure : undefined;
-        const key = await this.keys.key();
         let run: AgentRun;
         try {
           run = reveal(encryptedRun, key, `run/${encryptedRun.id}`) as AgentRun;
         } catch (error) {
-          // v1 pre-release stores could copy event-AAD ciphertext into the run
-          // failure snapshot. Repair only when the authoritative event log
-          // contains the matching clear terminal failure.
-          if (!failure || typeof failure !== 'object' || encryptedRun.failure === undefined) throw error;
-          const withoutFailure = structuredClone(encryptedRun);
-          delete withoutFailure.failure;
-          run = reveal(withoutFailure, key, `run/${encryptedRun.id}`) as AgentRun;
+          run = codec.repairRun!(encryptedRun, events, error as Error);
         }
         // Rewriting every readable snapshot also migrates fields that older
         // classifiers left in clear text (for example camelCase userPrompt).

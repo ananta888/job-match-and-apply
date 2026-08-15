@@ -1,0 +1,172 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://job-match-and-apply.local/contracts/v1/cv-ai-structuring-run.schema.json",
+  "title": "Public CV AI structuring run",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract", "contractVersion", "id", "cvImportId", "revision", "sha256", "status", "attempt",
+    "createdAt", "updatedAt", "expiresAt", "provider", "disclosure", "binding", "auditTrail"
+  ],
+  "properties": {
+    "contract": { "const": "cv-ai-structuring-run" },
+    "contractVersion": { "const": "1.0" },
+    "id": { "$ref": "#/$defs/uuid" },
+    "cvImportId": { "$ref": "#/$defs/uuid" },
+    "revision": { "type": "integer", "minimum": 1 },
+    "sha256": { "$ref": "#/$defs/sha256" },
+    "status": { "enum": ["queued", "running", "validating", "suggestions_ready", "cancel_requested", "cancelled", "applying", "applied", "failed", "expired"] },
+    "mode": { "enum": ["review_suggestions", "replace_with_ai_version"] },
+    "attempt": { "type": "integer", "minimum": 1 },
+    "retryOf": { "$ref": "#/$defs/uuid" },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "updatedAt": { "type": "string", "format": "date-time" },
+    "expiresAt": { "type": "string", "format": "date-time" },
+    "provider": { "$ref": "#/$defs/provider" },
+    "disclosure": { "$ref": "#/$defs/disclosure" },
+    "binding": { "$ref": "#/$defs/binding" },
+    "proposal": { "$ref": "#/$defs/proposal" },
+    "result": { "$ref": "#/$defs/result" },
+    "failure": { "$ref": "#/$defs/failure" },
+    "auditTrail": { "type": "array", "minItems": 1, "maxItems": 100, "items": { "$ref": "#/$defs/audit" } }
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": ["mode", "status"],
+        "properties": {
+          "mode": { "const": "replace_with_ai_version" },
+          "status": { "const": "applied" }
+        }
+      },
+      "then": {
+        "required": ["result"],
+        "properties": {
+          "result": { "required": ["recognitionVersionId", "recognitionVersionCount"] }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": ["mode"],
+        "properties": { "mode": { "const": "review_suggestions" } }
+      },
+      "then": {
+        "properties": {
+          "result": {
+            "properties": {
+              "recognitionVersionId": false,
+              "recognitionVersionCount": false
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "uuid": { "type": "string", "format": "uuid" },
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "safeId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$" },
+    "provider": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "runtimeTarget", "version", "adapterVersion"],
+      "properties": {
+        "id": { "$ref": "#/$defs/safeId" },
+        "runtimeTarget": { "enum": ["windows", "wsl", "linux", "darwin"] },
+        "wslDistribution": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$" },
+        "version": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "adapterVersion": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$" }
+      }
+    },
+    "disclosure": {
+      "type": "object", "additionalProperties": false,
+      "required": ["version", "confirmedAt", "confirmedBy", "extractedCvTextShared", "providerControlPlaneNetworkAcknowledged", "toolNetwork", "rootMcpTools", "jobSearchMcpAccessible"],
+      "properties": {
+        "version": { "const": "1.0" }, "confirmedAt": { "type": "string", "format": "date-time" },
+        "confirmedBy": {
+          "type": "object", "additionalProperties": false, "required": ["id", "type"],
+          "properties": { "id": { "$ref": "#/$defs/safeId" }, "type": { "enum": ["local", "authenticated"] } }
+        },
+        "extractedCvTextShared": { "const": true },
+        "providerControlPlaneNetworkAcknowledged": { "const": true },
+        "toolNetwork": { "const": "disabled" },
+        "rootMcpTools": { "type": "array", "maxItems": 0 },
+        "jobSearchMcpAccessible": { "const": false }
+      }
+    },
+    "binding": {
+      "type": "object", "additionalProperties": false,
+      "required": ["cvImportRevision", "cvImportSha256", "sourceId", "sourceSha256", "extractedTextSha256", "baseProposalSha256", "lineManifestSha256", "promptTemplateVersion", "promptSha256", "outputContractVersion", "outputSchemaSha256", "inputSha256"],
+      "properties": {
+        "cvImportRevision": { "type": "integer", "minimum": 1 }, "cvImportSha256": { "$ref": "#/$defs/sha256" },
+        "sourceId": { "type": "string", "pattern": "^source-cv-[a-f0-9]{16}$" }, "sourceSha256": { "$ref": "#/$defs/sha256" },
+        "extractedTextSha256": { "$ref": "#/$defs/sha256" }, "baseProposalSha256": { "$ref": "#/$defs/sha256" },
+        "lineManifestSha256": { "$ref": "#/$defs/sha256" }, "promptTemplateVersion": { "const": "cv-ai-structuring/1.0" },
+        "promptSha256": { "$ref": "#/$defs/sha256" }, "outputContractVersion": { "const": "1.0" },
+        "outputSchemaSha256": { "$ref": "#/$defs/sha256" }, "inputSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "anchor": {
+      "type": "object", "additionalProperties": false,
+      "required": ["lineStart", "lineEnd", "charStart", "charEnd", "quote"],
+      "properties": {
+        "lineStart": { "type": "integer", "minimum": 1 }, "lineEnd": { "type": "integer", "minimum": 1 },
+        "charStart": { "type": "integer", "minimum": 0 }, "charEnd": { "type": "integer", "minimum": 1 },
+        "quote": { "type": "string", "minLength": 1, "maxLength": 8000 }
+      }
+    },
+    "alternative": {
+      "type": "object", "additionalProperties": false, "required": ["id", "value", "sourceAnchor", "confidence"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^alternative-[a-f0-9]{16}$" }, "value": { "type": "string", "minLength": 1, "maxLength": 20000 },
+        "sourceAnchor": { "$ref": "#/$defs/anchor" }, "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "suggestion": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "path", "collection", "recordId", "field", "category", "mergeable", "value", "sourceAnchor", "confidence", "alternatives", "questions", "status"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^suggestion-[a-f0-9]{16}$" }, "path": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "collection": { "type": "string", "minLength": 1, "maxLength": 64 }, "recordId": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/safeId" }] },
+        "field": { "type": "string", "minLength": 1, "maxLength": 64 }, "category": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "mergeable": { "type": "boolean" }, "sectionKind": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "value": { "oneOf": [{ "type": "null" }, { "type": "string", "minLength": 1, "maxLength": 20000 }] },
+        "sourceAnchor": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/anchor" }] },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "alternatives": { "type": "array", "maxItems": 10, "items": { "$ref": "#/$defs/alternative" } },
+        "questions": { "type": "array", "maxItems": 10, "items": { "type": "string", "minLength": 1, "maxLength": 1000 } },
+        "status": { "const": "unverified" }
+      }
+    },
+    "proposal": {
+      "type": "object", "additionalProperties": false, "required": ["sha256", "outputSha256", "suggestions"],
+      "properties": {
+        "sha256": { "$ref": "#/$defs/sha256" }, "outputSha256": { "$ref": "#/$defs/sha256" },
+        "suggestions": { "type": "array", "maxItems": 2000, "items": { "$ref": "#/$defs/suggestion" } }
+      }
+    },
+    "result": {
+      "type": "object", "additionalProperties": false,
+      "required": ["cvImportRevision", "cvImportSha256", "stagedFactIds", "factsRemainPending"],
+      "properties": {
+        "cvImportRevision": { "type": "integer", "minimum": 1 }, "cvImportSha256": { "$ref": "#/$defs/sha256" },
+        "stagedFactIds": { "type": "array", "maxItems": 2000, "uniqueItems": true, "items": { "$ref": "#/$defs/safeId" } },
+        "factsRemainPending": { "const": true },
+        "recognitionVersionId": { "type": "string", "pattern": "^recognition-[a-f0-9]{16}$" },
+        "recognitionVersionCount": { "type": "integer", "minimum": 1, "maximum": 20 }
+      }
+    },
+    "failure": {
+      "type": "object", "additionalProperties": false, "required": ["code", "stage", "retryable"],
+      "properties": { "code": { "$ref": "#/$defs/safeId" }, "stage": { "enum": ["preflight", "agent", "validation", "retention", "apply"] }, "retryable": { "type": "boolean" } }
+    },
+    "audit": {
+      "type": "object", "additionalProperties": false, "required": ["sequence", "occurredAt", "action"],
+      "properties": {
+        "sequence": { "type": "integer", "minimum": 1 }, "occurredAt": { "type": "string", "format": "date-time" },
+        "action": { "enum": ["started", "provider_completed", "validated", "cancel_requested", "cancelled", "retried", "apply_started", "applied", "failed", "expired"] },
+        "actorId": { "$ref": "#/$defs/safeId" }, "correlationId": { "$ref": "#/$defs/safeId" }, "detailSha256": { "$ref": "#/$defs/sha256" }
+      }
+    }
+  }
+}

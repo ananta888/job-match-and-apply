@@ -137,6 +137,11 @@ const OPENCODE_READ_ONLY_CONFIG = JSON.stringify({
       mode: 'primary',
       permission: { '*': 'deny', read: 'allow', glob: 'allow', grep: 'allow', list: 'allow' },
     },
+    'job-match-no-tools': {
+      description: 'Server-owned data-only agent with every model-callable tool denied.',
+      mode: 'primary',
+      permission: { '*': 'deny' },
+    },
   },
   default_agent: 'job-match-read-only',
 });

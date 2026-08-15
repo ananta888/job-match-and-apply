@@ -1,9 +1,10 @@
 import { ChangeDetectorRef, Component, ElementRef, OnDestroy, OnInit, ViewChild, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { DomSanitizer, type SafeResourceUrl } from '@angular/platform-browser';
 import { ApiService } from './api.service';
 import { forkJoin, type Subscription } from 'rxjs';
-import type { AgentApproval, AgentArtifactContent, AgentArtifactRecord, AgentConfigProfile, AgentConfigProfileView, AgentOrchestrationConfirmationInput, AgentOrchestrationConflict, AgentOrchestrationConflictStrategy, AgentOrchestrationCreateRequest, AgentOrchestrationGate, AgentOrchestrationRecord, AgentProvider, AgentProviderConfigProfile, AgentProviderInstallation, AgentQueueBlockReason, AgentQueueSnapshot, AgentRecoveryDecision, AgentRecoveryLease, AgentRecoveryRun, AgentRun, AgentRunEvent, AgentRunPreflight, AgentRunRequest, AgentRunStatus, AgentRuntimeTarget, AgentWorkflow, AgentWorkspaceMode, AppConfig, ApplicationCase, ApplicationDraft, ApplicationExportResult, ApplicationNextActionsProposalProjection, ApplicationProfileSetupStatus, ApplicationStyleDocumentType, ApplicationStyleExampleDocumentType, ApplicationStyleProfileView, ArtifactRevision, CandidateMatchAnalysis, CandidateProfileSummary, CompanyCrm, CorrelatedMail, DataInventory, EditableApplicationStyleProfile, EmployerResponseTriageProposalProjection, IdentityProfile, JobDecision, JobMatch, JobSourceCapabilities, LanguageCheckResult, MailAccount, McpRuntimeStatus, ProfileImportPreview, SearchSchedule, Section, SourceCapability, SourceStatus } from './models';
+import type { AgentApproval, AgentArtifactContent, AgentArtifactRecord, AgentConfigProfile, AgentConfigProfileView, AgentOrchestrationConfirmationInput, AgentOrchestrationConflict, AgentOrchestrationConflictStrategy, AgentOrchestrationCreateRequest, AgentOrchestrationGate, AgentOrchestrationRecord, AgentProvider, AgentProviderConfigProfile, AgentProviderInstallation, AgentQueueBlockReason, AgentQueueSnapshot, AgentRecoveryDecision, AgentRecoveryLease, AgentRecoveryRun, AgentRun, AgentRunEvent, AgentRunPreflight, AgentRunRequest, AgentRunStatus, AgentRuntimeTarget, AgentWorkflow, AgentWorkspaceMode, AppConfig, ApplicationCase, ApplicationDraft, ApplicationExportResult, ApplicationNextActionsProposalProjection, ApplicationProfileSetupStatus, ApplicationStyleDocumentType, ApplicationStyleExampleDocumentType, ApplicationStyleProfileView, ArtifactRevision, CandidateMatchAnalysis, CandidateProfileSummary, CompanyCrm, CorrelatedMail, CvAiProviderSelection, CvAiStructuringOptions, CvAiStructuringPublicRun, CvAiStructuringSelection, CvAiStructuringSuggestion, CvFact, CvFactCategory, CvFactDecision, CvFactOperation, CvImportRecord, CvImportSummary, CvRecognitionVersionList, CvRecognitionVersionSummary, CvTheme, DataInventory, EditableApplicationStyleProfile, EmployerResponseTriageProposalProjection, IdentityProfile, JobDecision, JobMatch, JobSourceCapabilities, LanguageCheckResult, MailAccount, McpRuntimeStatus, ProfileImportPreview, SearchSchedule, Section, SourceCapability, SourceStatus } from './models';
 
 type AgentEventLevelFilter = 'all' | 'debug' | 'info' | 'warning' | 'error';
 type AgentTimelineView = 'readable' | 'diagnostic';
@@ -28,6 +29,14 @@ interface AgentApprovalInboxItem {
   reason?: string;
 }
 
+interface CvFactGroup {
+  recordId: string;
+  category: CvFactCategory;
+  facts: CvFact[];
+  title: string;
+  period?: string;
+}
+
 interface AgentRunComparisonSection {
   id: 'lineage' | 'versions' | 'policy' | 'context' | 'usage' | 'result';
   label: string;
@@ -41,6 +50,27 @@ interface AgentRecoveryDialogState {
   leaseId: string;
 }
 
+type CvStudioStep = 1 | 2 | 3 | 4 | 5 | 6;
+type CvFactDraft = Pick<CvFact, 'category' | 'recordId' | 'field' | 'value'>;
+interface CvNewFactDraft {
+  category: CvFactCategory;
+  target: 'existing_record' | 'new_record';
+  recordId: string;
+  newRecordKey: string;
+  field: string;
+  value: string;
+  explicitlyConfirmed: boolean;
+}
+
+interface CvAiSuggestionGroup {
+  key: string;
+  category: string;
+  recordId: string | null;
+  title: string;
+  period?: string;
+  suggestions: CvAiStructuringSuggestion[];
+}
+
 @Component({
   selector: 'app-root',
   imports: [CommonModule, FormsModule],
@@ -50,6 +80,7 @@ interface AgentRecoveryDialogState {
 export class App implements OnInit, OnDestroy {
   private readonly api = inject(ApiService);
   private readonly changeDetector = inject(ChangeDetectorRef);
+  private readonly sanitizer = inject(DomSanitizer);
   section: Section = 'overview';
   config?: AppConfig;
   sources: SourceStatus[] = [];
@@ -93,6 +124,57 @@ export class App implements OnInit, OnDestroy {
   mailCorrelationTarget: Record<string, string> = {};
   mailAccountForm = { label: '', email: '', host: '', port: 993, secure: true, username: '', secret: '', authType: 'password' as const, enabled: false, mailbox: 'INBOX' };
   importPreview?: ProfileImportPreview;
+  cvImport?: CvImportRecord;
+  cvImportInventory: CvImportSummary[] = [];
+  cvRecognitionVersions?: CvRecognitionVersionList;
+  cvRecognitionVersionBusy = false;
+  cvRecognitionVersionError = '';
+  cvRecognitionVersionNotice = '';
+  cvRecognitionVersionConfirmed = false;
+  cvRecognitionSelectedVersionId = '';
+  cvStep: CvStudioStep = 1;
+  cvFactDrafts: Record<string, CvFactDraft> = {};
+  cvNewFactDraft: CvNewFactDraft = {
+    category: 'additional', target: 'new_record', recordId: '', newRecordKey: 'additional-fact',
+    field: 'detail', value: '', explicitlyConfirmed: false
+  };
+  cvDeleteConfirmation = '';
+  cvSelectedApplicationCaseId = '';
+  cvThemeDraft: CvTheme = {
+    template: 'classic', font: 'Arial', accentColor: '#1f2937', spacing: 'comfortable',
+    sectionOrder: ['profile', 'employment', 'project', 'education', 'skill', 'certification', 'language', 'additional']
+  };
+  cvAdoptionConfirmed = false;
+  cvThemeConfirmed = false;
+  cvProposalHtmlUrl?: SafeResourceUrl;
+  cvAgentOrchestrationId?: string;
+  cvBusy = false;
+  cvError = '';
+  cvNotice = '';
+  cvAiOptions?: CvAiStructuringOptions;
+  cvAiRuns: CvAiStructuringPublicRun[] = [];
+  cvAiRun?: CvAiStructuringPublicRun;
+  cvAiInstallationKey = '';
+  cvAiDisclosureConfirmed = false;
+  cvAiApplyConfirmed = false;
+  cvAiSuggestionSelections: Record<string, boolean> = {};
+  cvAiAlternativeSelections: Record<string, string> = {};
+  cvAiRejectedSuggestions: Record<string, boolean> = {};
+  cvAiBusy = false;
+  cvAiError = '';
+  cvAiNotice = '';
+  private cvAiAppliedReloadKey = '';
+  readonly cvMaxFileBytes = 10 * 1024 * 1024;
+  readonly cvFactCategories: CvFactCategory[] = [
+    'profile', 'contact', 'employment', 'project', 'education', 'skill', 'certification', 'language', 'additional'
+  ];
+  readonly cvSectionCategories: CvTheme['sectionOrder'] = [
+    'profile', 'employment', 'project', 'education', 'skill', 'certification', 'language', 'additional'
+  ];
+  readonly cvSteps: Array<{ id: CvStudioStep; label: string }> = [
+    { id: 1, label: 'Import' }, { id: 2, label: 'Fakten' }, { id: 3, label: 'Schreibstil' },
+    { id: 4, label: 'Formatvorlage' }, { id: 5, label: 'Zielstelle' }, { id: 6, label: 'Agentenlauf & HTML' }
+  ];
   assistant = { available: false, note: 'Status wird geladen …' };
   loading = true;
   busy = false;
@@ -171,6 +253,8 @@ export class App implements OnInit, OnDestroy {
   agentProviderFilter = 'all';
   agentExportPreview?: Record<string, unknown>;
   private agentPollHandle?: ReturnType<typeof setInterval>;
+  private cvAiPollHandle?: ReturnType<typeof setInterval>;
+  private cvAiPollInFlight = false;
   private agentPollInFlight = false;
   private agentOrchestrationPollInFlight = false;
   private agentOperationsPollInFlight = false;
@@ -201,6 +285,7 @@ export class App implements OnInit, OnDestroy {
     { id: 'overview', label: 'Übersicht', icon: 'grid' },
     { id: 'search', label: 'Jobsuche', icon: 'search' },
     { id: 'identity', label: 'Profil & Identität', icon: 'user' },
+    { id: 'cv', label: 'Lebenslauf', icon: 'file' },
     { id: 'sources', label: 'Quellen & MCP', icon: 'nodes' },
     { id: 'applications', label: 'Bewerbung', icon: 'file' },
     { id: 'crm', label: 'Firmen & Antworten', icon: 'nodes' },
@@ -214,7 +299,7 @@ export class App implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
-    this.stopAgentPolling(); this.stopAgentStream();
+    this.stopAgentPolling(); this.stopAgentStream(); this.stopCvAiPolling();
     if (this.agentPreflightTimer) clearTimeout(this.agentPreflightTimer);
     this.agentMotionMedia?.removeEventListener?.('change', this.agentMotionListener);
   }
@@ -263,7 +348,9 @@ export class App implements OnInit, OnDestroy {
   select(section: Section): void {
     this.section = section; this.notice = ''; this.error = '';
     if (section !== 'agents') { this.stopAgentPolling(); this.stopAgentStream(); this.closeAgentRecoveryDialog(); }
+    if (section !== 'cv') this.stopCvAiPolling();
     if (section === 'identity') { this.loadProfileSetup(); this.loadCandidateProfile(); }
+    if (section === 'cv') this.loadCvStudio();
     if (section === 'applications') this.loadApplicationCases();
     if (section === 'crm') this.loadCrm();
     if (section === 'agents') { this.configureAgentMotionPreference(); this.loadAgentCenter(); }
@@ -278,6 +365,19 @@ export class App implements OnInit, OnDestroy {
     this.refreshAgentRuns();
     this.refreshAgentOrchestrations();
     this.startAgentPolling();
+  }
+
+  loadCvStudio(): void {
+    this.loadCvImportInventory();
+    this.loadApplicationCases();
+    this.loadApplicationStyleProfile();
+    this.refreshAgentOrchestrations();
+    if (!this.agentProviders.length) this.loadAgentProviders();
+    if (!this.agentWorkflows.length) this.api.agentWorkflows().subscribe({
+      next: (items) => { this.agentWorkflows = items; this.refreshView(); },
+      error: (error) => { this.cvError = this.message(error); this.refreshView(); }
+    });
+    if (this.cvImport) { this.loadCvRecognitionVersions(); this.loadCvAiStructuringState(); }
   }
 
   loadAgentConfigProfile(): void {
@@ -483,6 +583,11 @@ export class App implements OnInit, OnDestroy {
     this.api.agentOrchestrations().subscribe({
       next: ({ orchestrations }) => {
         this.agentOrchestrations = [...orchestrations].sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+        if (this.section === 'cv' && this.cvSelectedApplicationCaseId) {
+          const latestCvRun = this.agentOrchestrations.find((item) => item.workflowId === 'evidence-application-package'
+            && item.scope.applicationCaseId === this.cvSelectedApplicationCaseId);
+          if (latestCvRun) this.cvAgentOrchestrationId = latestCvRun.id;
+        }
         if (this.selectedAgentOrchestration) {
           const previousRevision = this.selectedAgentOrchestration.revision;
           const previousConflictFingerprint = this.agentOrchestrationConflictFingerprint(this.selectedAgentOrchestration);
@@ -585,6 +690,8 @@ export class App implements OnInit, OnDestroy {
         this.agentOrchestrationBusy = false;
         this.agentOrchestrations = [created, ...this.agentOrchestrations.filter((item) => item.id !== created.id)];
         this.selectAgentOrchestration(created, false);
+        if (this.section === 'cv' && created.workflowId === 'evidence-application-package'
+          && created.scope.applicationCaseId === this.cvSelectedApplicationCaseId) this.cvAgentOrchestrationId = created.id;
         this.agentOrchestrationForm.prompt = '';
         this.agentOrchestrationForm.userInputConfirmed = false;
         this.notice = `Multi-Agent-Workflow ${created.id} wurde serverseitig angenommen; alle Ergebnisse bleiben Vorschläge.`;
@@ -2291,6 +2398,1130 @@ export class App implements OnInit, OnDestroy {
       error: (error) => this.fail(error)
     });
   }
+
+  loadCvRecognitionVersions(): void {
+    const current = this.cvImport;
+    if (!current) { this.resetCvRecognitionVersions(); return; }
+    this.cvRecognitionVersionBusy = true; this.cvRecognitionVersionError = '';
+    this.api.cvRecognitionVersions(current).subscribe({
+      next: (list) => {
+        this.cvRecognitionVersionBusy = false;
+        if (!this.cvImport || !this.cvRecognitionVersionListMatches(list, this.cvImport)) {
+          this.cvRecognitionVersions = undefined;
+          this.cvRecognitionVersionError = 'Die Erkennungsstände entsprechen nicht dem aktuellen Lebenslaufvertrag. Lade den Import neu.';
+          this.refreshView(); return;
+        }
+        if (this.cvRecognitionVersions?.activeVersionId !== list.activeVersionId) this.cvRecognitionVersionConfirmed = false;
+        this.cvRecognitionVersions = list; this.cvRecognitionSelectedVersionId = list.activeVersionId;
+        this.refreshView();
+      },
+      error: (error) => {
+        this.cvRecognitionVersionBusy = false; this.cvRecognitionVersions = undefined;
+        this.cvRecognitionVersionError = `Erkennungsstände konnten nicht geladen werden: ${this.message(error)}`;
+        this.refreshView();
+      }
+    });
+  }
+
+  activateCvRecognitionVersion(versionId: string): void {
+    const current = this.cvImport;
+    const version = this.cvRecognitionVersions?.versions.find((item) => item.id === versionId);
+    if (!current || !version || version.active || this.cvRecognitionVersionBusy || this.cvBusy) return;
+    this.cvRecognitionVersionBusy = true; this.cvBusy = true; this.cvRecognitionVersionConfirmed = false;
+    this.cvRecognitionVersionError = ''; this.cvRecognitionVersionNotice = '';
+    this.api.activateCvRecognitionVersion(current, version.id).subscribe({
+      next: (record) => {
+        this.cvRecognitionVersionBusy = false; this.cvBusy = false;
+        this.applyCvImport(record, true);
+        this.cvRecognitionVersionNotice = `${version.label} ist jetzt der aktive Erkennungsstand. Alle Fakten bleiben bis zur Einzelprüfung ungeprüft.`;
+        this.focusCvRecognitionVersions(); this.refreshView();
+      },
+      error: (error) => {
+        this.cvRecognitionVersionBusy = false; this.cvBusy = false;
+        this.cvRecognitionSelectedVersionId = this.cvRecognitionVersions?.activeVersionId ?? '';
+        this.cvRecognitionVersionError = (error as { status?: number })?.status === 409
+          ? 'Der Erkennungsstand konnte wegen einer neueren Lebenslaufrevision nicht aktiviert werden. Lade den Import neu und versuche es erneut.'
+          : this.message(error);
+        this.refreshView();
+      }
+    });
+  }
+
+  confirmCvRecognitionVersion(): void {
+    const current = this.cvImport; const active = this.cvRecognitionActiveVersion();
+    if (!current || !active || active.factCounts.pending < 1 || !this.cvRecognitionVersionConfirmed
+      || this.cvRecognitionVersionBusy || this.cvBusy) return;
+    this.cvRecognitionVersionBusy = true; this.cvBusy = true;
+    this.cvRecognitionVersionError = ''; this.cvRecognitionVersionNotice = '';
+    this.api.confirmCvRecognitionVersion(current, active.id).subscribe({
+      next: (record) => {
+        this.cvRecognitionVersionBusy = false; this.cvBusy = false; this.cvRecognitionVersionConfirmed = false;
+        this.applyCvImport(record, true);
+        this.cvRecognitionVersionNotice = 'Der aktive Stand wurde revisionsgebunden bestätigt. Verworfene Fakten bleiben ausgeschlossen; die Profilübernahme erfolgt weiterhin separat.';
+        this.focusCvRecognitionVersions(); this.refreshView();
+      },
+      error: (error) => {
+        this.cvRecognitionVersionBusy = false; this.cvBusy = false; this.cvRecognitionVersionConfirmed = false;
+        this.cvRecognitionVersionError = (error as { status?: number })?.status === 409
+          ? 'Der Stand konnte wegen einer neueren Lebenslaufrevision nicht bestätigt werden. Lade den Import neu.'
+          : this.message(error);
+        this.refreshView();
+      }
+    });
+  }
+
+  cvRecognitionActiveVersion(): CvRecognitionVersionSummary | undefined {
+    const list = this.cvRecognitionVersions;
+    return list?.versions.find((version) => version.id === list.activeVersionId && version.active);
+  }
+
+  cvRecognitionVersionKindLabel(kind: CvRecognitionVersionSummary['kind']): string {
+    return kind === 'ai' ? 'KI-unterstützt' : 'Deterministisch · Fallback';
+  }
+
+  cvRecognitionVersionCountLabel(): string {
+    const count = this.cvRecognitionVersions?.versions.length ?? 0;
+    return `${count} ${count === 1 ? 'Erkennungsstand' : 'Erkennungsstände'}`;
+  }
+
+  private cvRecognitionVersionListMatches(list: CvRecognitionVersionList, current: CvImportRecord): boolean {
+    if (list.contract !== 'cv-recognition-version-list' || list.contractVersion !== '1.0'
+      || list.importId !== current.id || !list.versions.length) return false;
+    const ids = new Set<string>();
+    for (const version of list.versions) {
+      if (!version.id || ids.has(version.id) || !Number.isSafeInteger(version.ordinal) || version.ordinal < 1
+        || !['deterministic', 'ai'].includes(version.kind) || !version.label.trim()
+        || !Number.isSafeInteger(version.factCounts.total) || version.factCounts.total < 0
+        || !Number.isSafeInteger(version.factCounts.pending) || version.factCounts.pending < 0
+        || !Number.isSafeInteger(version.factCounts.confirmed) || version.factCounts.confirmed < 0
+        || !Number.isSafeInteger(version.factCounts.rejected) || version.factCounts.rejected < 0
+        || version.factCounts.pending + version.factCounts.confirmed + version.factCounts.rejected !== version.factCounts.total
+        || !Number.isSafeInteger(version.warningCount) || version.warningCount < 0
+        || !Number.isFinite(Date.parse(version.createdAt)) || !Number.isFinite(Date.parse(version.updatedAt))) return false;
+      ids.add(version.id);
+    }
+    const active = list.versions.filter((version) => version.active);
+    return active.length === 1 && active[0]?.id === list.activeVersionId;
+  }
+
+  private resetCvRecognitionVersions(): void {
+    this.cvRecognitionVersions = undefined; this.cvRecognitionVersionBusy = false;
+    this.cvRecognitionVersionError = ''; this.cvRecognitionVersionNotice = '';
+    this.cvRecognitionVersionConfirmed = false;
+    this.cvRecognitionSelectedVersionId = '';
+  }
+
+  private focusCvRecognitionVersions(): void {
+    setTimeout(() => (document.getElementById('cv-recognition-versions-heading') as HTMLElement | null)?.focus(), 0);
+  }
+
+  loadCvAiStructuringState(): void {
+    const current = this.cvImport;
+    if (!current) { this.resetCvAiStructuringState(); return; }
+    this.cvAiBusy = true; this.cvAiError = '';
+    this.api.cvAiStructuringRuns(current, 20).subscribe({
+      next: (runs) => {
+        if (!this.cvImport || this.cvImport.id !== current.id || this.cvImport.revision !== current.revision
+          || this.cvImport.sha256 !== current.sha256) {
+          this.cvAiBusy = false;
+          this.cvAiError = 'Die AI-Läufe gehören nicht mehr zur geöffneten Lebenslaufrevision. Lade den Import neu.';
+          this.stopCvAiPolling(); this.refreshView();
+          return;
+        }
+        this.cvAiRuns = runs;
+        const selected = runs.find((run) => run.id === this.cvAiRun?.id)
+          ?? runs.find((run) => this.cvAiRunActive(run)) ?? runs[0];
+        if (selected && this.cvAiAppliedRunNeedsImportReload(current, selected)) {
+          this.reloadCvImportAfterAiApplied(current, selected);
+          return;
+        }
+        this.api.cvAiStructuringOptions(current).subscribe({
+          next: (options) => {
+            if (!this.cvImport || options.cvImport.id !== this.cvImport.id
+              || options.cvImport.revision !== this.cvImport.revision || options.cvImport.sha256 !== this.cvImport.sha256) {
+              this.cvAiBusy = false;
+              this.cvAiError = 'Die AI-Optionen gehören nicht zur aktuellen Lebenslaufrevision. Lade den Import neu.';
+              this.refreshView();
+              return;
+            }
+            this.cvAiOptions = options; this.cvAiBusy = false;
+            this.setCvAiRun(selected);
+            const installations = this.cvAiInstallations();
+            if (!installations.some((item) => this.cvAiInstallationKeyFor(item.providerId, item.installation) === this.cvAiInstallationKey)) {
+              const first = installations.find((item) => item.installation.ready);
+              this.cvAiInstallationKey = first ? this.cvAiInstallationKeyFor(first.providerId, first.installation) : '';
+            }
+            this.refreshView();
+          },
+          error: (error) => this.failCvAiStructuringStateLoad(error)
+        });
+      },
+      error: (error) => this.failCvAiStructuringStateLoad(error)
+    });
+  }
+
+  private failCvAiStructuringStateLoad(error: unknown): void {
+    this.cvAiBusy = false;
+    this.cvAiOptions = undefined;
+    this.cvAiError = `Optionale AI-Strukturierung ist derzeit nicht verfügbar: ${this.message(error)}`;
+    this.stopCvAiPolling(); this.refreshView();
+  }
+
+  private cvAiAppliedRunNeedsImportReload(current: CvImportRecord, run: CvAiStructuringPublicRun): boolean {
+    const result = run.status === 'applied' ? run.result : undefined;
+    if (!result || result.cvImportRevision < current.revision) return false;
+    return result.cvImportRevision > current.revision || result.cvImportSha256 !== current.sha256;
+  }
+
+  cvAiInstallations(): Array<{
+    providerId: string;
+    installation: CvAiStructuringOptions['providers'][number]['installations'][number];
+  }> {
+    return (this.cvAiOptions?.providers ?? []).flatMap((provider) => provider.installations
+      .map((installation) => ({ providerId: provider.providerId, installation })));
+  }
+
+  cvAiInstallationKeyFor(
+    providerId: string,
+    installation: CvAiStructuringOptions['providers'][number]['installations'][number]
+  ): string {
+    return [providerId, installation.runtimeTarget, installation.wslDistribution ?? '', installation.version ?? ''].join('|');
+  }
+
+  selectCvAiInstallation(key: string): void {
+    this.cvAiInstallationKey = key;
+    this.cvAiDisclosureConfirmed = false;
+    this.cvAiApplyConfirmed = false;
+    this.cvAiError = '';
+  }
+
+  cvAiSelectedInstallation(): ReturnType<App['cvAiInstallations']>[number] | undefined {
+    return this.cvAiInstallations().find((item) => this.cvAiInstallationKeyFor(item.providerId, item.installation) === this.cvAiInstallationKey);
+  }
+
+  cvAiSelectedProviderLabel(): string {
+    const selected = this.cvAiSelectedInstallation();
+    return selected ? this.cvAiProviderLabel(selected.providerId) : 'Noch kein Provider gewählt';
+  }
+
+  cvAiProviderLabel(providerId: string): string {
+    return this.agentProviders.find((provider) => provider.id === providerId)?.name ?? providerId;
+  }
+
+  cvAiRuntimeLabel(item = this.cvAiSelectedInstallation()): string {
+    if (!item) return 'Keine Installation gewählt';
+    const runtime = item.installation.runtimeTarget === 'wsl'
+      ? `WSL · ${item.installation.wslDistribution ?? 'Distribution fehlt'}`
+      : item.installation.runtimeTarget === 'windows' ? 'Windows'
+        : item.installation.runtimeTarget === 'darwin' ? 'macOS' : 'Linux';
+    return `${runtime} · ${item.installation.version ?? 'Version unbekannt'}`;
+  }
+
+  cvAiBlockerLabel(code: string): string {
+    return ({
+      provider_disabled_by_profile: 'Provider im lokalen Profil deaktiviert',
+      runtime_blocked_by_profile: 'Laufzeit im lokalen Profil nicht freigegeben',
+      distribution_blocked_by_profile: 'WSL-Distribution nicht freigegeben',
+      installation_not_supported: 'Installation nicht unterstützt',
+      installation_unavailable: 'Installation wurde nicht mehr gefunden',
+      provider_not_authenticated: 'Provider nicht authentifiziert',
+      provider_version_unknown: 'Providerversion unbekannt',
+      provider_capabilities_unavailable: 'Providerfähigkeiten konnten nicht sicher geprüft werden',
+      structured_output_not_supported: 'Strukturierte Ausgabe nicht unterstützt',
+      provider_zero_tools_not_supported: 'Provider besitzt keinen freigegebenen Null-Werkzeug-Modus',
+      provider_runtime_attestation_not_supported: 'Provider besitzt keinen freigegebenen Runtime-Nachweis',
+      synthetic_provider_test_only: 'Synthetischer Provider ist nur in automatisierten Tests erlaubt',
+      read_only_not_supported: 'Read-only-Ausführung nicht unterstützt',
+      runtime_not_supported: 'Laufzeit nicht unterstützt',
+      capability_provider_mismatch: 'Providerbindung der Fähigkeiten stimmt nicht',
+      capability_version_mismatch: 'Versionsbindung der Fähigkeiten stimmt nicht'
+    } as Record<string, string>)[code] ?? code;
+  }
+
+  cvAiStartUnavailableReason(): string {
+    if (!this.cvImport) return 'Importiere zuerst einen Lebenslauf.';
+    if (!this.cvAiOptions) return 'Lade zuerst die serverseitigen AI-Optionen.';
+    if (this.cvAiRunActive()) {
+      return 'Schließe den aktuellen AI-Lauf zuerst durch Auswahl oder Abbruch ab.';
+    }
+    const selected = this.cvAiSelectedInstallation();
+    if (!selected) return 'Wähle einen Provider und eine Installation.';
+    if (!selected.installation.ready || !selected.installation.version) {
+      return selected.installation.blockers.map((code) => this.cvAiBlockerLabel(code)).join(' · ') || 'Die Installation ist nicht startbereit.';
+    }
+    if (!this.cvAiDisclosureConfirmed) {
+      return 'Bestätige ausdrücklich die Weitergabe des extrahierten Lebenslauftexts und die mögliche Provider-Control-Plane-Netznutzung.';
+    }
+    return '';
+  }
+
+  startCvAiStructuring(): void {
+    const current = this.cvImport; const provider = this.cvAiProviderSelection();
+    const unavailable = this.cvAiStartUnavailableReason();
+    if (!current || !provider || unavailable || this.cvAiBusy) {
+      if (unavailable) this.cvAiError = unavailable;
+      this.refreshView(); return;
+    }
+    this.cvAiBusy = true; this.cvAiError = ''; this.cvAiNotice = 'AI-Strukturierung wird revisionsgebunden gestartet …';
+    this.api.startCvAiStructuring(current, provider).subscribe({
+      next: (run) => {
+        this.cvAiBusy = false; this.cvAiRuns = [run, ...this.cvAiRuns.filter((item) => item.id !== run.id)];
+        this.setCvAiRun(run); this.clearCvAiDisclosure();
+        this.cvAiNotice = 'Der optionale AI-Lauf wurde gestartet. Lokale Fakten bleiben unverändert.';
+        this.focusCvAiStatus(); this.refreshView();
+      },
+      error: (error) => this.failCvAi(error)
+    });
+  }
+
+  selectCvAiRun(runId: string): void {
+    const current = this.cvImport;
+    if (!current || this.cvAiBusy) return;
+    this.cvAiBusy = true; this.cvAiError = '';
+    this.api.cvAiStructuringRun(current.id, runId).subscribe({
+      next: (run) => {
+        if (this.cvAiAppliedRunNeedsImportReload(current, run)) {
+          this.reloadCvImportAfterAiApplied(current, run);
+          return;
+        }
+        this.cvAiBusy = false; this.setCvAiRun(run); this.focusCvAiStatus(); this.refreshView();
+      },
+      error: (error) => this.failCvAi(error)
+    });
+  }
+
+  refreshCvAiRun(): void {
+    const current = this.cvImport; const run = this.cvAiRun;
+    if (!current || !run || this.cvAiPollInFlight) return;
+    this.cvAiPollInFlight = true;
+    this.api.cvAiStructuringRun(current.id, run.id).subscribe({
+      next: (fresh) => {
+        this.cvAiPollInFlight = false;
+        if (fresh.status === 'applied' && fresh.result) {
+          this.reloadCvImportAfterAiApplied(current, fresh);
+          return;
+        }
+        this.setCvAiRun(fresh); this.refreshView();
+      },
+      error: (error) => { this.cvAiPollInFlight = false; this.stopCvAiPolling(); this.failCvAi(error); }
+    });
+  }
+
+  private reloadCvImportAfterAiApplied(current: CvImportRecord, run: CvAiStructuringPublicRun): void {
+    const result = run.result;
+    if (!result) { this.setCvAiRun(run); this.refreshView(); return; }
+    const reloadKey = `${run.id}:${result.cvImportRevision}:${result.cvImportSha256}`;
+    if (this.cvAiAppliedReloadKey === reloadKey) { this.setCvAiRun(run); this.refreshView(); return; }
+    this.cvAiAppliedReloadKey = reloadKey; this.setCvAiRun(run);
+    this.cvAiBusy = true; this.cvBusy = true;
+    this.api.cvImport(current.id).subscribe({
+      next: (record) => {
+        if (record.revision !== result.cvImportRevision || record.sha256 !== result.cvImportSha256) {
+          this.cvAiBusy = false; this.cvBusy = false; this.cvAiAppliedReloadKey = '';
+          this.cvAiError = 'Der neue KI-Erkennungsstand ist noch nicht an die gemeldete Lebenslaufrevision gebunden. Lade den Import erneut.';
+          this.refreshView(); return;
+        }
+        this.cvAiBusy = false; this.cvBusy = false; this.applyCvImport(record, true); this.cvAiRun = run;
+        this.cvAiNotice = 'Der neue KI-Erkennungsstand ist aktiv. Prüfe die Struktur und bestätige den gesamten Stand mit einem Klick; einzelne Korrekturen bleiben optional.';
+        this.stopCvAiPolling(); this.focusCvRecognitionVersions(); this.refreshView();
+      },
+      error: (error) => {
+        this.cvBusy = false; this.cvAiAppliedReloadKey = ''; this.failCvAi(error);
+      }
+    });
+  }
+
+  cancelCvAiStructuring(): void {
+    const current = this.cvImport; const run = this.cvAiRun;
+    if (!current || !run || !this.cvAiCanCancel(run) || this.cvAiBusy) return;
+    this.cvAiBusy = true; this.cvAiError = '';
+    this.api.cancelCvAiStructuring(current.id, run).subscribe({
+      next: (fresh) => {
+        this.cvAiBusy = false; this.setCvAiRun(fresh);
+        this.cvAiNotice = 'Abbruch wurde angefordert. Der deterministische Import bleibt erhalten.';
+        this.focusCvAiStatus(); this.refreshView();
+      },
+      error: (error) => this.failCvAi(error)
+    });
+  }
+
+  retryCvAiStructuring(): void {
+    const current = this.cvImport; const previous = this.cvAiRun; const provider = this.cvAiProviderSelection();
+    const unavailable = this.cvAiStartUnavailableReason();
+    if (!current || !previous || !provider || !this.cvAiCanRetry(previous) || unavailable || this.cvAiBusy) {
+      if (unavailable) this.cvAiError = unavailable;
+      this.refreshView(); return;
+    }
+    this.cvAiBusy = true; this.cvAiError = '';
+    this.api.retryCvAiStructuring(current, previous, provider).subscribe({
+      next: (run) => {
+        this.cvAiBusy = false; this.cvAiRuns = [run, ...this.cvAiRuns]; this.setCvAiRun(run); this.clearCvAiDisclosure();
+        this.cvAiNotice = `Neuer AI-Versuch ${run.attempt} wurde mit aktueller Disclosure gestartet.`;
+        this.focusCvAiStatus(); this.refreshView();
+      },
+      error: (error) => this.failCvAi(error)
+    });
+  }
+
+  cvAiCanCancel(run = this.cvAiRun): boolean {
+    return Boolean(run && ['queued', 'running', 'validating', 'cancel_requested'].includes(run.status));
+  }
+
+  cvAiCanRetry(run = this.cvAiRun): boolean {
+    return Boolean(run && (run.status === 'cancelled' || (run.status === 'failed' && run.failure?.retryable === true)));
+  }
+
+  cvAiRunActive(run = this.cvAiRun): boolean {
+    return Boolean(run && (
+      ['queued', 'running', 'validating', 'cancel_requested', 'applying'].includes(run.status)
+      || (run.status === 'suggestions_ready' && run.mode === 'replace_with_ai_version')
+    ));
+  }
+
+  cvAiRecognitionVersionActive(run = this.cvAiRun): boolean {
+    const recognitionVersionId = run?.result?.recognitionVersionId;
+    return Boolean(recognitionVersionId && this.cvRecognitionVersions?.activeVersionId === recognitionVersionId);
+  }
+
+  cvAiRunStatusLabel(status: CvAiStructuringPublicRun['status'], run?: CvAiStructuringPublicRun): string {
+    return ({
+      queued: 'Wartet', running: 'Provider verarbeitet', validating: 'Server prüft Vertrag', suggestions_ready: 'Vorschläge bereit',
+      cancel_requested: 'Abbruch läuft', cancelled: 'Abgebrochen', applying: 'KI-Erkennungsstand wird aktiviert',
+      applied: this.cvAiRecognitionVersionActive(run) ? 'KI-Erkennungsstand aktiv' : 'KI-Erkennungsstand angelegt',
+      failed: 'Fehlgeschlagen', expired: 'Abgelaufen'
+    } as const)[status];
+  }
+
+  cvAiProgressValue(run = this.cvAiRun): number {
+    if (!run) return 0;
+    return ({ queued: 1, running: 2, validating: 3, suggestions_ready: 4, cancel_requested: 2,
+      cancelled: 5, applying: 4, applied: 5, failed: 5, expired: 5 } as const)[run.status];
+  }
+
+  cvAiSuggestionGroups(): CvAiSuggestionGroup[] {
+    const groups = new Map<string, CvAiStructuringSuggestion[]>();
+    for (const suggestion of this.cvAiRun?.proposal?.suggestions ?? []) {
+      const key = `${suggestion.collection}:${suggestion.recordId ?? suggestion.sectionKind ?? suggestion.path.split('.')[0]}`;
+      groups.set(key, [...(groups.get(key) ?? []), suggestion]);
+    }
+    return [...groups.entries()].map(([key, suggestions]) => {
+      const first = suggestions[0]!; const recordId = first.recordId;
+      const category = first.collection === 'experience' ? 'employment' : first.collection;
+      const value = (fields: string[]) => suggestions.find((item) => fields.includes(item.field) && item.value)?.value ?? undefined;
+      const employer = value(['employer', 'company']); const role = value(['role', 'position']);
+      const start = value(['start_date', 'start']); const end = value(['end_date', 'end']);
+      const generic = value(['name', 'institution', 'qualification', 'language', 'value', 'heading']);
+      const title = category === 'employment'
+        ? [role, employer].filter(Boolean).join(' · ') || recordId || 'Berufliche Station'
+        : generic || first.sectionKind || recordId || first.path;
+      return { key, category, recordId, title, ...(start || end ? { period: `${start ?? '?'} – ${end ?? 'heute'}` } : {}), suggestions };
+    }).sort((left, right) => (left.category === 'employment' ? 0 : 1) - (right.category === 'employment' ? 0 : 1)
+      || left.title.localeCompare(right.title, 'de'));
+  }
+
+  cvAiSuggestionFieldLabel(field: string): string {
+    return ({
+      employer: 'Arbeitgeber', company: 'Arbeitgeber', role: 'Rolle', position: 'Rolle',
+      start_date: 'Von', start: 'Von', end_date: 'Bis', end: 'Bis', location: 'Ort',
+      institution: 'Institution', qualification: 'Abschluss', name: 'Name', language: 'Sprache', level: 'Niveau',
+      detail: 'Detail', technology: 'Technologie', value: 'Wert', heading: 'Abschnitt'
+    } as Record<string, string>)[field] ?? field;
+  }
+
+  cvAiGroupLabel(category: string): string {
+    return ({
+      employment: 'Berufserfahrung', experience: 'Berufserfahrung', education: 'Ausbildung', projects: 'Projekt', project: 'Projekt',
+      skills: 'Kenntnisse', skill: 'Kenntnisse', languages: 'Sprachen', language: 'Sprachen', sections: 'Abschnitt'
+    } as Record<string, string>)[category] ?? category;
+  }
+
+  cvAiConfidenceLabel(confidence: number): string {
+    const level = confidence >= .8 ? 'hoch' : confidence >= .5 ? 'mittel' : 'niedrig';
+    return `${level} · ${Math.round(confidence * 100)} % Provider-Konfidenz`;
+  }
+
+  cvAiAnchorLabel(anchor: CvAiStructuringSuggestion['sourceAnchor']): string {
+    if (!anchor) return 'Keine exakte Quellstelle; Rückfrage erforderlich';
+    const lines = anchor.lineStart === anchor.lineEnd ? `Zeile ${anchor.lineStart}` : `Zeilen ${anchor.lineStart}–${anchor.lineEnd}`;
+    return `${lines}, Zeichen ${anchor.charStart}–${anchor.charEnd}`;
+  }
+
+  setCvAiSuggestionSelected(suggestion: CvAiStructuringSuggestion, selected: boolean): void {
+    if (!suggestion.mergeable || (!suggestion.value && !suggestion.alternatives.length)) return;
+    this.cvAiSuggestionSelections = { ...this.cvAiSuggestionSelections, [suggestion.id]: selected };
+    if (selected) this.cvAiRejectedSuggestions = { ...this.cvAiRejectedSuggestions, [suggestion.id]: false };
+    if (!this.cvAiAlternativeSelections[suggestion.id]) {
+      this.cvAiAlternativeSelections = {
+        ...this.cvAiAlternativeSelections,
+        [suggestion.id]: suggestion.value !== null ? '' : suggestion.alternatives[0]?.id ?? ''
+      };
+    }
+    this.cvAiApplyConfirmed = false;
+  }
+
+  selectCvAiAlternative(suggestion: CvAiStructuringSuggestion, alternativeId: string): void {
+    const valid = alternativeId === '' ? suggestion.value !== null : suggestion.alternatives.some((item) => item.id === alternativeId);
+    if (!valid) return;
+    this.cvAiAlternativeSelections = { ...this.cvAiAlternativeSelections, [suggestion.id]: alternativeId };
+    this.cvAiSuggestionSelections = { ...this.cvAiSuggestionSelections, [suggestion.id]: true };
+    this.cvAiRejectedSuggestions = { ...this.cvAiRejectedSuggestions, [suggestion.id]: false };
+    this.cvAiApplyConfirmed = false;
+  }
+
+  rejectCvAiSuggestion(suggestion: CvAiStructuringSuggestion): void {
+    this.cvAiSuggestionSelections = { ...this.cvAiSuggestionSelections, [suggestion.id]: false };
+    this.cvAiRejectedSuggestions = { ...this.cvAiRejectedSuggestions, [suggestion.id]: true };
+    this.cvAiApplyConfirmed = false;
+  }
+
+  restoreCvAiSuggestion(suggestion: CvAiStructuringSuggestion): void {
+    this.cvAiRejectedSuggestions = { ...this.cvAiRejectedSuggestions, [suggestion.id]: false };
+    this.cvAiApplyConfirmed = false;
+  }
+
+  cvAiSelections(): CvAiStructuringSelection[] {
+    return (this.cvAiRun?.proposal?.suggestions ?? []).flatMap<CvAiStructuringSelection>((suggestion) => {
+      if (!this.cvAiSuggestionSelections[suggestion.id] || this.cvAiRejectedSuggestions[suggestion.id] || !suggestion.mergeable) return [];
+      const selected = this.cvAiAlternativeSelections[suggestion.id] ?? '';
+      if (selected === '' && suggestion.value !== null) return [{ suggestionId: suggestion.id, alternativeId: null }];
+      if (suggestion.alternatives.some((item) => item.id === selected)) return [{ suggestionId: suggestion.id, alternativeId: selected }];
+      return [];
+    });
+  }
+
+  cvAiApplyUnavailableReason(): string {
+    if (!this.cvImport || !this.cvAiRun || this.cvAiRun.status !== 'suggestions_ready') return 'Es liegt kein anwendbarer, servervalidierter AI-Vorschlag vor.';
+    if (this.cvAiRun.binding.cvImportRevision !== this.cvImport.revision
+      || this.cvAiRun.binding.cvImportSha256 !== this.cvImport.sha256) {
+      return 'Der AI-Vorschlag gehört zu einer älteren Lebenslaufrevision. Starte mit frischer Zustimmung einen neuen Lauf.';
+    }
+    if (!this.cvAiSelections().length) return 'Wähle mindestens einen exakt quellgebundenen Vorschlag oder eine Alternative.';
+    if (!this.cvAiApplyConfirmed) return 'Bestätige, dass die Auswahl nur als ungeprüfte Fakten gestaged wird.';
+    return '';
+  }
+
+  applyCvAiSelections(): void {
+    const current = this.cvImport; const run = this.cvAiRun; const selections = this.cvAiSelections();
+    const unavailable = this.cvAiApplyUnavailableReason();
+    if (!current || !run || unavailable || this.cvAiBusy) {
+      if (unavailable) this.cvAiError = unavailable;
+      this.refreshView(); return;
+    }
+    this.cvAiBusy = true; this.cvBusy = true; this.cvAiError = '';
+    this.api.applyCvAiStructuring(current, run, selections).subscribe({
+      next: (applied) => {
+        this.cvAiRun = applied; this.cvAiRuns = [applied, ...this.cvAiRuns.filter((item) => item.id !== applied.id)];
+        this.api.cvImport(current.id).subscribe({
+          next: (record) => {
+            this.cvAiBusy = false; this.cvBusy = false; this.applyCvImport(record, true);
+            this.cvAiRun = applied; this.cvAiApplyConfirmed = false;
+            this.cvAiNotice = `${applied.result?.stagedFactIds.length ?? selections.length} AI-erkannte Fakten wurden ausschließlich als ungeprüft gestaged. Prüfe und korrigiere sie nun in der lokalen Timeline.`;
+            this.stopCvAiPolling(); this.focusCvAiStatus(); this.refreshView();
+          },
+          error: (error) => { this.cvBusy = false; this.failCvAi(error); }
+        });
+      },
+      error: (error) => { this.cvBusy = false; this.failCvAi(error); }
+    });
+  }
+
+  private cvAiProviderSelection(): CvAiProviderSelection | undefined {
+    const selected = this.cvAiSelectedInstallation();
+    if (!selected?.installation.version) return undefined;
+    return {
+      providerId: selected.providerId, runtimeTarget: selected.installation.runtimeTarget,
+      ...(selected.installation.wslDistribution ? { wslDistribution: selected.installation.wslDistribution } : {}),
+      expectedVersion: selected.installation.version
+    };
+  }
+
+  private setCvAiRun(run: CvAiStructuringPublicRun | undefined): void {
+    const selectionBindingChanged = this.cvAiRun?.id !== run?.id
+      || this.cvAiRun?.proposal?.sha256 !== run?.proposal?.sha256;
+    this.cvAiRun = run;
+    if (selectionBindingChanged) {
+      this.cvAiSuggestionSelections = {}; this.cvAiAlternativeSelections = {};
+      this.cvAiRejectedSuggestions = {}; this.cvAiApplyConfirmed = false;
+    }
+    if (!run) { this.stopCvAiPolling(); return; }
+    this.cvAiRuns = [run, ...this.cvAiRuns.filter((item) => item.id !== run.id)];
+    const ids = new Set(run.proposal?.suggestions.map((item) => item.id) ?? []);
+    this.cvAiSuggestionSelections = Object.fromEntries(Object.entries(this.cvAiSuggestionSelections).filter(([id]) => ids.has(id)));
+    this.cvAiAlternativeSelections = Object.fromEntries(Object.entries(this.cvAiAlternativeSelections).filter(([id]) => ids.has(id)));
+    this.cvAiRejectedSuggestions = Object.fromEntries(Object.entries(this.cvAiRejectedSuggestions).filter(([id]) => ids.has(id)));
+    if (this.cvAiRunActive(run)) this.startCvAiPolling(); else this.stopCvAiPolling();
+  }
+
+  private startCvAiPolling(): void {
+    if (this.cvAiPollHandle || this.section !== 'cv') return;
+    this.cvAiPollHandle = setInterval(() => this.refreshCvAiRun(), 1_500);
+  }
+
+  private stopCvAiPolling(): void {
+    if (this.cvAiPollHandle) clearInterval(this.cvAiPollHandle);
+    this.cvAiPollHandle = undefined; this.cvAiPollInFlight = false;
+  }
+
+  private clearCvAiDisclosure(): void {
+    this.cvAiDisclosureConfirmed = false;
+    this.cvAiApplyConfirmed = false;
+  }
+
+  private resetCvAiStructuringState(): void {
+    this.stopCvAiPolling(); this.cvAiOptions = undefined; this.cvAiRuns = []; this.cvAiRun = undefined;
+    this.cvAiInstallationKey = ''; this.cvAiSuggestionSelections = {}; this.cvAiAlternativeSelections = {};
+    this.cvAiRejectedSuggestions = {}; this.cvAiBusy = false; this.cvAiError = ''; this.cvAiNotice = '';
+    this.cvAiAppliedReloadKey = '';
+    this.clearCvAiDisclosure();
+  }
+
+  private focusCvAiStatus(): void {
+    setTimeout(() => (document.getElementById('cv-ai-status-heading') as HTMLElement | null)?.focus(), 0);
+  }
+
+  private failCvAi(error: unknown): void {
+    this.cvAiBusy = false; this.cvAiError = this.message(error); this.cvAiNotice = ''; this.refreshView();
+  }
+
+  cvStepAvailable(step: CvStudioStep): boolean {
+    if (step === 1) return true;
+    if (!this.cvImport) return false;
+    if (step === 2) return true;
+    if (!this.cvImport.adoption) return false;
+    if (step <= 5) return true;
+    return Boolean(this.cvSelectedApplicationCaseId);
+  }
+
+  selectCvStep(step: CvStudioStep): void {
+    if (!this.cvStepAvailable(step)) return;
+    this.cvStep = step;
+    this.cvError = '';
+    this.focusCvStep();
+  }
+
+  continueCvStudio(): void {
+    const next = (this.cvStep + 1) as CvStudioStep;
+    if (next > 6 || !this.cvStepAvailable(next)) {
+      this.cvError = this.cvStep === 2
+        ? 'Prüfe jeden atomaren Fakt und übernimm die bestätigten Fakten ausdrücklich in das Kandidatenprofil.'
+        : this.cvStep === 5 ? 'Wähle zuerst einen Bewerbungsfall als Zielstelle.' : 'Dieser Schritt ist noch nicht verfügbar.';
+      this.refreshView();
+      return;
+    }
+    this.selectCvStep(next);
+  }
+
+  cvFactGroups(): CvFactGroup[] {
+    const groups = new Map<string, { facts: CvFact[]; index: number }>();
+    for (const [index, fact] of (this.cvImport?.facts ?? []).entries()) {
+      const key = `${fact.category}:${fact.recordId}`;
+      const current = groups.get(key);
+      groups.set(key, { facts: [...(current?.facts ?? []), fact], index: current?.index ?? index });
+    }
+    const records = [...groups.entries()].map(([key, group]) => {
+      const recordId = group.facts[0]?.recordId ?? key;
+      const category = group.facts[0]?.category ?? 'additional';
+      const role = this.cvGroupFactValue(group.facts, ['role', 'position', 'title', 'job_title']);
+      const company = this.cvGroupFactValue(group.facts, ['company', 'employer', 'organization']);
+      const period = this.cvGroupFactValue(group.facts, ['period', 'date_range', 'duration'])
+        ?? this.cvGroupDateRange(group.facts);
+      const generic = this.cvGroupFactValue(group.facts, ['name', 'title', 'degree', 'institution', 'description']);
+      const title = category === 'employment'
+        ? [role, company].filter(Boolean).join(' · ') || recordId
+        : generic || recordId;
+      return { recordId, category, facts: group.facts, title, ...(period ? { period } : {}), index: group.index };
+    });
+    const employment = records.filter((record) => record.category === 'employment').sort((left, right) => {
+      const leftEnd = this.cvEmploymentDateRank(left.facts, true);
+      const rightEnd = this.cvEmploymentDateRank(right.facts, true);
+      if (leftEnd !== rightEnd) return rightEnd - leftEnd;
+      const leftStart = this.cvEmploymentDateRank(left.facts, false);
+      const rightStart = this.cvEmploymentDateRank(right.facts, false);
+      return rightStart - leftStart || left.index - right.index;
+    });
+    return [...employment, ...records.filter((record) => record.category !== 'employment').sort((left, right) => left.index - right.index)]
+      .map(({ index: _index, ...record }) => record);
+  }
+
+  cvStructuredFactGroups(): CvFactGroup[] {
+    return this.cvFactGroups().filter((group) => !this.cvFactGroupIsRaw(group));
+  }
+
+  cvRawFactGroups(): CvFactGroup[] {
+    return this.cvFactGroups().filter((group) => this.cvFactGroupIsRaw(group));
+  }
+
+  private cvFactGroupIsRaw(group: CvFactGroup): boolean {
+    if (group.category === 'additional') return true;
+    return group.facts.length > 0 && group.facts.every((fact) => {
+      const root = fact.field.toLocaleLowerCase('en-US').split('.')[0]!.replace(/\[[0-9]{1,4}\]$/, '');
+      return root === 'other' || root === 'additional';
+    });
+  }
+
+  private cvGroupFactValue(facts: CvFact[], fields: string[]): string | undefined {
+    const allowed = new Set(fields);
+    for (const decision of ['confirmed', 'pending'] as const) {
+      const match = facts.find((fact) => fact.decision === decision
+        && allowed.has(fact.field.toLocaleLowerCase('en-US').split('.').at(-1)!.replace(/\[[0-9]{1,4}\]$/, '')));
+      if (match?.value.trim()) return match.value.trim();
+    }
+    return undefined;
+  }
+
+  private cvGroupDateRange(facts: CvFact[]): string | undefined {
+    const start = this.cvGroupFactValue(facts, ['start_date', 'start']);
+    const end = this.cvGroupFactValue(facts, ['end_date', 'end']);
+    return start || end ? `${start ?? '?'} – ${end ?? 'heute'}` : undefined;
+  }
+
+  private cvEmploymentDateRank(facts: CvFact[], end: boolean): number {
+    const value = end
+      ? this.cvGroupFactValue(facts, ['end_date', 'end', 'period', 'date_range', 'duration'])
+      : this.cvGroupFactValue(facts, ['start_date', 'start', 'period', 'date_range', 'duration']);
+    if (!value) return Number.NEGATIVE_INFINITY;
+    if (end && /\b(?:present|current|heute|aktuell|gegenwärtig|laufend|now)\b/i.test(value)) return Number.MAX_SAFE_INTEGER;
+    const dates = [...value.matchAll(/\b((?:19|20)\d{2})(?:[-/.](0?[1-9]|1[0-2]))?\b/g)]
+      .map((match) => Number(match[1]) * 12 + Number(match[2] ?? (end ? 12 : 1)));
+    if (!dates.length) return Number.NEGATIVE_INFINITY;
+    return end ? dates.at(-1)! : dates[0]!;
+  }
+
+  cvFactCategoryLabel(category: CvFactCategory): string {
+    return ({
+      profile: 'Profil', contact: 'Kontakt', employment: 'Berufserfahrung', project: 'Projekt', education: 'Ausbildung',
+      skill: 'Kenntnis', certification: 'Zertifizierung', language: 'Sprache', additional: 'Zusatzfakt'
+    } as const)[category];
+  }
+
+  cvFactDecisionLabel(decision: CvFactDecision): string {
+    return ({ pending: 'Ungeprüft', confirmed: 'Bestätigt', rejected: 'Verworfen' } as const)[decision];
+  }
+
+  cvFactCount(decision: CvFactDecision): number {
+    return this.cvImport?.facts.filter((fact) => fact.decision === decision).length ?? 0;
+  }
+
+  cvFactDraft(fact: CvFact): CvFactDraft {
+    return this.cvFactDrafts[fact.id] ?? { category: fact.category, recordId: fact.recordId, field: fact.field, value: fact.value };
+  }
+
+  cvFactDraftDirty(fact: CvFact): boolean {
+    const draft = this.cvFactDraft(fact);
+    return draft.category !== fact.category || draft.recordId !== fact.recordId || draft.field !== fact.field || draft.value !== fact.value;
+  }
+
+  updateCvFactDraft(fact: CvFact, field: keyof CvFactDraft, value: string): void {
+    const current = this.cvFactDraft(fact);
+    this.cvFactDrafts[fact.id] = { ...current, [field]: value } as CvFactDraft;
+    this.cvAdoptionConfirmed = false;
+  }
+
+  cvNewFactRecordIds(): string[] {
+    return [...new Set((this.cvImport?.facts ?? [])
+      .filter((fact) => fact.category === this.cvNewFactDraft.category)
+      .map((fact) => fact.recordId))].sort((left, right) => left.localeCompare(right, 'de'));
+  }
+
+  setCvNewFactCategory(value: string): void {
+    if (!this.cvFactCategories.includes(value as CvFactCategory)) return;
+    this.cvNewFactDraft = { ...this.cvNewFactDraft, category: value as CvFactCategory, recordId: '', explicitlyConfirmed: false };
+  }
+
+  setCvNewFactTarget(value: string): void {
+    if (value !== 'existing_record' && value !== 'new_record') return;
+    this.cvNewFactDraft = { ...this.cvNewFactDraft, target: value, recordId: '', explicitlyConfirmed: false };
+  }
+
+  cvNewFactUnavailableReason(): string {
+    const draft = this.cvNewFactDraft;
+    if (!this.cvImport) return 'Lade zuerst einen Lebenslaufimport.';
+    if (!/^(?=.{1,64}$)[a-z][a-z0-9_.]*(?:\[[0-9]{1,4}\])?$/.test(draft.field.trim())) {
+      return 'Das Feld benötigt eine serverkonforme Kennung, zum Beispiel description oder highlights[0].';
+    }
+    if (!draft.value.trim() || draft.value.trim().length > 5_000) return 'Die Aussage muss 1 bis 5.000 Zeichen enthalten.';
+    if (draft.target === 'existing_record') {
+      if (!draft.recordId || !this.cvNewFactRecordIds().includes(draft.recordId)) return 'Wähle eine vorhandene Station derselben Kategorie.';
+    } else if (!/^[a-z][a-z0-9-]{0,63}$/.test(draft.newRecordKey.trim())) {
+      return 'Der temporäre Record-Schlüssel muss mit einem Kleinbuchstaben beginnen und darf nur Kleinbuchstaben, Zahlen und Bindestriche enthalten.';
+    }
+    return '';
+  }
+
+  addCvFact(): void {
+    const unavailable = this.cvNewFactUnavailableReason();
+    if (unavailable || this.cvBusy) { if (unavailable) this.cvError = unavailable; this.refreshView(); return; }
+    const draft = this.cvNewFactDraft;
+    const target = draft.target === 'existing_record'
+      ? { recordId: draft.recordId }
+      : { newRecordKey: draft.newRecordKey.trim() };
+    const operation: CvFactOperation = {
+      action: 'add', category: draft.category, ...target, field: draft.field.trim(), value: draft.value.trim(),
+      ...(draft.explicitlyConfirmed ? { explicitlyConfirmed: true as const } : {})
+    };
+    this.mutateCvFacts([operation], draft.explicitlyConfirmed
+      ? 'Der selbst ergänzte Fakt wurde atomar und ausdrücklich bestätigt gespeichert; eine Profilübernahme ist weiterhin separat erforderlich.'
+      : 'Der selbst ergänzte Fakt wurde atomar als ungeprüft gespeichert und muss noch ausdrücklich bestätigt oder verworfen werden.', () => {
+        this.cvNewFactDraft = {
+          ...this.cvNewFactDraft, recordId: '', newRecordKey: 'additional-fact', field: 'detail', value: '', explicitlyConfirmed: false
+        };
+      });
+  }
+
+  importCvFile(event: Event): void {
+    const input = event.currentTarget as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file) return;
+    const mimeType = this.cvMimeType(file.name);
+    if (!mimeType) {
+      this.cvError = 'Erlaubt sind ausschließlich PDF, DOCX, ODT, HTML und HTM.';
+      this.refreshView(); return;
+    }
+    if (file.size < 1 || file.size > this.cvMaxFileBytes) {
+      this.cvError = 'Die Lebenslaufdatei muss zwischen 1 Byte und 10 MiB groß sein.';
+      this.refreshView(); return;
+    }
+    this.cvBusy = true; this.cvError = ''; this.cvNotice = 'Datei wird lokal extrahiert und als ungeprüfte Fakten normalisiert …';
+    const reader = new FileReader();
+    reader.onerror = () => { this.cvBusy = false; this.cvError = 'Die Datei konnte im Browser nicht gelesen werden.'; this.refreshView(); };
+    reader.onload = () => {
+      const base64 = String(reader.result).split(',')[1] ?? '';
+      if (!base64) { this.cvBusy = false; this.cvError = 'Die Datei enthält keine lesbaren Daten.'; this.refreshView(); return; }
+      this.api.importCv({ fileName: file.name, mimeType, base64 }).subscribe({
+        next: (record) => {
+          this.applyCvImport(record);
+          this.cvBusy = false; this.cvStep = 2;
+          this.cvNotice = `${record.facts.length} atomare Fakten wurden importiert. Sie sind noch nicht als Kandidatenfakten übernommen.`;
+          this.focusCvStep(); this.refreshView();
+        },
+        error: (error) => this.failCv(error)
+      });
+    };
+    reader.readAsDataURL(file);
+  }
+
+  loadCvImportInventory(): void {
+    this.api.cvImports(20).subscribe({
+      next: (records) => { this.cvImportInventory = records; this.refreshView(); },
+      error: (error) => { this.cvError = `Gespeicherte Lebenslaufimporte konnten nicht geladen werden: ${this.message(error)}`; this.refreshView(); }
+    });
+  }
+
+  openCvImport(importId: string): void {
+    if (this.cvBusy) return;
+    this.cvBusy = true; this.cvError = ''; this.cvNotice = '';
+    this.api.cvImport(importId).subscribe({
+      next: (record) => {
+        this.applyCvImport(record); this.cvBusy = false;
+        this.cvNotice = `Import ${record.source.fileName} wurde in Revision ${record.revision} geöffnet.`;
+        if (record.proposal) this.loadCvProposalHtml();
+        this.focusCvStep(); this.refreshView();
+      },
+      error: (error) => this.failCv(error)
+    });
+  }
+
+  cvDeleteConfirmationExpected(): string {
+    return this.cvImport ? `DELETE cv-import ${this.cvImport.id}` : '';
+  }
+
+  deleteCurrentCvImport(): void {
+    const current = this.cvImport;
+    if (!current || this.cvBusy || this.cvDeleteConfirmation !== this.cvDeleteConfirmationExpected()) return;
+    this.cvBusy = true; this.cvError = ''; this.cvNotice = '';
+    this.api.deleteCvImport(current).subscribe({
+      next: ({ removed }) => {
+        this.cvBusy = false; this.cvDeleteConfirmation = '';
+        this.cvImportInventory = this.cvImportInventory.filter((item) => item.id !== current.id);
+        if (removed === 1) {
+          this.cvImport = undefined; this.cvFactDrafts = {}; this.cvProposalHtmlUrl = undefined; this.cvStep = 1;
+          this.resetCvAiStructuringState(); this.resetCvRecognitionVersions();
+          this.cvNotice = 'Der verschlüsselt gespeicherte Lebenslaufimport wurde gelöscht.';
+        } else this.cvError = 'Der Lebenslaufimport war bereits nicht mehr vorhanden.';
+        this.focusCvStep(); this.refreshView();
+      },
+      error: (error) => this.failCv(error)
+    });
+  }
+
+  reloadCvImport(): void {
+    if (!this.cvImport || this.cvBusy) return;
+    const importId = this.cvImport.id;
+    this.cvBusy = true; this.cvError = '';
+    this.api.cvImport(importId).subscribe({
+      next: (record) => { this.applyCvImport(record, true); this.cvBusy = false; this.cvNotice = `Importrevision ${record.revision} wurde neu geladen.`; this.refreshView(); },
+      error: (error) => this.failCv(error)
+    });
+  }
+
+  saveCvFact(fact: CvFact): void {
+    const current = this.cvImport;
+    if (!current || this.cvBusy) return;
+    const draft = this.cvFactDraft(fact);
+    if (!this.cvFactDraftDirty(fact)) { this.cvError = 'Dieser Fakt enthält keine ungespeicherte Änderung.'; this.refreshView(); return; }
+    if (draft.recordId !== fact.recordId) {
+      this.cvError = 'Ein Fakt darf nicht in eine andere Station verschoben werden. Ergänze stattdessen dort einen neuen atomaren Fakt.';
+      this.refreshView(); return;
+    }
+    if (!/^(?=.{1,64}$)[a-z][a-z0-9_.]*(?:\[[0-9]{1,4}\])?$/.test(draft.field.trim())
+      || !draft.value.trim() || draft.value.trim().length > 5_000) {
+      this.cvError = 'Feldkennung oder Aussage liegt außerhalb des geschlossenen Serververtrags.';
+      this.refreshView(); return;
+    }
+    this.mutateCvFacts([{
+      factId: fact.id, action: 'edit', category: draft.category, recordId: draft.recordId.trim(),
+      field: draft.field.trim(), value: draft.value.trim()
+    }], 'Die Änderung wurde als ungeprüfter Fakt gespeichert. Bestätige oder verwirf ihn anschließend ausdrücklich.');
+  }
+
+  decideCvFact(fact: CvFact, decision: 'confirm' | 'reject'): void {
+    if (this.cvFactDraftDirty(fact)) {
+      this.cvError = 'Speichere die Textänderung zuerst. Bearbeitete Fakten werden serverseitig wieder auf „ungeprüft“ gesetzt.';
+      this.refreshView(); return;
+    }
+    this.mutateCvFacts([{ factId: fact.id, action: decision }], decision === 'confirm'
+      ? 'Der einzelne Fakt wurde ausdrücklich bestätigt, ist aber noch nicht in das Kandidatenprofil übernommen.'
+      : 'Der einzelne Fakt wurde verworfen und wird nicht übernommen.');
+  }
+
+  adoptCvFacts(): void {
+    const current = this.cvImport;
+    if (!current || this.cvBusy || !this.cvAdoptionConfirmed) return;
+    if (this.cvFactCount('pending') > 0 || this.cvFactCount('confirmed') < 1) {
+      this.cvError = 'Alle Fakten müssen bestätigt oder verworfen sein; mindestens ein bestätigter Fakt ist erforderlich.';
+      this.refreshView(); return;
+    }
+    this.cvBusy = true; this.cvError = '';
+    this.api.adoptCvFacts(current).subscribe({
+      next: (record) => {
+        this.applyCvImport(record, true); this.cvBusy = false; this.cvAdoptionConfirmed = false;
+        this.cvNotice = `${record.adoption?.adoptedClaimIds.length ?? 0} bestätigte Claims wurden revisionsgebunden in das Kandidatenprofil übernommen.`;
+        this.cvStep = 3; this.loadCandidateProfile(); this.focusCvStep(); this.refreshView();
+      },
+      error: (error) => this.failCv(error)
+    });
+  }
+
+  saveCvTheme(): void {
+    const current = this.cvImport;
+    if (!current || this.cvBusy || !this.cvThemeConfirmed) return;
+    const order = this.cvThemeDraft.sectionOrder;
+    if (order.length !== this.cvSectionCategories.length || new Set(order).size !== order.length) {
+      this.cvError = 'Die Formatvorlage muss jeden ATS-Abschnitt genau einmal in der Lesereihenfolge enthalten.';
+      this.refreshView(); return;
+    }
+    this.cvBusy = true; this.cvError = '';
+    this.api.saveCvTheme(current, structuredClone(this.cvThemeDraft)).subscribe({
+      next: (record) => {
+        this.applyCvImport(record, true); this.cvBusy = false; this.cvThemeConfirmed = false;
+        this.cvNotice = 'Die geschlossene ATS-Formatvorlage wurde revisionsgebunden gespeichert.'; this.refreshView();
+      },
+      error: (error) => this.failCv(error)
+    });
+  }
+
+  clearCvTheme(): void {
+    const current = this.cvImport;
+    if (!current || this.cvBusy || !this.cvThemeConfirmed) return;
+    this.cvBusy = true; this.cvError = '';
+    this.api.saveCvTheme(current, null).subscribe({
+      next: (record) => {
+        this.applyCvImport(record, true); this.cvBusy = false; this.cvThemeConfirmed = false;
+        this.cvNotice = 'Die optionale Formatvorlage wurde entfernt; der Server verwendet seine ATS-sichere Standardvorlage.'; this.refreshView();
+      },
+      error: (error) => this.failCv(error)
+    });
+  }
+
+  moveCvThemeSection(index: number, direction: -1 | 1): void {
+    const target = index + direction;
+    if (target < 0 || target >= this.cvThemeDraft.sectionOrder.length) return;
+    const order = [...this.cvThemeDraft.sectionOrder];
+    [order[index], order[target]] = [order[target]!, order[index]!];
+    this.cvThemeDraft = { ...this.cvThemeDraft, sectionOrder: order };
+    this.cvThemeConfirmed = false;
+  }
+
+  cvSelectedApplicationCase(): ApplicationCase | undefined {
+    return this.applicationCases.find((item) => item.id === this.cvSelectedApplicationCaseId);
+  }
+
+  cvApplicationCases(): ApplicationCase[] {
+    return this.applicationCases.filter((item) => item.documentType === 'cv');
+  }
+
+  cvHtmlRenderUnavailableReason(): string {
+    const application = this.cvSelectedApplicationCase();
+    if (!this.cvImport?.adoption) return 'Die importierten Fakten wurden noch nicht revisionsgebunden übernommen.';
+    if (!application) return 'Wähle einen CV-Bewerbungsfall.';
+    if (application.documentType !== 'cv') return 'HTML kann nur für einen Bewerbungsfall vom Typ Lebenslauf gerendert werden.';
+    if (application.identityMode === 'incognito') {
+      return 'Inkognito-Agentenartefakte bleiben nicht verwendbare Vorschläge im Agent Center; HTML-Erzeugung und Download sind gesperrt.';
+    }
+    if (!['approved', 'exported'].includes(application.state)) return 'Die Agentenrevision muss zuerst geprüft, übernommen und im Bewerbungsfall freigegeben werden.';
+    if (!application.approvedArtifactRevisionId || !application.approvedArtifactSha256) return 'Dem Fall fehlt die exakt freigegebene Dokumentrevision mit SHA-256.';
+    return '';
+  }
+
+  renderApprovedCvHtml(): void {
+    const current = this.cvImport;
+    const application = this.cvSelectedApplicationCase();
+    const unavailable = this.cvHtmlRenderUnavailableReason();
+    if (!current?.adoption || !application?.approvedArtifactRevisionId || !application.approvedArtifactSha256 || unavailable || this.cvBusy) {
+      this.cvError = unavailable || 'Die exakte freigegebene Dokumentrevision fehlt.';
+      this.refreshView(); return;
+    }
+    this.cvBusy = true; this.cvError = ''; this.cvProposalHtmlUrl = undefined;
+    this.api.createCvProposal(
+      application.id, current, application.approvedArtifactRevisionId, application.approvedArtifactSha256
+    ).subscribe({
+      next: (record) => {
+        this.applyCvImport(record, true); this.cvBusy = false; this.cvStep = 6;
+        this.cvNotice = 'Die proof-verifizierte, freigegebene CV-Dokumentrevision wurde als HTML gerendert.';
+        this.loadCvProposalHtml(); this.focusCvStep(); this.refreshView();
+      },
+      error: (error) => this.failCv(error)
+    });
+  }
+
+  loadCvProposalHtml(): void {
+    const current = this.cvImport;
+    const htmlSha256 = current?.proposal?.htmlSha256;
+    this.cvProposalHtmlUrl = undefined;
+    if (!current || !htmlSha256) return;
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(current.id)
+      || !/^[a-f0-9]{64}$/.test(htmlSha256)) {
+      this.cvError = 'Die proof-gebundene HTML-Referenz verletzt den geschlossenen Serververtrag.';
+      this.refreshView(); return;
+    }
+    const route = this.api.cvProposalHtmlUrl(current.id, htmlSha256);
+    if (!/^\/api\/cv-imports\/[0-9a-f-]{36}\/proposal\.html\?sha256=[a-f0-9]{64}&download=false$/i.test(route)) {
+      this.cvError = 'Die HTML-Vorschau verweist nicht auf die erlaubte lokale Proof-Route.';
+      this.refreshView(); return;
+    }
+    this.cvProposalHtmlUrl = this.sanitizer.bypassSecurityTrustResourceUrl(route);
+    this.refreshView();
+  }
+
+  startCvAgentOrchestration(): void {
+    const application = this.cvSelectedApplicationCase();
+    const unavailable = this.cvAgentStartUnavailableReason();
+    if (unavailable || !application) { this.cvError = unavailable; this.refreshView(); return; }
+    const workflow = this.agentWorkflows.find((item) => item.id === 'evidence-application-package');
+    if (!workflow) return;
+    const providerId = this.agentOrchestrationForm.providerId || this.agentProviders.find((item) => item.available)?.id || '';
+    this.cvError = ''; this.agentOrchestrationError = '';
+    this.agentOrchestrationForm = {
+      workflowId: workflow.id, providerId,
+      prompt: `Erstelle einen belegbasierten ATS-sicheren Lebenslauf für den ausgewählten Bewerbungsfall ${application.id}. Verwende ausschließlich bestätigte CandidateProfile-Claims und die serverseitig gespeicherten Stilvorgaben. Alle Ergebnisse bleiben prüfpflichtige Vorschläge.`,
+      runtimeTarget: this.agentOrchestrationForm.runtimeTarget,
+      ...(this.agentOrchestrationForm.runtimeTarget === 'wsl' && this.agentOrchestrationForm.wslDistribution
+        ? { wslDistribution: this.agentOrchestrationForm.wslDistribution } : {}),
+      applicationCaseId: application.id, userInputConfirmed: false
+    };
+    this.createAgentOrchestration();
+  }
+
+  cvAgentStartUnavailableReason(): string {
+    const application = this.cvSelectedApplicationCase();
+    if (!this.cvImport?.adoption) return 'Bestätige den aktiven Lebenslaufstand und übernimm ihn danach ins Kandidatenprofil.';
+    if (!application || application.documentType !== 'cv') return 'Wähle einen Bewerbungsfall vom Typ Lebenslauf.';
+    if (!this.agentWorkflows.some((item) => item.id === 'evidence-application-package')) {
+      return 'Der versionierte Evidence-Agentenworkflow ist serverseitig nicht verfügbar.';
+    }
+    const provider = this.agentProviders.find((item) => item.id === this.agentOrchestrationForm.providerId);
+    if (!provider?.available) return 'Wähle einen verfügbaren Agentenprovider.';
+    if (this.selectedAgentOrchestrationInstallation()?.support !== 'supported') return 'Wähle eine versionsgenau freigegebene Provider-Laufzeit.';
+    return '';
+  }
+
+  cvAgentOrchestration(): AgentOrchestrationRecord | undefined {
+    if (this.cvAgentOrchestrationId) return this.agentOrchestrations.find((item) => item.id === this.cvAgentOrchestrationId)
+      ?? (this.selectedAgentOrchestration?.id === this.cvAgentOrchestrationId ? this.selectedAgentOrchestration : undefined);
+    return undefined;
+  }
+
+  openCvAgentOrchestration(): void {
+    const orchestration = this.cvAgentOrchestration();
+    this.select('agents');
+    if (orchestration) this.selectAgentOrchestration(orchestration, false);
+  }
+
+  refreshCvAgentStatus(): void {
+    this.refreshAgentOrchestrations();
+    this.loadApplicationCases();
+  }
+
+  cvAgentStatusBusy(): boolean { return this.agentOrchestrationPollInFlight; }
+
+  downloadApprovedCvHtml(): void {
+    const current = this.cvImport;
+    const proposal = current?.proposal;
+    if (!current || !proposal?.downloadAllowed || this.cvBusy) {
+      this.cvError = proposal && !proposal.downloadAllowed
+        ? 'Der Server sperrt den Download für diese Identität oder Revision.' : 'Keine downloadfähige HTML-Revision vorhanden.';
+      this.refreshView(); return;
+    }
+    this.cvBusy = true; this.cvError = '';
+    this.api.downloadCvProposal(current.id, proposal.htmlSha256).subscribe({
+      next: (blob) => {
+        const url = URL.createObjectURL(blob); const link = document.createElement('a');
+        link.href = url; link.download = 'lebenslauf.html'; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1_000);
+        this.cvBusy = false; this.cvNotice = 'Die exakt freigegebene HTML-Revision wurde heruntergeladen.'; this.refreshView();
+      },
+      error: (error) => this.failCv(error)
+    });
+  }
+
+  private mutateCvFacts(operations: Parameters<ApiService['reviewCvFacts']>[1], notice: string, afterSuccess?: () => void): void {
+    const current = this.cvImport;
+    if (!current || this.cvBusy) return;
+    this.cvBusy = true; this.cvError = '';
+    this.api.reviewCvFacts(current, operations).subscribe({
+      next: (record) => {
+        this.applyCvImport(record, true); this.cvBusy = false; this.cvNotice = notice; afterSuccess?.(); this.refreshView();
+      },
+      error: (error) => this.failCv(error)
+    });
+  }
+
+  private applyCvImport(record: CvImportRecord, preserveStep = false): void {
+    const changedImport = this.cvImport?.id !== record.id;
+    if (changedImport) { this.resetCvAiStructuringState(); this.resetCvRecognitionVersions(); }
+    this.cvImport = record;
+    this.cvFactDrafts = Object.fromEntries(record.facts.map((fact) => [fact.id, {
+      category: fact.category, recordId: fact.recordId, field: fact.field, value: fact.value
+    }]));
+    if (record.theme) this.cvThemeDraft = structuredClone(record.theme);
+    if (record.proposal?.applicationCaseId) this.cvSelectedApplicationCaseId = record.proposal.applicationCaseId;
+    if (!preserveStep) this.cvStep = record.proposal ? 6 : record.adoption ? 3 : 2;
+    this.cvAdoptionConfirmed = false; this.cvThemeConfirmed = false; this.cvDeleteConfirmation = '';
+    this.cvRecognitionVersionConfirmed = false;
+    this.loadCvImportInventory();
+    if (this.section === 'cv') setTimeout(() => {
+      this.loadCvRecognitionVersions();
+      this.loadCvAiStructuringState();
+    }, 0);
+  }
+
+  private cvMimeType(fileName: string): CvImportRecord['source']['mimeType'] | undefined {
+    const extension = fileName.toLocaleLowerCase('en-US').match(/\.[^.]+$/)?.[0];
+    return ({
+      '.html': 'text/html', '.htm': 'text/html', '.pdf': 'application/pdf',
+      '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      '.odt': 'application/vnd.oasis.opendocument.text'
+    } as const)[extension as '.html' | '.htm' | '.pdf' | '.docx' | '.odt'];
+  }
+
+  private focusCvStep(): void {
+    setTimeout(() => (document.getElementById(`cv-step-heading-${this.cvStep}`) as HTMLElement | null)?.focus(), 0);
+  }
+
+  private failCv(error: unknown): void {
+    this.cvBusy = false; this.cvError = this.message(error); this.cvNotice = ''; this.refreshView();
+  }
+
   importFile(event: Event): void {
     const file = (event.target as HTMLInputElement).files?.[0]; if (!file) return;
     if (file.size > 10 * 1024 * 1024) { this.error = 'Importdatei ist größer als 10 MiB.'; return; }

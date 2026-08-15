@@ -195,4 +195,76 @@ describe('cross-repository contract fixtures', () => {
     expect(new Set((gold.cases as Array<{ category: string }>).map((entry) => entry.category)))
       .toEqual(new Set(['job', 'claim', 'mail', 'appointment', 'document']));
   });
+
+  it('publishes the closed machine-readable CV import contract without private artifacts or HTML', async () => {
+    const [schema, summary, recognitionVersions, value, recognitionValue] = await Promise.all([
+      contract('cv-import.schema.json'), contract('cv-import-summary.schema.json'),
+      contract('cv-recognition-version-list.schema.json'), fixture('synthetic-cv-import.json'),
+      fixture('synthetic-cv-recognition-version-list.json'),
+    ]);
+    expect(schema).toMatchObject({ type: 'object', additionalProperties: false });
+    expect(value).toMatchObject({
+      contract: 'cv-import', contractVersion: '1.0', status: 'facts_pending',
+      activeRecognitionVersionId: 'recognition-0123456789abcdef',
+      source: { retention: 'upload_deleted_after_local_extraction' },
+    });
+    expect((schema.required as string[])).toEqual(expect.arrayContaining([
+      'contract', 'contractVersion', 'revision', 'sha256', 'facts', 'activeRecognitionVersionId',
+    ]));
+    expect(summary).toMatchObject({ type: 'object', additionalProperties: false });
+    expect((summary.required as string[])).toEqual(expect.arrayContaining(['factCounts', 'warningCount', 'unresolvedConflictCount']));
+    expect(recognitionVersions).toMatchObject({ type: 'object', additionalProperties: false });
+    expect(recognitionValue).toMatchObject({
+      contract: 'cv-recognition-version-list', contractVersion: '1.0',
+      activeVersionId: 'recognition-fedcba9876543210',
+      versions: [
+        expect.objectContaining({ ordinal: 1, kind: 'deterministic', active: false }),
+        expect.objectContaining({
+          ordinal: 2, kind: 'ai', active: true,
+          provider: { id: 'claude-cli', version: '2.1.232' },
+        }),
+      ],
+    });
+    expect(JSON.stringify(summary)).not.toMatch(/normalizationArtifact|proposal\.html|"facts"\s*:/i);
+    expect(JSON.stringify(schema)).not.toContain('recognitionVersions');
+    expect(JSON.stringify(value)).not.toMatch(/recognitionVersions|normalizationArtifact|<html|source\.bin/i);
+    expect(JSON.stringify(recognitionValue)).not.toMatch(/facts"|normalizationArtifact|runtimeTarget|adapterVersion|witnessSha256|runSha256|proposalSha256/i);
+  });
+
+  it('publishes closed CV AI option/run contracts without raw agent or private proposal fields', async () => {
+    const [options, run, value] = await Promise.all([
+      contract('cv-ai-structuring-options.schema.json'), contract('cv-ai-structuring-run.schema.json'),
+      fixture('synthetic-cv-ai-structuring-run.json'),
+    ]);
+    expect(options).toMatchObject({ type: 'object', additionalProperties: false });
+    expect(run).toMatchObject({ type: 'object', additionalProperties: false });
+    expect(value).toMatchObject({
+      contract: 'cv-ai-structuring-run', contractVersion: '1.0', status: 'applied',
+      mode: 'replace_with_ai_version',
+      disclosure: { toolNetwork: 'disabled', rootMcpTools: [], jobSearchMcpAccessible: false },
+      result: {
+        factsRemainPending: true,
+        recognitionVersionId: 'recognition-fedcba9876543210',
+        recognitionVersionCount: 2,
+      },
+    });
+    expect((run.required as string[])).not.toContain('mode');
+    expect(((run.properties as Record<string, { enum?: string[] }>).mode?.enum)).toEqual([
+      'review_suggestions', 'replace_with_ai_version',
+    ]);
+    expect(run.allOf).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        if: expect.objectContaining({
+          properties: expect.objectContaining({ mode: { const: 'replace_with_ai_version' }, status: { const: 'applied' } }),
+        }),
+        then: expect.objectContaining({
+          properties: expect.objectContaining({
+            result: expect.objectContaining({ required: ['recognitionVersionId', 'recognitionVersionCount'] }),
+          }),
+        }),
+      }),
+    ]));
+    expect(JSON.stringify(run)).not.toMatch(/agentRunId|privateArtifact|providerOutput|lineManifestJson/i);
+    expect(JSON.stringify(value)).not.toMatch(/agentRunId|privateArtifact|providerOutput|lineManifestJson|BEGIN_UNTRUSTED|suggestions/i);
+  });
 });

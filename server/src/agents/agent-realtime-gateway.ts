@@ -50,7 +50,8 @@ export function assertAllowedRealtimeOrigin(origin: string | undefined, host: st
   }
   const normalizedHost = host?.toLowerCase();
   const sameHost = normalizedHost === parsed.host.toLowerCase();
-  const developmentOrigin = (parsed.hostname === '127.0.0.1' || parsed.hostname === 'localhost') && parsed.port === '4200';
+  const developmentOrigin = (parsed.hostname === '127.0.0.1' || parsed.hostname === 'localhost' || parsed.hostname === '[::1]')
+    && parsed.port === '4201';
   if (!sameHost && !developmentOrigin) throw new Error('Der Realtime-Origin stimmt nicht mit diesem lokalen Dienst ueberein.');
   return parsed.origin;
 }
@@ -200,7 +201,9 @@ export function attachAgentRealtimeGateway(
       finally { polling = false; }
     };
     void center.get(session.runId).then((run) => {
-      if (!run) { webSocket.close(1008, 'run not found'); return; }
+      if (!run || run.request.metadata?.workflowId === 'cv-ai-structuring') {
+        webSocket.close(1008, 'run not found'); return;
+      }
       send({ type: 'server.ready', protocolVersion: '1.0', sessionId: session.sessionId, runId: session.runId, currentSequence: run.currentSequence, controls: 'revision-checked-rest-only' });
       void poll();
     });

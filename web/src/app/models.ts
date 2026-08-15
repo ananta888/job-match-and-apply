@@ -1,4 +1,4 @@
-export type Section = 'overview' | 'search' | 'identity' | 'sources' | 'applications' | 'crm' | 'agents' | 'operations';
+export type Section = 'overview' | 'search' | 'identity' | 'cv' | 'sources' | 'applications' | 'crm' | 'agents' | 'operations';
 export type WorkModel = 'remote' | 'hybrid' | 'onsite' | 'unknown';
 export type EmploymentType = 'full_time' | 'part_time' | 'contract' | 'freelance' | 'internship' | 'unknown';
 
@@ -169,6 +169,300 @@ export interface ProfileImportPreview {
   fileName: string; sourceKind: string; requiresUserConfirmation: boolean; persisted: boolean;
   proposals: Array<{ id: string; statement: string; status: 'unverified'; decision: 'pending'; conflict: null | { kind: 'duplicate' | 'possible_conflict'; existingClaimId: string; existingStatement: string }; source: { anchor: string; sha256: string } }>;
   warnings: string[];
+}
+
+export type CvFactCategory =
+  | 'profile' | 'contact' | 'employment' | 'project' | 'education'
+  | 'skill' | 'certification' | 'language' | 'additional';
+export type CvFactDecision = 'pending' | 'confirmed' | 'rejected';
+
+export interface CvFact {
+  id: string;
+  claimId?: string;
+  category: CvFactCategory;
+  recordId: string;
+  field: string;
+  value: string;
+  decision: CvFactDecision;
+  provenance: {
+    sourceSha256: string;
+    anchor: string;
+    origin: 'imported' | 'user_supplied';
+    recognition?: {
+      method: 'deterministic' | 'ai_assisted';
+      runId?: string;
+      proposalSha256?: string;
+      suggestionId?: string;
+      selectedAlternativeId?: string;
+      confidence?: number;
+      questions?: string[];
+      sourceSpan?: { lineStart: number; lineEnd: number; charStart: number; charEnd: number };
+    };
+  };
+}
+
+export interface CvTheme {
+  template: 'classic' | 'compact' | 'modern';
+  font: 'Arial' | 'Calibri' | 'Georgia' | 'Helvetica';
+  accentColor: '#1f2937' | '#1d4ed8' | '#047857' | '#7c3aed';
+  spacing: 'compact' | 'comfortable' | 'spacious';
+  sectionOrder: Array<Exclude<CvFactCategory, 'contact'>>;
+}
+
+export interface CvImportRecord {
+  contract: 'cv-import';
+  contractVersion: '1.0';
+  id: string;
+  revision: number;
+  sha256: string;
+  status: 'facts_pending' | 'facts_reviewed' | 'adopted' | 'proposal_ready';
+  createdAt: string;
+  updatedAt: string;
+  source: {
+    fileName: string;
+    mimeType: 'text/html' | 'application/pdf'
+      | 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+      | 'application/vnd.oasis.opendocument.text';
+    bytes: number;
+    sha256: string;
+    retention: 'upload_deleted_after_local_extraction';
+  };
+  facts: CvFact[];
+  warnings: string[];
+  activeRecognitionVersionId: string;
+  theme?: CvTheme;
+  adoption?: {
+    adoptedAt: string;
+    adoptedClaimIds: string[];
+    adoptedRecordIds: string[];
+    candidateProfileSha256: string;
+    candidateProfileRevision: string;
+    recognitionVersionId?: string;
+    recognitionVersionSha256?: string;
+  };
+  proposal?: {
+    applicationCaseId: string;
+    jobId: string;
+    createdAt: string;
+    htmlSha256: string;
+    documentRevisionId: string;
+    documentSha256: string;
+    lifecycle: 'approved_revision_preview';
+    format: 'html';
+    downloadAllowed: boolean;
+    inputSnapshot: {
+      cvImportRevision: number;
+      cvImportSha256: string;
+      candidateProfileSha256: string;
+      candidateProfileRevision: string;
+      styleProfileRevision: number;
+      styleProfileSha256: string;
+      themeSha256?: string;
+      agentWorkflowId: 'evidence-application-package';
+      sourceAgentArtifactId: string;
+      pipelineContractVersion: string;
+      completedStages: string[];
+      agentOrchestrationRequired: false;
+      recognitionVersionId?: string;
+      recognitionVersionSha256?: string;
+    };
+  };
+}
+
+export interface CvImportSummary {
+  contract: 'cv-import-summary';
+  contractVersion: '1.0';
+  id: string;
+  revision: number;
+  sha256: string;
+  status: CvImportRecord['status'];
+  createdAt: string;
+  updatedAt: string;
+  source: CvImportRecord['source'];
+  factCounts: { total: number; pending: number; confirmed: number; rejected: number };
+  warningCount: number;
+  unresolvedConflictCount: number;
+  hasTheme: boolean;
+  hasAdoption: boolean;
+  hasProposal: boolean;
+}
+
+export interface CvRecognitionVersionSummary {
+  id: string;
+  ordinal: number;
+  kind: 'deterministic' | 'ai';
+  label: string;
+  createdAt: string;
+  updatedAt: string;
+  active: boolean;
+  factCounts: { total: number; pending: number; confirmed: number; rejected: number };
+  warningCount: number;
+  provider?: { id: string; version: string };
+}
+
+export interface CvRecognitionVersionList {
+  contract: 'cv-recognition-version-list';
+  contractVersion: '1.0';
+  importId: string;
+  activeVersionId: string;
+  versions: CvRecognitionVersionSummary[];
+}
+
+export type CvFactOperation =
+  | { factId: string; action: 'confirm' | 'reject' }
+  | { factId: string; action: 'edit'; category: CvFactCategory; recordId: string; field: string; value: string }
+  | ({ action: 'add'; category: CvFactCategory; field: string; value: string; explicitlyConfirmed?: true }
+    & ({ recordId: string; newRecordKey?: never } | { recordId?: never; newRecordKey: string }));
+
+export interface CvAiStructuringOptions {
+  contract: 'cv-ai-structuring-options';
+  contractVersion: '1.0';
+  capturedAt: string;
+  cvImport: { id: string; revision: number; sha256: string };
+  providers: Array<{
+    providerId: string;
+    installations: Array<{
+      runtimeTarget: 'windows' | 'wsl' | 'linux' | 'darwin';
+      wslDistribution?: string;
+      version?: string;
+      adapterVersion?: string;
+      support: 'supported' | 'untested' | 'unsupported' | 'unavailable';
+      authStatus?: 'authenticated' | 'unauthenticated' | 'unknown' | 'not_required';
+      ready: boolean;
+      blockers: string[];
+      network: {
+        toolNetwork: 'disabled';
+        rootMcpTools: [];
+        jobSearchMcpAccessible: false;
+        providerControlPlane: 'provider_managed_may_use_network';
+      };
+    }>;
+  }>;
+  disclosure: {
+    required: true;
+    version: '1.0';
+    extractedCvTextSentToSelectedProvider: true;
+    toolNetwork: 'disabled';
+    rootMcpTools: [];
+    jobSearchMcpAccessible: false;
+    providerControlPlane: 'provider_managed_may_use_network';
+  };
+}
+
+export interface CvAiSourceAnchor {
+  lineStart: number;
+  lineEnd: number;
+  charStart: number;
+  charEnd: number;
+  quote: string;
+}
+
+export interface CvAiStructuringAlternative {
+  id: string;
+  value: string;
+  sourceAnchor: CvAiSourceAnchor;
+  confidence: number;
+}
+
+export interface CvAiStructuringSuggestion {
+  id: string;
+  path: string;
+  collection: string;
+  recordId: string | null;
+  field: string;
+  category: string;
+  mergeable: boolean;
+  sectionKind?: string;
+  value: string | null;
+  sourceAnchor: CvAiSourceAnchor | null;
+  confidence: number;
+  alternatives: CvAiStructuringAlternative[];
+  questions: string[];
+  status: 'unverified';
+}
+
+export type CvAiStructuringRunStatus =
+  | 'queued' | 'running' | 'validating' | 'suggestions_ready' | 'cancel_requested'
+  | 'cancelled' | 'applying' | 'applied' | 'failed' | 'expired';
+
+export type CvAiStructuringMode = 'replace_with_ai_version' | 'review_suggestions';
+
+export interface CvAiStructuringPublicRun {
+  contract: 'cv-ai-structuring-run';
+  contractVersion: '1.0';
+  id: string;
+  cvImportId: string;
+  revision: number;
+  sha256: string;
+  status: CvAiStructuringRunStatus;
+  mode?: CvAiStructuringMode;
+  attempt: number;
+  retryOf?: string;
+  createdAt: string;
+  updatedAt: string;
+  expiresAt: string;
+  provider: {
+    id: string;
+    runtimeTarget: 'windows' | 'wsl' | 'linux' | 'darwin';
+    wslDistribution?: string;
+    version: string;
+    adapterVersion: string;
+  };
+  disclosure: {
+    version: '1.0';
+    confirmedAt: string;
+    confirmedBy: { id: string; type: 'local' | 'authenticated' };
+    extractedCvTextShared: true;
+    providerControlPlaneNetworkAcknowledged: true;
+    toolNetwork: 'disabled';
+    rootMcpTools: [];
+    jobSearchMcpAccessible: false;
+  };
+  binding: {
+    cvImportRevision: number;
+    cvImportSha256: string;
+    sourceId: string;
+    sourceSha256: string;
+    extractedTextSha256: string;
+    baseProposalSha256: string;
+    lineManifestSha256: string;
+    promptTemplateVersion: 'cv-ai-structuring/1.0';
+    promptSha256: string;
+    outputContractVersion: '1.0';
+    outputSchemaSha256: string;
+    inputSha256: string;
+  };
+  proposal?: { sha256: string; outputSha256: string; suggestions: CvAiStructuringSuggestion[] };
+  result?: {
+    cvImportRevision: number;
+    cvImportSha256: string;
+    stagedFactIds: string[];
+    factsRemainPending: true;
+    recognitionVersionId?: string;
+    recognitionVersionCount?: number;
+  };
+  failure?: { code: string; stage: 'preflight' | 'agent' | 'validation' | 'retention' | 'apply'; retryable: boolean };
+  auditTrail: Array<{
+    sequence: number;
+    occurredAt: string;
+    action: 'started' | 'provider_completed' | 'validated' | 'cancel_requested' | 'cancelled'
+      | 'retried' | 'apply_started' | 'applied' | 'failed' | 'expired';
+    actorId?: string;
+    correlationId?: string;
+    detailSha256?: string;
+  }>;
+}
+
+export interface CvAiProviderSelection {
+  providerId: string;
+  runtimeTarget: 'windows' | 'wsl' | 'linux' | 'darwin';
+  wslDistribution?: string;
+  expectedVersion: string;
+}
+
+export interface CvAiStructuringSelection {
+  suggestionId: string;
+  alternativeId: string | null;
 }
 
 export interface ArtifactRevision {

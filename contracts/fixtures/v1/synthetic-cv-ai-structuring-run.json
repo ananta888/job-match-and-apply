@@ -1,0 +1,58 @@
+{
+  "contract": "cv-ai-structuring-run",
+  "contractVersion": "1.0",
+  "id": "11111111-1111-4111-8111-111111111111",
+  "cvImportId": "22222222-2222-4222-8222-222222222222",
+  "revision": 4,
+  "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "status": "applied",
+  "mode": "replace_with_ai_version",
+  "attempt": 1,
+  "createdAt": "2026-08-14T10:00:00.000Z",
+  "updatedAt": "2026-08-14T10:00:11.000Z",
+  "expiresAt": "2026-08-15T10:00:00.000Z",
+  "provider": {
+    "id": "synthetic-provider",
+    "runtimeTarget": "windows",
+    "version": "1.0.0",
+    "adapterVersion": "1.0.0"
+  },
+  "disclosure": {
+    "version": "1.0",
+    "confirmedAt": "2026-08-14T10:00:00.000Z",
+    "confirmedBy": { "id": "local-user", "type": "local" },
+    "extractedCvTextShared": true,
+    "providerControlPlaneNetworkAcknowledged": true,
+    "toolNetwork": "disabled",
+    "rootMcpTools": [],
+    "jobSearchMcpAccessible": false
+  },
+  "binding": {
+    "cvImportRevision": 1,
+    "cvImportSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "sourceId": "source-cv-cccccccccccccccc",
+    "sourceSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "extractedTextSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "baseProposalSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "lineManifestSha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "promptTemplateVersion": "cv-ai-structuring/1.0",
+    "promptSha256": "1111111111111111111111111111111111111111111111111111111111111111",
+    "outputContractVersion": "1.0",
+    "outputSchemaSha256": "2222222222222222222222222222222222222222222222222222222222222222",
+    "inputSha256": "3333333333333333333333333333333333333333333333333333333333333333"
+  },
+  "result": {
+    "cvImportRevision": 2,
+    "cvImportSha256": "4444444444444444444444444444444444444444444444444444444444444444",
+    "stagedFactIds": ["fact-synthetic-ai-role"],
+    "factsRemainPending": true,
+    "recognitionVersionId": "recognition-fedcba9876543210",
+    "recognitionVersionCount": 2
+  },
+  "auditTrail": [
+    { "sequence": 1, "occurredAt": "2026-08-14T10:00:00.000Z", "action": "started", "actorId": "local-user" },
+    { "sequence": 2, "occurredAt": "2026-08-14T10:00:09.000Z", "action": "provider_completed" },
+    { "sequence": 3, "occurredAt": "2026-08-14T10:00:10.000Z", "action": "validated", "detailSha256": "5555555555555555555555555555555555555555555555555555555555555555" },
+    { "sequence": 4, "occurredAt": "2026-08-14T10:00:11.000Z", "action": "applied", "detailSha256": "5555555555555555555555555555555555555555555555555555555555555555" }
+  ]
+}

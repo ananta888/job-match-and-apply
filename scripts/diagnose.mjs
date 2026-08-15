@@ -139,7 +139,13 @@ checks.push({
 const configPath = localConfigPath;
 if (existsSync(configPath)) {
   const config = JSON.parse(readFileSync(configPath, 'utf8'));
-  checks.push({ id: 'encrypted-identities', ok: config.schemaVersion === 2 && Boolean(config.encryptedIdentities) && !config.config?.identities, required: true, detail: 'config schemaVersion 2' });
+  const encryptedIdentitySchemaSupported = config.schemaVersion === 2 || config.schemaVersion === 3;
+  checks.push({
+    id: 'encrypted-identities',
+    ok: encryptedIdentitySchemaSupported && Boolean(config.encryptedIdentities) && !config.config?.identities,
+    required: true,
+    detail: `config schemaVersion ${String(config.schemaVersion)}`,
+  });
 }
 const failed = checks.filter((item) => !item.ok && item.required);
 const warnings = checks.filter((item) => !item.ok && !item.required);

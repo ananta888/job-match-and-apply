@@ -126,6 +126,18 @@ export function replayAgentRunFromEvents(events: readonly AgentEvent[]): AgentRu
   return run;
 }
 
+/**
+ * Allows an encrypted wrapper to make restart decisions over authenticated
+ * plaintext while the Json store continues to persist only protected values.
+ * Identity fields are checked before any recovered snapshot is written.
+ */
+export interface AgentRunRecoveryCodec {
+  decodeRun(run: AgentRun): AgentRun;
+  decodeEvent(event: AgentEvent): AgentEvent;
+  encodeRun(run: AgentRun): AgentRun;
+  repairRun?(run: AgentRun, events: readonly AgentEvent[], cause: Error): AgentRun;
+}
+
 function redact(value: unknown, key = ''): unknown {
   const normalizedKey = key.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase();
   if (!/(?:^|_)(?:input|output|cached_input|reasoning|total)_tokens?(?:$|_)/.test(normalizedKey) && SENSITIVE_KEY.test(normalizedKey)) return '[REDACTED]';
@@ -388,6 +400,22 @@ export class JsonAgentRunStore implements AgentRunStore {
   }
 
   async recover(): Promise<{ recovered: string[]; truncatedTails: string[]; errors: Array<{ runId: string; message: string }> }> {
+    return this.recoverUsing();
+  }
+
+  recoverWithCodec(codec: AgentRunRecoveryCodec): Promise<{
+    recovered: string[];
+    truncatedTails: string[];
+    errors: Array<{ runId: string; message: string }>;
+  }> {
+    return this.recoverUsing(codec);
+  }
+
+  private recoverUsing(codec?: AgentRunRecoveryCodec): Promise<{
+    recovered: string[];
+    truncatedTails: string[];
+    errors: Array<{ runId: string; message: string }>;
+  }> {
     return this.serialize(async () => {
       const recovered: string[] = [];
       const truncatedTails: string[] = [];
@@ -397,9 +425,16 @@ export class JsonAgentRunStore implements AgentRunStore {
       catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { recovered, truncatedTails, errors }; throw error; }
       for (const runId of entries.filter((name) => RUN_ID_PATTERN.test(name))) {
         try {
+          let storedRun: AgentRun | undefined;
           let run: AgentRun | undefined;
           let runReadError: Error | undefined;
-          try { run = await this.readRun(runId); }
+          try {
+            storedRun = await this.readRun(runId);
+            run = storedRun && codec ? codec.decodeRun(storedRun) : storedRun;
+            if (storedRun && run && (storedRun.id !== run.id || storedRun.provider !== run.provider)) {
+              throw new Error('run_recovery_codec_identity_mismatch');
+            }
+          }
           catch (error) {
             // Readable newer/unknown contracts must not be silently replaced
             // from the event stream, which would amount to a downgrade.
@@ -407,20 +442,43 @@ export class JsonAgentRunStore implements AgentRunStore {
             runReadError = error as Error;
           }
           const read = await this.readEvents(runId);
-          if (read.truncated || read.migrated) {
-            await writeFile(this.paths(runId).events, read.events.map((event) => `${JSON.stringify(encodeAgentEventSnapshot(event))}\n`).join(''), { encoding: 'utf8', mode: 0o600 });
+          const events = codec ? read.events.map((storedEvent) => {
+            const decoded = codec.decodeEvent(storedEvent);
+            if (decoded.runId !== storedEvent.runId || decoded.provider !== storedEvent.provider
+              || decoded.sequence !== storedEvent.sequence) {
+              throw new Error('event_recovery_codec_identity_mismatch');
+            }
+            return decoded;
+          }) : read.events;
+          if (!run && storedRun && runReadError && codec?.repairRun) {
+            try {
+              run = codec.repairRun(storedRun, events, runReadError);
+              if (run.id !== storedRun.id || run.provider !== storedRun.provider) {
+                throw new Error('run_recovery_codec_identity_mismatch');
+              }
+              runReadError = undefined;
+            } catch (error) {
+              runReadError = error as Error;
+            }
           }
-          if (read.truncated) {
-            truncatedTails.push(runId);
-          }
+          const persistRecoveredEvents = async (): Promise<void> => {
+            if (read.truncated || read.migrated) {
+              await writeFile(
+                this.paths(runId).events,
+                read.events.map((storedEvent) => `${JSON.stringify(encodeAgentEventSnapshot(storedEvent))}\n`).join(''),
+                { encoding: 'utf8', mode: 0o600 },
+              );
+            }
+            if (read.truncated) truncatedTails.push(runId);
+          };
           let replayed: AgentRun | undefined;
           let replayError: Error | undefined;
-          if (read.events.length > 0) {
-            try { replayed = replayAgentRunFromEvents(read.events); }
+          if (events.length > 0) {
+            try { replayed = replayAgentRunFromEvents(events); }
             catch (error) { replayError = error as Error; }
           }
           if (replayed) {
-            const lastSequence = read.events.at(-1)!.sequence;
+            const lastSequence = events.at(-1)!.sequence;
             if (run?.currentSequence !== undefined && run.currentSequence > lastSequence) {
               throw new Error(`Snapshot-Sequenz ${run.currentSequence} liegt vor dem Event-Log ${lastSequence}.`);
             }
@@ -436,7 +494,8 @@ export class JsonAgentRunStore implements AgentRunStore {
               snapshot = { ...snapshot, state: 'orphaned', updatedAt: new Date().toISOString() };
               recovered.push(runId);
             } else if (!run) recovered.push(runId);
-            await this.atomicWrite(this.paths(runId).run, snapshot);
+            await persistRecoveredEvents();
+            await this.atomicWrite(this.paths(runId).run, codec ? codec.encodeRun(snapshot) : snapshot);
             continue;
           }
           if (!run) throw runReadError ?? replayError ?? new Error('run_recovery_event_source_missing');
@@ -447,7 +506,7 @@ export class JsonAgentRunStore implements AgentRunStore {
           let derivedFinishedAt: string | undefined;
           let derivedSessionId = run.providerSessionId;
           let derivedFailure = run.failure;
-          for (const event of read.events) {
+          for (const event of events) {
             validateEvent(run, event);
             if (event.sequence !== expectedSequence) throw new Error(`Event-Lücke: erwartet ${expectedSequence}, erhalten ${event.sequence}.`);
             expectedSequence += 1;
@@ -473,7 +532,7 @@ export class JsonAgentRunStore implements AgentRunStore {
               if (eventData.code === 'provider_session_started' && typeof eventData.sessionId === 'string') derivedSessionId = eventData.sessionId;
             }
           }
-          const lastSequence = read.events.at(-1)?.sequence ?? 0;
+          const lastSequence = events.at(-1)?.sequence ?? 0;
           if (run.currentSequence > lastSequence) throw new Error(`Snapshot-Sequenz ${run.currentSequence} liegt vor dem Event-Log ${lastSequence}.`);
           let snapshot: AgentRun = {
             ...clone(run), state: derivedState, currentSequence: lastSequence,
@@ -490,7 +549,8 @@ export class JsonAgentRunStore implements AgentRunStore {
             snapshot = { ...snapshot, state: 'orphaned', updatedAt: new Date().toISOString() };
             recovered.push(runId);
           }
-          await this.atomicWrite(this.paths(runId).run, snapshot);
+          await persistRecoveredEvents();
+          await this.atomicWrite(this.paths(runId).run, codec ? codec.encodeRun(snapshot) : snapshot);
         } catch (error) { errors.push({ runId, message: (error as Error).message }); }
       }
       return { recovered, truncatedTails, errors };

@@ -22,5 +22,10 @@ describe('LocalCandidateProfileAdapter', () => {
     const result = await adapter.patch([{ claimId: 'claim-role', field: 'statement', value: 'Senior Engineer bei Example GmbH' }], true);
     expect(result.updatedClaimIds).toEqual(['claim-role']);
     expect((await adapter.summary()).claims.find((claim) => claim.id === 'claim-role')?.statement).toContain('Senior Engineer');
+    const imported = await adapter.addImportProposals([{
+      id: 'claim-adapter-import', statement: 'Synthetic adapter import.', sha256: 'a'.repeat(64)
+    }], true);
+    expect(imported.addedClaimIds).toEqual(['claim-adapter-import']);
+    expect((await adapter.summary()).claims.find((claim) => claim.id === 'claim-adapter-import')?.status).toBe('unverified');
   });
 });

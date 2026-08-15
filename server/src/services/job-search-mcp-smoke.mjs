@@ -14,6 +14,10 @@ const HOST_ENVIRONMENT_KEYS = [
   'SystemRoot', 'WINDIR', 'TEMP', 'TMP', 'HOME', 'USERPROFILE', 'APPDATA',
   'LOCALAPPDATA', 'LANG', 'LC_ALL', 'PATH', 'Path'
 ];
+const DEFAULT_ENVIRONMENT_PROBE_TIMEOUT_MS = 15_000;
+const MAX_ENVIRONMENT_PROBE_TIMEOUT_MS = 15_000;
+const DEFAULT_MCP_TIMEOUT_MS = 60_000;
+const PROCESS_TERMINATION_GRACE_MS = 1_000;
 
 function fail(code) { throw new Error(code); }
 
@@ -79,28 +83,73 @@ export function assertOfflineMcpCapabilities(listed, capabilityResult) {
   };
 }
 
-function collectProcess(command, args, environment, timeoutMs) {
+/**
+ * Run the side-effect-free WSL environment probe with bounded cleanup. The
+ * injectable process factory is intentionally narrow and exists so timeout
+ * cleanup can be verified without starting WSL in unit tests.
+ * @param {string} command
+ * @param {string[]} args
+ * @param {Record<string,string>} environment
+ * @param {number} timeoutMs
+ * @param {{spawnProcess?:(command:string,args:string[],options:object)=>any,terminationGraceMs?:number}} options
+ */
+export function collectOfflineProbeProcess(command, args, environment, timeoutMs, options = {}) {
   return new Promise((resolveResult, reject) => {
-    const child = spawn(command, args, {
+    const spawnProcess = options.spawnProcess ?? spawn;
+    const terminationGraceMs = options.terminationGraceMs ?? PROCESS_TERMINATION_GRACE_MS;
+    const child = spawnProcess(command, args, {
       env: environment, shell: false, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe']
     });
     let stdout = '';
     let stderr = '';
-    const timer = setTimeout(() => { child.kill(); reject(new Error('job_search_mcp_smoke_environment_probe_timeout')); }, timeoutMs);
-    child.stdout.on('data', (chunk) => { if (stdout.length < 64 * 1024) stdout += String(chunk); });
-    child.stderr.on('data', (chunk) => { if (stderr.length < 8 * 1024) stderr += String(chunk); });
-    child.once('error', (error) => { clearTimeout(timer); reject(error); });
-    child.once('close', (code) => {
+    let timedOut = false;
+    let settled = false;
+    let terminationTimer;
+    let forcedTerminationTimer;
+    const timeoutError = new Error('job_search_mcp_smoke_environment_probe_timeout');
+    const clearTimers = () => {
       clearTimeout(timer);
-      if (code !== 0) reject(new Error(`job_search_mcp_smoke_environment_probe_failed:${stderr.trim().slice(0, 200)}`));
-      else resolveResult(stdout);
+      if (terminationTimer) clearTimeout(terminationTimer);
+      if (forcedTerminationTimer) clearTimeout(forcedTerminationTimer);
+    };
+    const settle = (callback) => {
+      if (settled) return;
+      settled = true;
+      clearTimers();
+      callback();
+    };
+    const detachAfterForcedTermination = () => {
+      try { child.stdout?.destroy(); } catch { /* best effort */ }
+      try { child.stderr?.destroy(); } catch { /* best effort */ }
+      try { child.stdin?.destroy(); } catch { /* best effort */ }
+      try { child.unref(); } catch { /* best effort */ }
+      settle(() => reject(timeoutError));
+    };
+    const timer = setTimeout(() => {
+      timedOut = true;
+      try { child.kill('SIGTERM'); } catch { /* continue to bounded cleanup */ }
+      terminationTimer = setTimeout(() => {
+        try { child.kill('SIGKILL'); } catch { /* continue to detach */ }
+        forcedTerminationTimer = setTimeout(detachAfterForcedTermination, terminationGraceMs);
+      }, terminationGraceMs);
+    }, timeoutMs);
+    child.stdout?.on('data', (chunk) => { if (stdout.length < 64 * 1024) stdout += String(chunk); });
+    child.stderr?.on('data', (chunk) => { if (stderr.length < 8 * 1024) stderr += String(chunk); });
+    child.once('error', (error) => settle(() => reject(timedOut ? timeoutError : error)));
+    child.once('close', (code) => {
+      if (timedOut) settle(() => reject(timeoutError));
+      else if (code !== 0) {
+        settle(() => reject(new Error(`job_search_mcp_smoke_environment_probe_failed:${stderr.trim().slice(0, 200)}`)));
+      } else settle(() => resolveResult(stdout));
     });
   });
 }
 
 async function assertWslEnvironmentBridge(runtime, environment, timeoutMs) {
   if (runtime.runtimeTarget !== 'wsl') return { checked: false, reason: 'native-runtime' };
-  const output = await collectProcess(runtime.command, ['-d', runtime.distribution, '--', 'env'], environment, timeoutMs);
+  const output = await collectOfflineProbeProcess(
+    runtime.command, ['-d', runtime.distribution, '--', 'env'], environment, timeoutMs
+  );
   const values = new Map(String(output).split(/\r?\n/).map((line) => {
     const separator = line.indexOf('=');
     return separator > 0 ? [line.slice(0, separator), line.slice(separator + 1)] : ['', ''];
@@ -115,16 +164,23 @@ async function assertWslEnvironmentBridge(runtime, environment, timeoutMs) {
 /**
  * Positive, side-effect-free stdio MCP smoke. It validates the canonical
  * executable first and refuses to run unless portal networking is disabled.
- * @param {{projectRoot?:string,launchPath?:string,timeoutMs?:number}} options
+ * @param {{projectRoot?:string,launchPath?:string,timeoutMs?:number,environmentProbeTimeoutMs?:number}} options
  */
 export async function runOfflineJobSearchMcpSmoke(options = {}) {
   const projectRoot = resolve(options.projectRoot ?? resolve(import.meta.dirname, '..', '..', '..'));
   const launchPath = resolve(options.launchPath ?? resolve(projectRoot, '.local-data', 'job-search-mcp-launch.json'));
-  const timeoutMs = options.timeoutMs ?? 20_000;
+  // A cold WSL/Python import can legitimately take more than 20 seconds on a
+  // Windows host. Only the MCP handshake gets the larger budget; the simple
+  // environment bridge remains independently and strictly bounded.
+  const timeoutMs = options.timeoutMs ?? DEFAULT_MCP_TIMEOUT_MS;
+  const environmentProbeTimeoutMs = Math.min(
+    options.environmentProbeTimeoutMs ?? DEFAULT_ENVIRONMENT_PROBE_TIMEOUT_MS,
+    MAX_ENVIRONMENT_PROBE_TIMEOUT_MS
+  );
   const launch = parseJobSearchMcpLaunch(JSON.parse(await readFile(launchPath, 'utf8')));
   const runtime = await validateJobSearchMcpRuntime(launch, { projectRoot });
   const environment = buildOfflineSmokeEnvironment(runtime.env);
-  const environmentBridge = await assertWslEnvironmentBridge(runtime, environment, timeoutMs);
+  const environmentBridge = await assertWslEnvironmentBridge(runtime, environment, environmentProbeTimeoutMs);
   const transport = new StdioClientTransport({
     command: runtime.command, args: runtime.args, env: environment, cwd: projectRoot, stderr: 'pipe'
   });

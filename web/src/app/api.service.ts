@@ -1,7 +1,7 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
-import type { AgentArtifactAdoptionResult, AgentArtifactContent, AgentArtifactRecord, AgentConfigProfile, AgentConfigProfileView, AgentOrchestrationConfirmationInput, AgentOrchestrationConflict, AgentOrchestrationConflictResolutionRequest, AgentOrchestrationCreateRequest, AgentOrchestrationRecord, AgentProvider, AgentQueueSnapshot, AgentRecoveryDecision, AgentRecoveryLease, AgentRecoveryResolution, AgentRecoverySnapshot, AgentRun, AgentRunEvent, AgentRunEventsPage, AgentRunPreflight, AgentRunRequest, AgentWorkflow, AppConfig, ApplicationCase, ApplicationDraft, ApplicationExportResult, ApplicationPipelineFinalizeResult, ApplicationProfileSetupStatus, ApplicationStyleProfileView, ArtifactRevision, CandidateMatchAnalysis, CandidateProfileSummary, CompanyCrm, CorrelatedMail, DataInventory, EditableApplicationStyleProfile, IdentityProfile, JobDecision, JobMatch, JobSourceCapabilities, LanguageCheckResult, MailAccount, McpRuntimeStatus, ProfileImportPreview, SearchProfile, SearchSchedule, SourceStatus } from './models';
+import type { AgentArtifactAdoptionResult, AgentArtifactContent, AgentArtifactRecord, AgentConfigProfile, AgentConfigProfileView, AgentOrchestrationConfirmationInput, AgentOrchestrationConflict, AgentOrchestrationConflictResolutionRequest, AgentOrchestrationCreateRequest, AgentOrchestrationRecord, AgentProvider, AgentQueueSnapshot, AgentRecoveryDecision, AgentRecoveryLease, AgentRecoveryResolution, AgentRecoverySnapshot, AgentRun, AgentRunEvent, AgentRunEventsPage, AgentRunPreflight, AgentRunRequest, AgentWorkflow, AppConfig, ApplicationCase, ApplicationDraft, ApplicationExportResult, ApplicationPipelineFinalizeResult, ApplicationProfileSetupStatus, ApplicationStyleProfileView, ArtifactRevision, CandidateMatchAnalysis, CandidateProfileSummary, CompanyCrm, CorrelatedMail, CvAiProviderSelection, CvAiStructuringOptions, CvAiStructuringPublicRun, CvAiStructuringSelection, CvFactOperation, CvImportRecord, CvImportSummary, CvRecognitionVersionList, CvTheme, DataInventory, EditableApplicationStyleProfile, IdentityProfile, JobDecision, JobMatch, JobSourceCapabilities, LanguageCheckResult, MailAccount, McpRuntimeStatus, ProfileImportPreview, SearchProfile, SearchSchedule, SourceStatus } from './models';
 
 @Injectable({ providedIn: 'root' })
 export class ApiService {
@@ -77,6 +77,147 @@ export class ApiService {
     return this.http.post('/api/profile-imports/accept', { confirmed: true, proposals: preview.proposals.map((item, index) => ({
       id: `claim-import-${item.source.sha256.slice(0, 8)}-${index + 1}`, statement: item.statement, sha256: item.source.sha256
     })) });
+  }
+  importCv(input: {
+    fileName: string;
+    mimeType: CvImportRecord['source']['mimeType'];
+    base64: string;
+  }): Observable<CvImportRecord> {
+    return this.http.post<CvImportRecord>('/api/cv-imports', { ...input, confirmed: true });
+  }
+  cvImport(importId: string): Observable<CvImportRecord> {
+    return this.http.get<CvImportRecord>(`/api/cv-imports/${encodeURIComponent(importId)}`);
+  }
+  cvImports(limit = 20): Observable<CvImportSummary[]> {
+    const boundedLimit = Math.min(100, Math.max(1, Math.trunc(limit)));
+    return this.http.get<CvImportSummary[]>(`/api/cv-imports?limit=${boundedLimit}`);
+  }
+  deleteCvImport(current: CvImportRecord): Observable<{ removed: number }> {
+    return this.http.delete<{ removed: number }>(`/api/cv-imports/${encodeURIComponent(current.id)}`, {
+      body: {
+        confirmation: `DELETE cv-import ${current.id}`,
+        expectedRevision: current.revision,
+        expectedSha256: current.sha256
+      }
+    });
+  }
+  cvRecognitionVersions(current: CvImportRecord): Observable<CvRecognitionVersionList> {
+    return this.http.get<CvRecognitionVersionList>(
+      `/api/cv-imports/${encodeURIComponent(current.id)}/recognition-versions`
+    );
+  }
+  activateCvRecognitionVersion(current: CvImportRecord, versionId: string): Observable<CvImportRecord> {
+    return this.http.post<CvImportRecord>(
+      `/api/cv-imports/${encodeURIComponent(current.id)}/recognition-versions/${encodeURIComponent(versionId)}/activate`,
+      { expectedRevision: current.revision, expectedSha256: current.sha256, confirmed: true }
+    );
+  }
+  confirmCvRecognitionVersion(current: CvImportRecord, versionId: string): Observable<CvImportRecord> {
+    return this.http.post<CvImportRecord>(
+      `/api/cv-imports/${encodeURIComponent(current.id)}/recognition-versions/${encodeURIComponent(versionId)}/confirm`,
+      { expectedRevision: current.revision, expectedSha256: current.sha256, confirmed: true }
+    );
+  }
+  cvAiStructuringOptions(current: CvImportRecord): Observable<CvAiStructuringOptions> {
+    return this.http.get<CvAiStructuringOptions>(
+      `/api/cv-imports/${encodeURIComponent(current.id)}/ai-structuring/options?expectedRevision=${current.revision}&expectedSha256=${encodeURIComponent(current.sha256)}`
+    );
+  }
+  cvAiStructuringRuns(current: CvImportRecord, limit = 20): Observable<CvAiStructuringPublicRun[]> {
+    const boundedLimit = Math.min(100, Math.max(1, Math.trunc(limit)));
+    return this.http.get<CvAiStructuringPublicRun[]>(
+      `/api/cv-imports/${encodeURIComponent(current.id)}/ai-structuring/runs?limit=${boundedLimit}`
+    );
+  }
+  cvAiStructuringRun(importId: string, runId: string): Observable<CvAiStructuringPublicRun> {
+    return this.http.get<CvAiStructuringPublicRun>(
+      `/api/cv-imports/${encodeURIComponent(importId)}/ai-structuring/runs/${encodeURIComponent(runId)}`
+    );
+  }
+  startCvAiStructuring(current: CvImportRecord, provider: CvAiProviderSelection): Observable<CvAiStructuringPublicRun> {
+    return this.http.post<CvAiStructuringPublicRun>(
+      `/api/cv-imports/${encodeURIComponent(current.id)}/ai-structuring/runs`,
+      {
+        expectedRevision: current.revision, expectedSha256: current.sha256, provider,
+        mode: 'replace_with_ai_version',
+        disclosure: {
+          version: '1.0', confirmed: true, sendExtractedCvTextToProvider: true,
+          acknowledgeProviderControlPlaneNetwork: true
+        }
+      }
+    );
+  }
+  cancelCvAiStructuring(importId: string, run: CvAiStructuringPublicRun): Observable<CvAiStructuringPublicRun> {
+    return this.http.post<CvAiStructuringPublicRun>(
+      `/api/cv-imports/${encodeURIComponent(importId)}/ai-structuring/runs/${encodeURIComponent(run.id)}/cancel`,
+      { expectedRunRevision: run.revision, expectedRunSha256: run.sha256, confirmed: true }
+    );
+  }
+  retryCvAiStructuring(
+    current: CvImportRecord,
+    run: CvAiStructuringPublicRun,
+    provider: CvAiProviderSelection
+  ): Observable<CvAiStructuringPublicRun> {
+    return this.http.post<CvAiStructuringPublicRun>(
+      `/api/cv-imports/${encodeURIComponent(current.id)}/ai-structuring/runs/${encodeURIComponent(run.id)}/retry`,
+      {
+        expectedRunRevision: run.revision, expectedRunSha256: run.sha256,
+        expectedCvImportRevision: current.revision, expectedCvImportSha256: current.sha256, provider,
+        mode: 'replace_with_ai_version',
+        disclosure: {
+          version: '1.0', confirmed: true, sendExtractedCvTextToProvider: true,
+          acknowledgeProviderControlPlaneNetwork: true
+        }
+      }
+    );
+  }
+  applyCvAiStructuring(
+    current: CvImportRecord,
+    run: CvAiStructuringPublicRun,
+    selections: CvAiStructuringSelection[]
+  ): Observable<CvAiStructuringPublicRun> {
+    return this.http.post<CvAiStructuringPublicRun>(
+      `/api/cv-imports/${encodeURIComponent(current.id)}/ai-structuring/runs/${encodeURIComponent(run.id)}/apply`,
+      {
+        expectedRunRevision: run.revision, expectedRunSha256: run.sha256,
+        expectedCvImportRevision: current.revision, expectedCvImportSha256: current.sha256,
+        selections, confirmed: true
+      }
+    );
+  }
+  reviewCvFacts(current: CvImportRecord, operations: CvFactOperation[]): Observable<CvImportRecord> {
+    return this.http.patch<CvImportRecord>(`/api/cv-imports/${encodeURIComponent(current.id)}/facts`, {
+      expectedRevision: current.revision, expectedSha256: current.sha256, confirmed: true, operations
+    });
+  }
+  saveCvTheme(current: CvImportRecord, theme: CvTheme | null): Observable<CvImportRecord> {
+    return this.http.put<CvImportRecord>(`/api/cv-imports/${encodeURIComponent(current.id)}/theme`, {
+      expectedRevision: current.revision, expectedSha256: current.sha256, confirmed: true, theme
+    });
+  }
+  adoptCvFacts(current: CvImportRecord): Observable<CvImportRecord> {
+    return this.http.post<CvImportRecord>(`/api/cv-imports/${encodeURIComponent(current.id)}/adopt`, {
+      expectedRevision: current.revision, expectedSha256: current.sha256, confirmed: true
+    });
+  }
+  createCvProposal(
+    applicationCaseId: string,
+    current: CvImportRecord,
+    documentRevisionId: string,
+    expectedDocumentSha256: string
+  ): Observable<CvImportRecord> {
+    return this.http.post<CvImportRecord>(`/api/application-cases/${encodeURIComponent(applicationCaseId)}/cv-proposals`, {
+      importId: current.id, expectedRevision: current.revision, expectedSha256: current.sha256,
+      documentRevisionId, expectedDocumentSha256, confirmed: true
+    });
+  }
+  cvProposalHtmlUrl(importId: string, htmlSha256: string, download = false): string {
+    return `/api/cv-imports/${encodeURIComponent(importId)}/proposal.html?sha256=${encodeURIComponent(htmlSha256)}&download=${download ? 'true' : 'false'}`;
+  }
+  downloadCvProposal(importId: string, htmlSha256: string): Observable<Blob> {
+    return this.http.get(this.cvProposalHtmlUrl(importId, htmlSha256, true), {
+      responseType: 'blob'
+    });
   }
   analyze(match: JobMatch, documentType: 'cv' | 'cover_letter' | 'email'): Observable<CandidateMatchAnalysis> {
     return this.http.post<CandidateMatchAnalysis>('/api/applications/analyze', { match, documentType });

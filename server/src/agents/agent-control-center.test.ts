@@ -42,6 +42,36 @@ describe('AgentControlCenter', () => {
     expect((await center.get(run.id))?.capabilities?.provider).toBe('fake');
   });
 
+  it('pins the discovered provider and negotiated adapter versions before spawn', async () => {
+    const root = await workspace();
+    class TrackingProvider extends FakeAgentProvider {
+      starts = 0;
+      override async start(context: ProviderRunContext): Promise<AgentRunHandle> {
+        this.starts += 1;
+        return super.start(context);
+      }
+    }
+    const provider = new TrackingProvider();
+    const center = new AgentControlCenter(new MemoryAgentRunStore(), [provider], {
+      maxParallel: 1, maxParallelPerProvider: 1, allowedWorkspaceRoots: [root],
+    });
+    const wrongProvider = await center.enqueue({
+      ...request(root), metadata: { expectedProviderVersion: 'fake 9.9.9', expectedAdapterVersion: '1.0.0' },
+    });
+    expect(await waitForTerminal(center, wrongProvider.id)).toBe('failed');
+    expect(provider.starts).toBe(0);
+    const wrongAdapter = await center.enqueue({
+      ...request(root), metadata: { expectedProviderVersion: 'fake 1.0.0', expectedAdapterVersion: '9.9.9' },
+    });
+    expect(await waitForTerminal(center, wrongAdapter.id)).toBe('failed');
+    expect(provider.starts).toBe(0);
+    const exact = await center.enqueue({
+      ...request(root), metadata: { expectedProviderVersion: 'fake 1.0.0', expectedAdapterVersion: '1.0.0' },
+    });
+    expect(await waitForTerminal(center, exact.id)).toBe('succeeded');
+    expect(provider.starts).toBe(1);
+  });
+
   it('enforces global queueing and can cancel queued work', async () => {
     const root = await workspace(); const store = new MemoryAgentRunStore();
     const provider = new FakeAgentProvider({ steps: [{ delayMs: 100, kind: 'heartbeat', data: {} }] });

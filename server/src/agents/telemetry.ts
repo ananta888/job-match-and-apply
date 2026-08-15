@@ -83,6 +83,20 @@ export class AgentTelemetry {
   private errors = 0;
   private readonly providerRuns = new Map<string, number>();
   private readonly usage = new Map<string, AgentUsageMeasurement>();
+  private readonly privateRuns = new Set<string>();
+
+  markPrivateRun(runId: string): void {
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(runId)) throw new Error('telemetry_run_identity_invalid');
+    this.privateRuns.add(runId);
+    this.usage.delete(runId);
+  }
+
+  isPrivateRun(runId: string): boolean { return this.privateRuns.has(runId); }
+
+  forgetRun(runId: string): void {
+    this.privateRuns.delete(runId);
+    this.usage.delete(runId);
+  }
 
   setQueueDepth(value: number): void { this.queueDepth = boundedInteger(value, 0, 100_000); }
 
@@ -109,6 +123,7 @@ export class AgentTelemetry {
 
   recordUsage(runId: string, measurement: AgentUsageMeasurement): void {
     if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(runId) || !SAFE_PROVIDER.test(measurement.provider)) throw new Error('telemetry_usage_identity_invalid');
+    if (this.privateRuns.has(runId)) return;
     if (!['provider', 'estimated', 'unknown'].includes(measurement.source)) throw new Error('telemetry_usage_source_invalid');
     if (!measurement.capturedAt || !Number.isFinite(Date.parse(measurement.capturedAt))) throw new Error('telemetry_captured_at_invalid');
     for (const value of [measurement.inputTokens, measurement.cachedInputTokens, measurement.outputTokens, measurement.reasoningTokens, measurement.totalTokens, measurement.runDurationMs, measurement.toolCalls]) {

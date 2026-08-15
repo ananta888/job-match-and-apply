@@ -574,9 +574,22 @@ export class AgentControlCenter {
           && (!run.request.wslDistribution || candidate.distribution === run.request.wslDistribution)
           && candidate.support === 'supported');
       if (!installation) throw new Error(`Keine freigegebene ${run.provider}-Installation für ${run.request.runtimeTarget} gefunden.`);
+      const expectedProviderVersion = typeof run.request.metadata?.expectedProviderVersion === 'string'
+        ? run.request.metadata.expectedProviderVersion : undefined;
+      const expectedAdapterVersion = typeof run.request.metadata?.expectedAdapterVersion === 'string'
+        ? run.request.metadata.expectedAdapterVersion : undefined;
+      if (expectedProviderVersion !== undefined && installation.version !== expectedProviderVersion) {
+        throw new Error('expected_provider_version_mismatch');
+      }
       const capabilities = await provider.capabilities(installation);
       assertAgentCapabilities(capabilities);
       if (capabilities.provider !== run.provider) throw new Error('Capability-Provider stimmt nicht mit dem Run ueberein.');
+      if (expectedProviderVersion !== undefined && capabilities.providerVersion !== expectedProviderVersion) {
+        throw new Error('expected_capability_provider_version_mismatch');
+      }
+      if (expectedAdapterVersion !== undefined && capabilities.adapterVersion !== expectedAdapterVersion) {
+        throw new Error('expected_adapter_version_mismatch');
+      }
       run = { ...(await this.required(runId)), capabilities }; await this.store.update(run);
       await this.emit(runId, { kind: 'capabilities_negotiated', data: { capabilities } });
       this.active.set(runId, provider);

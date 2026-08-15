@@ -1,0 +1,76 @@
+{
+  "provider": "claude-cli",
+  "providerVersion": "2.1.232",
+  "versionOutput": "2.1.232 (Claude Code)",
+  "activation": "cv_ai_zero_tools_runtime_attestation_required",
+  "fixtureKind": "synthetic-exact-cv-zero-tool-contract-corpus",
+  "capturedAt": "2026-08-14",
+  "conformance": {
+    "runtimeTarget": "wsl",
+    "argumentTemplate": [
+      "--safe-mode",
+      "-p",
+      "--output-format",
+      "stream-json",
+      "--verbose",
+      "--permission-mode",
+      "plan",
+      "--tools",
+      "",
+      "--disallowedTools",
+      "*",
+      "--strict-mcp-config",
+      "--mcp-config",
+      "{\"mcpServers\":{}}",
+      "--disable-slash-commands",
+      "--no-session-persistence"
+    ],
+    "promptTransport": "stdin",
+    "sandboxBackend": "wsl-bubblewrap-v1",
+    "networkEnforcement": "provider-tool-capability-policy",
+    "networkAccessClaim": "provider-control-plane-only",
+    "approvalMode": "deny",
+    "providerPermissionMode": "plan",
+    "builtinToolAllowlist": [],
+    "runtimeAttestation": "system/init must report an exactly empty tools array before output is accepted"
+  },
+  "events": [
+    {
+      "type": "system",
+      "subtype": "init",
+      "cwd": "/synthetic/empty-workspace",
+      "session_id": "session-cv-zero-tools-synthetic",
+      "tools": [],
+      "mcp_servers": [],
+      "permissionMode": "plan",
+      "slash_commands": [],
+      "claude_code_version": "2.1.232",
+      "skills": [],
+      "plugins": []
+    },
+    {
+      "type": "assistant",
+      "message": {
+        "id": "msg_cv_zero_tools_synthetic",
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"contract\":\"ai-cv-structure-proposal\",\"contract_version\":\"1.0\"}"
+          }
+        ]
+      },
+      "session_id": "session-cv-zero-tools-synthetic"
+    },
+    {
+      "type": "result",
+      "subtype": "success",
+      "is_error": false,
+      "usage": {
+        "input_tokens": 8,
+        "output_tokens": 3
+      },
+      "session_id": "session-cv-zero-tools-synthetic"
+    }
+  ]
+}

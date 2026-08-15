@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://job-match-and-apply.local/contracts/v1/cv-import-summary.schema.json",
+  "title": "Privacy-minimized CV import inventory entry",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract", "contractVersion", "id", "revision", "sha256", "status", "createdAt", "updatedAt",
+    "source", "factCounts", "warningCount", "unresolvedConflictCount", "hasTheme", "hasAdoption", "hasProposal"
+  ],
+  "properties": {
+    "contract": { "const": "cv-import-summary" },
+    "contractVersion": { "const": "1.0" },
+    "id": { "$ref": "#/$defs/uuid" },
+    "revision": { "type": "integer", "minimum": 1 },
+    "sha256": { "$ref": "#/$defs/sha256" },
+    "status": { "enum": ["facts_pending", "facts_reviewed", "adopted", "proposal_ready"] },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "updatedAt": { "type": "string", "format": "date-time" },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fileName", "mimeType", "bytes", "sha256", "retention"],
+      "properties": {
+        "fileName": { "type": "string", "minLength": 1, "maxLength": 240 },
+        "mimeType": { "enum": ["text/html", "application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/vnd.oasis.opendocument.text"] },
+        "bytes": { "type": "integer", "minimum": 1, "maximum": 10485760 },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "retention": { "const": "upload_deleted_after_local_extraction" }
+      }
+    },
+    "factCounts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["total", "pending", "confirmed", "rejected"],
+      "properties": {
+        "total": { "type": "integer", "minimum": 0, "maximum": 2000 },
+        "pending": { "type": "integer", "minimum": 0, "maximum": 2000 },
+        "confirmed": { "type": "integer", "minimum": 0, "maximum": 2000 },
+        "rejected": { "type": "integer", "minimum": 0, "maximum": 2000 }
+      }
+    },
+    "warningCount": { "type": "integer", "minimum": 0, "maximum": 100 },
+    "unresolvedConflictCount": { "type": "integer", "minimum": 0, "maximum": 100 },
+    "hasTheme": { "type": "boolean" },
+    "hasAdoption": { "type": "boolean" },
+    "hasProposal": { "type": "boolean" }
+  },
+  "$defs": {
+    "uuid": { "type": "string", "format": "uuid" },
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+  }
+}

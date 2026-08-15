@@ -44,7 +44,10 @@ describe('WslBubblewrapSandboxBoundary', () => {
     const config = JSON.parse(inline) as Record<string, unknown>;
     expect(config).toMatchObject({
       share: 'disabled',
-      agent: { 'job-match-read-only': { permission: { '*': 'deny', read: 'allow' } } },
+      agent: {
+        'job-match-read-only': { permission: { '*': 'deny', read: 'allow' } },
+        'job-match-no-tools': { permission: { '*': 'deny' } },
+      },
     });
     expect(config).not.toHaveProperty('permission');
     expect(result.args).toContain('/home/synthetic/.local/share/opencode/auth.json');

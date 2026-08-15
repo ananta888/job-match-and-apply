@@ -19,6 +19,10 @@ export const ROOT_DOMAIN_TOOL_NAMES = [
 ] as const;
 
 const workflowTools: Readonly<Record<string, readonly string[]>> = {
+  // CV source text is untrusted document data. Structuring runs may only
+  // produce a schema-bound proposal and must never inherit the default
+  // no-case job-search tool set (including the trusted-host Job MCP).
+  'cv-ai-structuring': [],
   'guided-job-analysis': ['jobs.search', 'job_search.capabilities', 'job_search.search'],
   'evidence-application-package': [
     'applications.get', 'companies.get', 'application.tracking.list', 'application.analyze', 'application.pipeline.audit',

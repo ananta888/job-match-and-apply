@@ -3,7 +3,10 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { AGENT_CONTRACT_VERSION, type AgentEventDraft, type AgentProviderInstallation, type ProviderRunContext } from '../ports/agent-runner.js';
-import { GenericJsonlAgentAdapter, PROVIDER_RESOURCE_CEILINGS, agentManifestFingerprint, type AgentAdapterManifest } from './generic-jsonl-adapter.js';
+import {
+  GenericJsonlAgentAdapter, PROVIDER_RESOURCE_CEILINGS, agentManifestFingerprint,
+  applyServerOwnedProviderToolMode, type AgentAdapterManifest,
+} from './generic-jsonl-adapter.js';
 import { CODEX_EXEC_MANIFEST, CLAUDE_CLI_MANIFEST, OPENCODE_MANIFEST, mapClaudeStreamEvent, mapCodexJsonlEvent, mapOpenCodeJsonEvent } from './provider-adapters.js';
 import type { ProcessLaunchSpec, ProcessCallbacks, SupervisedProcess } from './process-supervisor.js';
 
@@ -81,6 +84,29 @@ describe('provider manifests', () => {
     expect(CLAUDE_CLI_MANIFEST.command.promptTransport).toBe('stdin');
     expect(CLAUDE_CLI_MANIFEST.command.args.join(' ')).not.toContain('bypassPermissions');
     expect(CLAUDE_CLI_MANIFEST.command.args).not.toContain('--dangerously-skip-permissions');
+    expect(OPENCODE_MANIFEST.capabilities.extensions?.serverOwnedNoToolsMode).toBeUndefined();
+    expect(CLAUDE_CLI_MANIFEST.capabilities.extensions?.serverOwnedNoToolsMode).toBe('cv-ai-structuring-v1');
+    expect(CLAUDE_CLI_MANIFEST.capabilities.extensions?.serverOwnedNoToolsFixture)
+      .toBe('contracts/fixtures/v1/claude-cli-cv-zero-tools-events.json');
+  });
+
+  it('derives an exact server-owned zero-tool argv only for the private CV workflow', () => {
+    const request = {
+      approvalMode: 'deny' as const,
+      metadata: { workflowId: 'cv-ai-structuring', providerToolMode: 'none', requiredRootMcpTools: [] },
+    };
+    const openCode = applyServerOwnedProviderToolMode('opencode', OPENCODE_MANIFEST.command.args, request);
+    expect(openCode.slice(openCode.indexOf('--agent'), openCode.indexOf('--agent') + 2))
+      .toEqual(['--agent', 'job-match-no-tools']);
+    const claude = applyServerOwnedProviderToolMode('claude-cli', CLAUDE_CLI_MANIFEST.command.args, request);
+    expect(claude.slice(claude.indexOf('--tools'), claude.indexOf('--tools') + 2)).toEqual(['--tools', '']);
+    expect(claude.slice(claude.indexOf('--disallowedTools'), claude.indexOf('--disallowedTools') + 2))
+      .toEqual(['--disallowedTools', '*']);
+    expect(() => applyServerOwnedProviderToolMode('codex-exec', CODEX_EXEC_MANIFEST.command.args, request))
+      .toThrow('provider_zero_tools_not_supported');
+    expect(() => applyServerOwnedProviderToolMode('claude-cli', CLAUDE_CLI_MANIFEST.command.args, {
+      ...request, metadata: { ...request.metadata, workflowId: 'guided-job-analysis' },
+    })).toThrow('server_owned_provider_tool_mode_invalid');
   });
 
   it('requires explicit fingerprint trust for local manifests', () => {
@@ -105,6 +131,39 @@ describe('provider event mapping', () => {
     expect(mapOpenCodeJsonEvent({ type: 'text', text: 'hello' })[0]?.kind).toBe('agent_message_completed');
     expect(mapClaudeStreamEvent({ type: 'assistant', message: { content: [{ type: 'text', text: 'hello' }] } })[0]?.data).toEqual({ text: 'hello' });
     expect(mapClaudeStreamEvent({ type: 'result', subtype: 'success', result: 'done', usage: { input_tokens: 2 } }).map((event) => event.kind)).toEqual(['usage_updated']);
+  });
+
+  it('attests Claude tools exactly for the selected server-owned mode', async () => {
+    const init = {
+      type: 'system', subtype: 'init', claude_code_version: '2.1.232', permissionMode: 'plan',
+      mcp_servers: [], plugins: [], skills: [], slash_commands: [],
+    };
+    expect(mapClaudeStreamEvent({ ...init, tools: ['Read'] })[0]?.kind).toBe('heartbeat');
+    expect(mapClaudeStreamEvent({ ...init, tools: [] })[0]?.data).toMatchObject({
+      code: 'claude_runtime_conformance_mismatch',
+    });
+
+    const zeroToolsContext = {
+      request: {
+        approvalMode: 'deny' as const,
+        metadata: { workflowId: 'cv-ai-structuring', providerToolMode: 'none', requiredRootMcpTools: [] },
+      },
+    };
+    expect(mapClaudeStreamEvent({ ...init, tools: [] }, zeroToolsContext)[0]?.kind).toBe('heartbeat');
+    expect(mapClaudeStreamEvent({ ...init, tools: ['Read'] }, zeroToolsContext)[0]?.data).toMatchObject({
+      code: 'claude_runtime_conformance_mismatch',
+    });
+
+    const fixture = JSON.parse(await readFile(resolve(
+      process.cwd(), '..', 'contracts', 'fixtures', 'v1', 'claude-cli-cv-zero-tools-events.json',
+    ), 'utf8')) as { conformance: { argumentTemplate: string[] }; events: unknown[] };
+    expect(fixture.conformance.argumentTemplate)
+      .toEqual(applyServerOwnedProviderToolMode('claude-cli', CLAUDE_CLI_MANIFEST.command.args, zeroToolsContext.request));
+    const mapped = fixture.events.flatMap((event) => mapClaudeStreamEvent(event, zeroToolsContext));
+    expect(mapped).toContainEqual(expect.objectContaining({
+      kind: 'heartbeat', data: expect.objectContaining({ phase: 'initialized', tools: [] }),
+    }));
+    expect(mapped.some((event) => event.kind.startsWith('tool_'))).toBe(false);
   });
 
   it('replays every versioned provider corpus without losing unknown additive types', async () => {
@@ -153,6 +212,8 @@ describe('GenericJsonlAgentAdapter process boundary', () => {
     expect(captured?.env).not.toHaveProperty('SYNTHETIC_PRIVATE_TOKEN');
     expect(captured?.limits).toEqual(expect.objectContaining(PROVIDER_RESOURCE_CEILINGS));
     expect(emitted.map((event) => event.kind)).toEqual(['process_started', 'agent_message_completed', 'run_completed']);
+    expect(emitted.at(-1)?.data).toEqual({ state: 'succeeded', exitCode: 0, termination: 'exit' });
+    expect(Object.prototype.hasOwnProperty.call(emitted.at(-1)?.data ?? {}, 'failure')).toBe(false);
     expect(emitted[0]).toMatchObject({
       kind: 'process_started',
       data: {
@@ -162,6 +223,7 @@ describe('GenericJsonlAgentAdapter process boundary', () => {
         networkAccessClaim: 'provider-control-plane-only'
       }
     });
+    expect((adapter as unknown as { contexts: Map<string, unknown> }).contexts.size).toBe(0);
     expect(callbacks).toBeDefined();
   });
 

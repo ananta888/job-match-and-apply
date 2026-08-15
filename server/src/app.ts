@@ -1,8 +1,8 @@
 import express, { type NextFunction, type Request, type Response } from 'express';
 import cors from 'cors';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { mkdir, rm, writeFile } from 'node:fs/promises';
-import { isAbsolute, resolve } from 'node:path';
+import { lstat, mkdir, realpath, rm, writeFile } from 'node:fs/promises';
+import { isAbsolute, relative, resolve } from 'node:path';
 import { z } from 'zod';
 import { DemoJobSourceAdapter } from './adapters/demo-job-source.js';
 import { LocalApplicationAssistantAdapter } from './adapters/local-application-assistant.js';
@@ -42,7 +42,7 @@ import {
 } from './services/artifact-revisions.js';
 import { importLocalMailDrop } from './services/local-mail-drop.js';
 import type { AgentEvent, AgentRunnerPort, AgentRun, AgentRunStore, RuntimeTarget } from './ports/agent-runner.js';
-import { AgentControlCenter } from './agents/agent-control-center.js';
+import { AgentControlCenter, type AgentQueueDiagnostics } from './agents/agent-control-center.js';
 import { MemoryAgentRunStore, JsonAgentRunStore } from './agents/run-store.js';
 import { EncryptedAgentRunStore } from './agents/encrypted-run-store.js';
 import { FakeAgentProvider } from './agents/fake-agent-provider.js';
@@ -71,6 +71,11 @@ import { ApplicationAgentOrchestrationService, type RevisionBoundGateConfirmatio
 import { JsonApplicationOrchestrationStore, MemoryApplicationOrchestrationStore } from './agents/application-orchestration-store.js';
 import { LocalApplicationOrchestrationDomain } from './services/application-orchestration-domain.js';
 import { ApplicationStyleProfileStore } from './services/style-profile.js';
+import { SubmoduleCvNormalizationAdapter } from './adapters/submodule-cv-normalization.js';
+import {
+  CvImportService, JsonCvImportRepository, publicCvImportRecord, publicCvImportSummary,
+} from './services/cv-imports.js';
+import type { CvNormalizationPort, CvTheme } from './ports/cv-normalization.js';
 import {
   AgentRetentionCoordinator, AgentRetentionJournal, FileAgentRawLogRetentionPort,
 } from './agents/retention.js';
@@ -78,6 +83,13 @@ import { AgentConfigProfileStore, safeDefaultAgentConfigProfile } from './agents
 import { AgentLocalObservability } from './agents/local-observability.js';
 import { JsonAgentIdempotencyStore } from './agents/idempotency-store.js';
 import { JsonlApprovalLifecycleJournal } from './agents/approval-lifecycle-journal.js';
+import { SafeHttpError } from './services/safe-http-error.js';
+import {
+  CvAiStructuringError, CvAiStructuringService, type CvAiStructuringValidationPort,
+} from './services/cv-ai-structuring.js';
+import {
+  EncryptedCvAiStructuringRunStore, MemoryCvAiStructuringRunStore,
+} from './services/cv-ai-structuring-store.js';
 
 const searchProfileSchema = z.object({
   name: z.string().min(1).max(80),
@@ -165,8 +177,74 @@ const editableStyleProfileSchema = z.object({
   }).strict(),
 }).strict();
 
+const cvFactCategorySchema = z.enum([
+  'profile', 'contact', 'employment', 'project', 'education', 'skill', 'certification', 'language', 'additional',
+]);
+const cvCasSchema = z.object({
+  expectedRevision: z.number().int().positive(), expectedSha256: z.string().regex(/^[a-f0-9]{64}$/), confirmed: z.literal(true),
+}).strict();
+const cvThemeSchema = z.object({
+  template: z.enum(['classic', 'compact', 'modern']), font: z.enum(['Arial', 'Calibri', 'Georgia', 'Helvetica']),
+  accentColor: z.enum(['#1f2937', '#1d4ed8', '#047857', '#7c3aed']), spacing: z.enum(['compact', 'comfortable', 'spacious']),
+  sectionOrder: z.array(z.enum(['profile', 'employment', 'project', 'education', 'skill', 'certification', 'language', 'additional'])).max(8)
+    .refine((items) => new Set(items).size === items.length, 'Abschnittsreihenfolge enthält Duplikate.'),
+}).strict();
+const cvFactOperationSchema = z.discriminatedUnion('action', [
+  z.object({ factId: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/), action: z.enum(['confirm', 'reject']) }).strict(),
+  z.object({
+    factId: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/), action: z.literal('edit'), category: cvFactCategorySchema,
+    recordId: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/), field: z.string().regex(/^(?=.{1,64}$)[a-z][a-z0-9_.]*(?:\[[0-9]{1,4}\])?$/), value: z.string().trim().min(1).max(5_000),
+  }).strict(),
+  z.object({
+    action: z.literal('add'), category: cvFactCategorySchema,
+    recordId: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).optional(),
+    newRecordKey: z.string().regex(/^[a-z][a-z0-9-]{0,63}$/).optional(),
+    field: z.string().regex(/^(?=.{1,64}$)[a-z][a-z0-9_.]*(?:\[[0-9]{1,4}\])?$/), value: z.string().trim().min(1).max(5_000),
+    explicitlyConfirmed: z.literal(true).optional(),
+  }).strict().refine((value) => Boolean(value.recordId) !== Boolean(value.newRecordKey), 'Genau recordId oder newRecordKey ist erforderlich.'),
+]);
+const cvAiProviderSchema = z.object({
+  providerId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/),
+  runtimeTarget: z.enum(['windows', 'wsl', 'linux', 'darwin']),
+  wslDistribution: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/).optional(),
+  expectedVersion: z.string().trim().min(1).max(256),
+}).strict().refine(
+  (value) => (value.runtimeTarget === 'wsl') === Boolean(value.wslDistribution),
+  'WSL-Distribution ist genau für WSL erforderlich.',
+);
+const cvAiDisclosureSchema = z.object({
+  version: z.literal('1.0'), confirmed: z.literal(true),
+  sendExtractedCvTextToProvider: z.literal(true),
+  acknowledgeProviderControlPlaneNetwork: z.literal(true),
+}).strict();
+const cvAiModeSchema = z.enum(['review_suggestions', 'replace_with_ai_version']);
+const cvAiRunCasSchema = z.object({
+  expectedRunRevision: z.number().int().positive(),
+  expectedRunSha256: z.string().regex(/^[a-f0-9]{64}$/),
+}).strict();
+
 const asyncRoute = (handler: (request: Request, response: Response) => Promise<void>) =>
   (request: Request, response: Response, next: NextFunction): void => { handler(request, response).catch(next); };
+
+function cvAiPublicErrorDetail(code: string): string {
+  if (code === 'cv_ai_disclosure_required') return 'Die KI-Strukturierung benötigt eine ausdrückliche Bestätigung der Provider-Datenweitergabe und des möglichen Provider-Control-Plane-Netzwerks.';
+  if (['provider_unknown', 'provider_disabled_by_profile', 'runtime_blocked_by_profile', 'distribution_blocked_by_profile',
+    'installation_not_supported', 'installation_unavailable', 'provider_not_authenticated', 'provider_version_unknown',
+    'provider_capabilities_unavailable', 'structured_output_not_supported', 'read_only_not_supported',
+    'provider_zero_tools_not_supported', 'runtime_not_supported', 'capability_provider_mismatch',
+    'capability_version_mismatch'].includes(code)) {
+    return 'Die ausgewählte Providerinstallation ist für die sichere CV-Strukturierung nicht verfügbar oder nicht exakt freigegeben.';
+  }
+  if (code === 'provider_output_not_strict_json' || code === 'cv_ai_validation_failed'
+    || code === 'cv_ai_validated_binding_mismatch') {
+    return 'Der Provider hat keinen exakt vertragsgebundenen CV-Strukturvorschlag geliefert. Der Lauf wurde ohne Faktenübernahme beendet.';
+  }
+  if (code.includes('conflict') || code.includes('binding_changed') || code.includes('not_applyable')) {
+    return 'CV-Import oder KI-Lauf wurde zwischenzeitlich geändert. Lade den aktuellen Stand neu.';
+  }
+  if (code === 'emergency_stop') return 'Der lokale Emergency Stop blockiert neue KI-Strukturierungsläufe.';
+  return 'Die sichere KI-Strukturierung konnte nicht abgeschlossen werden. Es wurden keine Fakten automatisch bestätigt.';
+}
 
 const sourceFor = (config: AppConfig): JobSourcePort =>
   config.mcp.mode === 'stdio' ? new McpJobSourceAdapter(config.mcp) : new DemoJobSourceAdapter();
@@ -258,12 +336,37 @@ export interface AgentApiDependencies {
 export interface ApplicationPipelineApiDependencies {
   proofAuthority: ApplicationPipelineProofAuthority;
   workRoot: string;
+  cvImports?: CvImportService;
+  cvAiStructuring?: CvAiStructuringService;
+  cvAiValidation?: CvAiStructuringValidationPort;
 }
 
 function localRuntimeTarget(): Exclude<RuntimeTarget, 'container' | 'wsl'> {
   if (process.platform === 'win32') return 'windows';
   if (process.platform === 'darwin') return 'darwin';
   return 'linux';
+}
+
+async function prepareCvAiWorkspace(workRoot: string, allowedWorkspaceRoot: string): Promise<string> {
+  const configuredWorkRoot = resolve(workRoot);
+  const configuredWorkspace = resolve(configuredWorkRoot, 'cv-ai-structuring');
+  await mkdir(configuredWorkRoot, { recursive: true, mode: 0o700 });
+  const rootStats = await lstat(configuredWorkRoot);
+  if (!rootStats.isDirectory() || rootStats.isSymbolicLink()) throw new Error('cv_ai_work_root_invalid');
+  await mkdir(configuredWorkspace, { recursive: true, mode: 0o700 });
+  const workspaceStats = await lstat(configuredWorkspace);
+  if (!workspaceStats.isDirectory() || workspaceStats.isSymbolicLink()) throw new Error('cv_ai_workspace_invalid');
+  const [canonicalAllowedRoot, canonicalWorkRoot, canonicalWorkspace] = await Promise.all([
+    realpath(resolve(allowedWorkspaceRoot)), realpath(configuredWorkRoot), realpath(configuredWorkspace),
+  ]);
+  const contained = (root: string, candidate: string) => {
+    const nested = relative(root, candidate);
+    return nested === '' || (!nested.startsWith('..') && !isAbsolute(nested));
+  };
+  if (!contained(canonicalAllowedRoot, canonicalWorkRoot) || !contained(canonicalWorkRoot, canonicalWorkspace)) {
+    throw new Error('cv_ai_workspace_escape');
+  }
+  return canonicalWorkspace;
 }
 
 export function createDefaultAgentApiDependencies(memory = false): AgentApiDependencies {
@@ -316,8 +419,16 @@ export function createDefaultAgentApiDependencies(memory = false): AgentApiDepen
     maxParallel: 2, maxParallelPerProvider: 1, allowedWorkspaceRoots: [workspaceRoot],
     onQueueDepth: (depth) => telemetry.setQueueDepth(depth),
     onEvent: (event) => {
-      eventFeed.append(event);
       const data = event.data as Record<string, unknown>;
+      if (event.kind === 'run_created') {
+        const createdRequest = data.request && typeof data.request === 'object'
+          ? data.request as Record<string, unknown> : undefined;
+        const createdMetadata = createdRequest?.metadata && typeof createdRequest.metadata === 'object'
+          ? createdRequest.metadata as Record<string, unknown> : undefined;
+        if (createdMetadata?.workflowId === 'cv-ai-structuring') telemetry.markPrivateRun(event.runId);
+      }
+      if (telemetry.isPrivateRun(event.runId)) return;
+      eventFeed.append(event);
       if (event.kind === 'process_started') telemetry.runStarted(event.provider);
       if (event.kind === 'error') telemetry.errorObserved();
       if (event.kind === 'tool_started') runToolCalls.set(event.runId, (runToolCalls.get(event.runId) ?? 0) + 1);
@@ -538,7 +649,66 @@ function usageView(events: AgentEvent[], run: AgentRun) {
   };
 }
 
+function isCvAiStructuringRun(run: AgentRun): boolean {
+  return run.request.metadata?.workflowId === 'cv-ai-structuring';
+}
+
+/**
+ * Recovery rebuilds durable runs before the HTTP application and its retention
+ * worker start. Re-establish the in-memory privacy classification first so a
+ * later orphan-cancel event cannot enter generic feeds, telemetry or logs.
+ */
+export async function restorePrivateAgentRunClassifications(
+  agentApi: Pick<AgentApiDependencies, 'center' | 'telemetry'>,
+): Promise<number> {
+  const recoveredRuns = await agentApi.center.list();
+  let marked = 0;
+  for (const run of recoveredRuns) {
+    if (!isCvAiStructuringRun(run)) continue;
+    agentApi.telemetry.markPrivateRun(run.id);
+    marked += 1;
+  }
+  return marked;
+}
+
+function publicAgentQueueDiagnostics(
+  diagnostics: AgentQueueDiagnostics,
+  publicRuns: readonly AgentRun[],
+): AgentQueueDiagnostics {
+  const publicIds = new Set(publicRuns.map((run) => run.id));
+  const activeStates = new Set<AgentRun['state']>([
+    'starting', 'running', 'waiting_for_input', 'waiting_for_approval', 'cancelling',
+  ]);
+  const activeRuns = publicRuns.filter((run) => activeStates.has(run.state));
+  const countBy = (key: (run: AgentRun) => string | undefined): Record<string, number> => {
+    const counts = new Map<string, number>();
+    for (const run of activeRuns) {
+      const value = key(run);
+      if (value) counts.set(value, (counts.get(value) ?? 0) + 1);
+    }
+    return Object.fromEntries([...counts.entries()].sort(([left], [right]) => left.localeCompare(right)));
+  };
+  const queue = diagnostics.queue.filter((entry) => publicIds.has(entry.runId));
+  return {
+    ...diagnostics,
+    depth: queue.length,
+    active: activeRuns.length,
+    activeByProvider: countBy((run) => run.provider),
+    activeByWorkspace: countBy((run) => run.request.workspaceRoot),
+    activeByOwner: countBy((run) => {
+      const owner = run.request.metadata?.ownerId ?? run.request.metadata?.userId;
+      return typeof owner === 'string' ? owner : undefined;
+    }),
+    queue,
+  };
+}
+
 async function agentRunView(center: AgentControlCenter, run: AgentRun) {
+  // CV source text and the provider proposal have a dedicated, data-minimized
+  // API. They must never fall through to the generic Agent Center projection.
+  if (isCvAiStructuringRun(run)) {
+    throw Object.assign(new Error('Agentenlauf nicht gefunden.'), { statusCode: 404 });
+  }
   const events = await center.events(run.id);
   const outputEvent = [...events].reverse().find((event) => event.kind === 'agent_message_completed');
   return {
@@ -580,6 +750,79 @@ export function createApp(
     ),
     workRoot: resolve(process.cwd(), '..', '.application-work')
   };
+  let cvImportService = applicationPipeline.cvImports;
+  let cvNormalization: CvNormalizationPort | undefined;
+  let cvAiValidation = applicationPipeline.cvAiValidation;
+  const cvImports = async () => {
+    if (!cvImportService) {
+      const config = await store.load();
+      const skillRoot = isAbsolute(config.assistant.skillPath)
+        ? config.assistant.skillPath : resolve(process.cwd(), '..', config.assistant.skillPath);
+      const candidatePath = isAbsolute(config.assistant.candidateProfilePath)
+        ? config.assistant.candidateProfilePath : resolve(process.cwd(), '..', config.assistant.candidateProfilePath);
+      const stylePath = isAbsolute(config.assistant.styleProfilePath)
+        ? config.assistant.styleProfilePath : resolve(process.cwd(), '..', config.assistant.styleProfilePath);
+      const adapter = new SubmoduleCvNormalizationAdapter(skillRoot, candidatePath, stylePath);
+      cvNormalization = adapter;
+      cvAiValidation ??= adapter;
+      cvImportService = new CvImportService(
+        new JsonCvImportRepository(), cvNormalization,
+      );
+    }
+    return cvImportService;
+  };
+  let cvAiStructuringService = applicationPipeline.cvAiStructuring;
+  let cvAiStructuringPromise: Promise<CvAiStructuringService> | undefined;
+  const cvAiStructuring = (): Promise<CvAiStructuringService> => {
+    if (cvAiStructuringService) return Promise.resolve(cvAiStructuringService);
+    cvAiStructuringPromise ??= (async () => {
+      const imports = await cvImports();
+      if (!cvAiValidation) {
+        throw Object.assign(new Error('CV-KI-Validator ist in dieser Serverkomposition nicht verfügbar.'), { statusCode: 503 });
+      }
+      const isolatedWorkspace = await prepareCvAiWorkspace(
+        applicationPipeline!.workRoot, agentApi.workspaceRoot,
+      );
+      const deletableStore = agentApi.store as AgentRunStore & {
+        deleteRuns?: (runIds: readonly string[]) => Promise<Array<{ runId: string; events: number }>>;
+      };
+      if (typeof deletableStore.deleteRuns !== 'function') {
+        throw Object.assign(new Error('Sichere Löschung temporärer CV-Agentenläufe ist nicht verfügbar.'), { statusCode: 503 });
+      }
+      cvAiStructuringService = new CvAiStructuringService({
+        store: store instanceof MemoryConfigStore
+          ? new MemoryCvAiStructuringRunStore()
+          : new EncryptedCvAiStructuringRunStore(
+            resolve(process.cwd(), '..', '.local-data', 'cv-ai-structuring-runs'),
+            resolve(process.cwd(), '..', '.local-data', 'cv-ai-structuring-runs.key'),
+          ),
+        imports,
+        validation: cvAiValidation,
+        agentRuns: agentApi.center,
+        purger: { deleteRuns: async (runIds) => {
+          const deleted = await deletableStore.deleteRuns!(runIds);
+          for (const entry of deleted) agentApi.telemetry.forgetRun(entry.runId);
+          return deleted;
+        } },
+        providers: agentApi.providers,
+        configProfiles: agentApi.configProfiles ?? {
+          load: async () => ({ profile: safeDefaultAgentConfigProfile(), source: 'primary' as const }),
+        },
+        workspaceRoot: isolatedWorkspace,
+        isEmergencyStopEnabled: () => agentApi.emergencyStop.enabled,
+      });
+      return cvAiStructuringService;
+    })().catch((error) => { cvAiStructuringPromise = undefined; throw error; });
+    return cvAiStructuringPromise;
+  };
+  if (!(store instanceof MemoryConfigStore)) {
+    const sweepCvAiRetention = () => {
+      void cvAiStructuring().then((service) => service.expireAndPrune()).catch(() => undefined);
+    };
+    sweepCvAiRetention();
+    const retentionTimer = setInterval(sweepCvAiRetention, 5 * 60_000);
+    retentionTimer.unref();
+  }
   agentApi.artifactAdoption ??= new VerifiedApplicationArtifactAdoptionPort(
     workspace, store, applicationPipeline.proofAuthority, applicationPipeline.workRoot,
   );
@@ -648,8 +891,11 @@ export function createApp(
     return createProviderDomainToolBridge(session);
   });
   const app = express();
-  app.use(cors({ origin: ['http://localhost:4200', 'http://127.0.0.1:4200'] }));
-  app.use(express.json({ limit: '512kb' }));
+  app.use(cors({ origin: [
+    'http://localhost:4201', 'http://127.0.0.1:4201',
+  ] }));
+  const ordinaryJson = express.json({ limit: '512kb' });
+  app.use((request, response, next) => request.path === '/api/cv-imports' ? next() : ordinaryJson(request, response, next));
   type IdempotentRunEntry =
     | { requestHash: string; pending: Promise<AgentRun>; expiresAt: number }
     | { requestHash: string; runId: string; expiresAt: number };
@@ -670,15 +916,22 @@ export function createApp(
     response.locals.correlationId = correlationId;
     response.setHeader('x-correlation-id', correlationId);
     response.on('finish', () => {
+      const safeErrorCode = typeof response.locals.safeErrorCode === 'string'
+        ? response.locals.safeErrorCode : undefined;
+      const safeErrorStage = typeof response.locals.safeErrorStage === 'string'
+        ? response.locals.safeErrorStage : undefined;
       void audit.write({
         correlationId, operation: `${request.method} ${request.route?.path ?? request.path}`,
-        status: response.statusCode, occurredAt: new Date().toISOString()
+        status: response.statusCode, occurredAt: new Date().toISOString(),
+        ...(safeErrorStage ? { category: safeErrorStage } : {}),
       }).catch(() => undefined);
       void agentApi.observability?.record({
         level: response.statusCode >= 500 ? 'error' : response.statusCode >= 400 ? 'warn' : 'info',
-        component: 'http', operation: 'request', code: `status_${response.statusCode}`,
+        component: 'http', operation: 'request', code: safeErrorCode ?? `status_${response.statusCode}`,
         correlationId, durationMs: Math.max(0, Date.now() - requestStartedAt),
-        ...(response.statusCode >= 500 ? { errorClass: 'server_error' } : {}),
+        ...(safeErrorStage
+          ? { errorClass: safeErrorStage }
+          : response.statusCode >= 500 ? { errorClass: 'server_error' } : {}),
       }).catch(() => undefined);
     });
     next();
@@ -837,30 +1090,41 @@ export function createApp(
 
   app.get('/api/agents/health', asyncRoute(async (_request, response) => {
     const providers = await discoverAgentProviders();
-    const runs = await agentApi.center.list();
+    const allRuns = await agentApi.center.list();
+    const hidden = new Set(allRuns.filter(isCvAiStructuringRun).map((run) => run.id));
+    const runs = allRuns.filter((run) => !hidden.has(run.id));
     const queue = await agentApi.center.getQueueDiagnostics();
+    const publicQueue = publicAgentQueueDiagnostics(queue, runs);
     response.json({
       status: agentApi.emergencyStop.enabled ? 'emergency_stopped' : 'ok', providers,
-      queueDepth: queue.depth, queue,
+      queueDepth: publicQueue.depth, queue: publicQueue,
       activeRuns: runs.filter((run) => ['starting', 'running', 'waiting_for_input', 'waiting_for_approval', 'cancelling'].includes(run.state)).length,
       recoveryRequired: runs.filter((run) => run.state === 'orphaned').map((run) => run.id),
-      stream: { transport: 'sse', resume: true, bidirectionalWebSocket: Boolean(agentApi.realtimeTickets) }, telemetry: agentApi.telemetry.snapshot()
+      stream: { transport: 'sse', resume: true, bidirectionalWebSocket: Boolean(agentApi.realtimeTickets) },
+      telemetry: { ...agentApi.telemetry.snapshot(), queueDepth: publicQueue.depth },
     });
   }));
 
   app.get('/api/agents/queue', asyncRoute(async (_request, response) => {
-    response.json(await agentApi.center.getQueueDiagnostics());
+    const runs = (await agentApi.center.list()).filter((run) => !isCvAiStructuringRun(run));
+    const queue = await agentApi.center.getQueueDiagnostics();
+    response.json(publicAgentQueueDiagnostics(queue, runs));
   }));
 
   app.get('/api/agents/recovery', asyncRoute(async (_request, response) => {
-    response.json({ runs: await agentApi.center.getRecoveryDiagnostics() });
+    const hidden = new Set((await agentApi.center.list()).filter(isCvAiStructuringRun).map((run) => run.id));
+    response.json({ runs: (await agentApi.center.getRecoveryDiagnostics()).filter((entry) => !hidden.has(entry.runId)) });
   }));
 
   app.get('/api/agents/support-bundle', asyncRoute(async (_request, response) => {
-    const [providers, runs, queue, recovery, config] = await Promise.all([
+    const [providers, allRuns, queue, allRecovery, config] = await Promise.all([
       discoverAgentProviders(), agentApi.center.list(), agentApi.center.getQueueDiagnostics(),
       agentApi.center.getRecoveryDiagnostics(), store.load()
     ]);
+    const hidden = new Set(allRuns.filter(isCvAiStructuringRun).map((run) => run.id));
+    const runs = allRuns.filter((run) => !hidden.has(run.id));
+    const recovery = allRecovery.filter((entry) => !hidden.has(entry.runId));
+    const publicQueue = publicAgentQueueDiagnostics(queue, runs);
     const providerInstallations = providers.map((provider) => ({
       id: provider.id,
       available: provider.available,
@@ -877,8 +1141,8 @@ export function createApp(
     }));
     response.setHeader('cache-control', 'no-store');
     response.json(createAgentSupportBundle({
-      appVersion: '0.1.0', providers: providerInstallations, runs, queue, recovery,
-      telemetry: agentApi.telemetry.snapshot(),
+      appVersion: '0.1.0', providers: providerInstallations, runs, queue: publicQueue, recovery,
+      telemetry: { ...agentApi.telemetry.snapshot(), queueDepth: publicQueue.depth },
       features: {
         codexAppServerExperimental: process.env.CODEX_APP_SERVER_EXPERIMENTAL === '1',
         realtimeWebSocket: Boolean(agentApi.realtimeTickets)
@@ -912,6 +1176,7 @@ export function createApp(
     let lastWrite = Date.now();
     const snapshot = async (eventName: 'snapshot' | 'reset') => {
       const runs = (await agentApi.center.list())
+        .filter((run) => !isCvAiStructuringRun(run))
         .filter((run) => (!filter.runId || run.id === filter.runId) && (!filter.provider || run.provider === filter.provider))
         .map((run) => ({
           id: run.id, provider: run.provider, status: run.state, updatedAt: run.updatedAt,
@@ -927,7 +1192,8 @@ export function createApp(
       polling = true;
       try {
         if (response.writableLength > 256 * 1024) { response.end(); close(); return; }
-        const authorizedRunIds = new Set((await agentApi.center.list()).map((run) => run.id));
+        const authorizedRunIds = new Set((await agentApi.center.list())
+          .filter((run) => !isCvAiStructuringRun(run)).map((run) => run.id));
         const page = agentApi.eventFeed.sinceAuthorized(cursor, (runId) => authorizedRunIds.has(runId), filter);
         if (page.resetRequired) await snapshot('reset');
         else {
@@ -1167,9 +1433,11 @@ export function createApp(
 
   app.post('/api/agent-runs/preflight', asyncRoute(async (request, response) => {
     const payload = agentRunCreateSchema.parse(request.body);
-    const [providers, queue, profileDecision] = await Promise.all([
+    const [providers, rawQueue, profileDecision, allRuns] = await Promise.all([
       discoverAgentProviders(), agentApi.center.getQueueDiagnostics(), evaluateAgentProfile(payload),
+      agentApi.center.list(),
     ]);
+    const queue = publicAgentQueueDiagnostics(rawQueue, allRuns.filter((run) => !isCvAiStructuringRun(run)));
     const provider = providers.find((candidate) => candidate.id === payload.providerId);
     const installation = provider?.installations?.find((candidate) => candidate.runtimeTarget === payload.runtimeTarget
       && (!payload.wslDistribution || candidate.distribution === payload.wslDistribution));
@@ -1317,7 +1585,7 @@ export function createApp(
   }));
 
   app.get('/api/agent-runs', asyncRoute(async (_request, response) => {
-    const runs = await agentApi.center.list();
+    const runs = (await agentApi.center.list()).filter((run) => !isCvAiStructuringRun(run));
     response.json(await Promise.all(runs.map((run) => agentRunView(agentApi.center, run))));
   }));
 
@@ -1588,13 +1856,21 @@ export function createApp(
 
   app.post('/api/agent-runs/retention/preview', asyncRoute(async (request, response) => {
     const payload = z.object({ before: z.string().datetime() }).parse(request.body);
-    if (!agentApi.retention) { response.json(await agentApi.store.prune({ before: payload.before, dryRun: true })); return; }
     const cutoff = Date.parse(payload.before);
     const matched = (await agentApi.store.list())
       .filter((run) => ['succeeded', 'failed', 'timed_out', 'cancelled'].includes(run.state)
+        && !isCvAiStructuringRun(run)
         && Date.parse(run.finishedAt ?? run.updatedAt) < cutoff)
       .map((run) => run.id).sort();
-    const preview = matched.length ? await agentApi.retention.preview(matched, 'local-user') : undefined;
+    const deletableStore = agentApi.store as AgentRunStore & {
+      deleteRuns?: (runIds: readonly string[], options?: { dryRun?: boolean }) => Promise<unknown>;
+    };
+    if (!agentApi.retention && typeof deletableStore.deleteRuns !== 'function') {
+      throw Object.assign(new Error('Selektive Agentenlauf-Löschung ist nicht verfügbar.'), { statusCode: 503 });
+    }
+    const preview = matched.length && agentApi.retention
+      ? await agentApi.retention.preview(matched, 'local-user')
+      : matched.length ? await deletableStore.deleteRuns!(matched, { dryRun: true }) : undefined;
     response.setHeader('cache-control', 'no-store');
     response.json({ matched, removed: [], preview });
   }));
@@ -1613,6 +1889,7 @@ export function createApp(
       const cutoff = Date.parse(payload.before);
       const matched = (await agentApi.store.list())
         .filter((run) => ['succeeded', 'failed', 'timed_out', 'cancelled'].includes(run.state)
+          && !isCvAiStructuringRun(run)
           && Date.parse(run.finishedAt ?? run.updatedAt) < cutoff)
         .map((run) => run.id).sort();
       if (matched.length) {
@@ -1621,7 +1898,22 @@ export function createApp(
         catch (error) { throw Object.assign(error as Error, { statusCode: 409 }); }
       }
       result = { matched, removed: matched };
-    } else result = await agentApi.store.prune({ before: payload.before });
+    } else {
+      const cutoff = Date.parse(payload.before);
+      const matched = (await agentApi.store.list())
+        .filter((run) => ['succeeded', 'failed', 'timed_out', 'cancelled'].includes(run.state)
+          && !isCvAiStructuringRun(run)
+          && Date.parse(run.finishedAt ?? run.updatedAt) < cutoff)
+        .map((run) => run.id).sort();
+      const deletableStore = agentApi.store as AgentRunStore & {
+        deleteRuns?: (runIds: readonly string[], options?: { dryRun?: boolean }) => Promise<unknown>;
+      };
+      if (typeof deletableStore.deleteRuns !== 'function') {
+        throw Object.assign(new Error('Selektive Agentenlauf-Löschung ist nicht verfügbar.'), { statusCode: 503 });
+      }
+      if (matched.length) await deletableStore.deleteRuns(matched);
+      result = { matched, removed: matched };
+    }
     const removed = new Set(result.removed);
     for (const [key, entry] of idempotentAgentRuns) if ('runId' in entry && removed.has(entry.runId)) idempotentAgentRuns.delete(key);
     if (agentApi.idempotency && result.removed.length) await agentApi.idempotency.deleteCompletedResults('agent-run', result.removed);
@@ -1659,6 +1951,18 @@ export function createApp(
       ...agentApi.telemetry.usageTrend(groupBy),
     });
   }));
+
+  app.use('/api/agent-runs/:runId', (request, response, next) => {
+    const runId = String(request.params.runId ?? '');
+    void agentApi.center.get(runId).then((run) => {
+      if (run && isCvAiStructuringRun(run)) {
+        response.setHeader('cache-control', 'no-store');
+        response.status(404).json({ error: 'Agentenlauf nicht gefunden.' });
+        return;
+      }
+      next();
+    }, next);
+  });
 
   app.get('/api/agent-runs/:runId/usage', asyncRoute(async (request, response) => {
     const runId = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/).parse(request.params.runId);
@@ -2648,6 +2952,270 @@ export function createApp(
     response.json(await new LocalCandidateProfileAdapter(config.assistant).patch(payload.operations, payload.confirmed));
   }));
 
+  app.post('/api/cv-imports', express.json({ limit: '15mb' }), asyncRoute(async (request, response) => {
+    const payload = z.object({
+      fileName: z.string().trim().min(1).max(240),
+      mimeType: z.enum([
+        'text/html', 'application/pdf',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'application/vnd.oasis.opendocument.text',
+      ]),
+      base64: z.string().min(1).max(14_000_000).regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/),
+      confirmed: z.literal(true),
+    }).strict().parse(request.body);
+    const data = Buffer.from(payload.base64, 'base64');
+    if (data.toString('base64') !== payload.base64) throw Object.assign(new Error('Base64-Daten sind nicht kanonisch kodiert.'), { statusCode: 400 });
+    response.setHeader('cache-control', 'no-store');
+    response.status(201).json(publicCvImportRecord(await (await cvImports()).import({
+      fileName: payload.fileName, mimeType: payload.mimeType, data,
+    })));
+  }));
+
+  app.get('/api/cv-imports', asyncRoute(async (request, response) => {
+    const { limit } = z.object({ limit: z.coerce.number().int().min(1).max(100).default(100) }).parse(request.query);
+    response.setHeader('cache-control', 'no-store');
+    response.json((await (await cvImports()).list(limit)).map(publicCvImportSummary));
+  }));
+
+  app.get('/api/cv-imports/:importId', asyncRoute(async (request, response) => {
+    const record = await (await cvImports()).get(z.string().uuid().parse(request.params.importId));
+    if (!record) { response.status(404).json({ error: 'CV-Import nicht gefunden.' }); return; }
+    response.setHeader('cache-control', 'no-store'); response.json(publicCvImportRecord(record));
+  }));
+
+  app.get('/api/cv-imports/:importId/recognition-versions', asyncRoute(async (request, response) => {
+    const id = z.string().uuid().parse(request.params.importId);
+    response.setHeader('cache-control', 'no-store');
+    response.json(await (await cvImports()).recognitionVersions(id));
+  }));
+
+  app.post('/api/cv-imports/:importId/recognition-versions/:versionId/activate', asyncRoute(async (request, response) => {
+    const id = z.string().uuid().parse(request.params.importId);
+    const versionId = z.string().regex(/^recognition-[a-f0-9]{16}$/).parse(request.params.versionId);
+    const payload = cvCasSchema.parse(request.body);
+    response.setHeader('cache-control', 'no-store');
+    response.json(publicCvImportRecord(await (await cvImports()).activateRecognitionVersion(
+      id, payload.expectedRevision, payload.expectedSha256, versionId, payload.confirmed,
+    )));
+  }));
+
+  app.post('/api/cv-imports/:importId/recognition-versions/:versionId/confirm', asyncRoute(async (request, response) => {
+    const id = z.string().uuid().parse(request.params.importId);
+    const versionId = z.string().regex(/^recognition-[a-f0-9]{16}$/).parse(request.params.versionId);
+    const payload = cvCasSchema.parse(request.body);
+    response.setHeader('cache-control', 'no-store');
+    response.json(publicCvImportRecord(await (await cvImports()).confirmActiveRecognitionVersion(
+      id, payload.expectedRevision, payload.expectedSha256, versionId, payload.confirmed,
+    )));
+  }));
+
+  app.get('/api/cv-imports/:importId/ai-structuring/options', asyncRoute(async (request, response) => {
+    const cvImportId = z.string().uuid().parse(request.params.importId);
+    const query = z.object({
+      expectedRevision: z.coerce.number().int().positive(),
+      expectedSha256: z.string().regex(/^[a-f0-9]{64}$/),
+    }).strict().parse(request.query);
+    const service = await cvAiStructuring(); await service.expireAndPrune();
+    response.setHeader('cache-control', 'no-store');
+    response.json(await service.options({
+      cvImportId, expectedCvImportRevision: query.expectedRevision,
+      expectedCvImportSha256: query.expectedSha256,
+    }));
+  }));
+
+  app.post('/api/cv-imports/:importId/ai-structuring/runs', asyncRoute(async (request, response) => {
+    const cvImportId = z.string().uuid().parse(request.params.importId);
+    const payload = z.object({
+      expectedRevision: z.number().int().positive(),
+      expectedSha256: z.string().regex(/^[a-f0-9]{64}$/),
+      provider: cvAiProviderSchema,
+      mode: cvAiModeSchema.default('review_suggestions'),
+      disclosure: cvAiDisclosureSchema,
+    }).strict().parse(request.body);
+    const service = await cvAiStructuring(); await service.expireAndPrune();
+    response.setHeader('cache-control', 'no-store');
+    response.status(202).json(await service.start({
+      cvImportId, expectedCvImportRevision: payload.expectedRevision,
+      expectedCvImportSha256: payload.expectedSha256, provider: payload.provider,
+      disclosure: payload.disclosure, mode: payload.mode, actor: { id: 'local-user', type: 'local' },
+      correlationId: String(response.locals.correlationId),
+    }));
+  }));
+
+  app.get('/api/cv-imports/:importId/ai-structuring/runs', asyncRoute(async (request, response) => {
+    const cvImportId = z.string().uuid().parse(request.params.importId);
+    const { limit } = z.object({ limit: z.coerce.number().int().min(1).max(100).default(20) }).strict().parse(request.query);
+    const service = await cvAiStructuring(); await service.expireAndPrune();
+    response.setHeader('cache-control', 'no-store');
+    response.json((await service.list(cvImportId)).slice(0, limit));
+  }));
+
+  app.get('/api/cv-imports/:importId/ai-structuring/runs/:runId', asyncRoute(async (request, response) => {
+    const cvImportId = z.string().uuid().parse(request.params.importId);
+    const runId = z.string().uuid().parse(request.params.runId);
+    const service = await cvAiStructuring(); await service.expireAndPrune();
+    response.setHeader('cache-control', 'no-store'); response.json(await service.get(cvImportId, runId));
+  }));
+
+  app.post('/api/cv-imports/:importId/ai-structuring/runs/:runId/cancel', asyncRoute(async (request, response) => {
+    const cvImportId = z.string().uuid().parse(request.params.importId);
+    const runId = z.string().uuid().parse(request.params.runId);
+    const payload = cvAiRunCasSchema.extend({ confirmed: z.literal(true) }).strict().parse(request.body);
+    const service = await cvAiStructuring(); await service.expireAndPrune();
+    response.setHeader('cache-control', 'no-store'); response.json(await service.cancel({
+      cvImportId, runId, ...payload, actor: { id: 'local-user', type: 'local' },
+      correlationId: String(response.locals.correlationId),
+    }));
+  }));
+
+  app.post('/api/cv-imports/:importId/ai-structuring/runs/:runId/retry', asyncRoute(async (request, response) => {
+    const cvImportId = z.string().uuid().parse(request.params.importId);
+    const runId = z.string().uuid().parse(request.params.runId);
+    const payload = cvAiRunCasSchema.extend({
+      expectedCvImportRevision: z.number().int().positive(),
+      expectedCvImportSha256: z.string().regex(/^[a-f0-9]{64}$/),
+      provider: cvAiProviderSchema,
+      mode: cvAiModeSchema.optional(),
+      disclosure: cvAiDisclosureSchema,
+    }).strict().parse(request.body);
+    const service = await cvAiStructuring(); await service.expireAndPrune();
+    response.setHeader('cache-control', 'no-store'); response.status(202).json(await service.retry({
+      cvImportId, runId, ...payload, actor: { id: 'local-user', type: 'local' },
+      correlationId: String(response.locals.correlationId),
+    }));
+  }));
+
+  app.post('/api/cv-imports/:importId/ai-structuring/runs/:runId/apply', asyncRoute(async (request, response) => {
+    const cvImportId = z.string().uuid().parse(request.params.importId);
+    const runId = z.string().uuid().parse(request.params.runId);
+    const payload = cvAiRunCasSchema.extend({
+      expectedCvImportRevision: z.number().int().positive(),
+      expectedCvImportSha256: z.string().regex(/^[a-f0-9]{64}$/),
+      selections: z.array(z.object({
+        suggestionId: z.string().regex(/^suggestion-[a-f0-9]{16}$/),
+        alternativeId: z.string().regex(/^alternative-[a-f0-9]{16}$/).nullable(),
+      }).strict()).min(1).max(2_000),
+      confirmed: z.literal(true),
+    }).strict().parse(request.body);
+    const service = await cvAiStructuring(); await service.expireAndPrune();
+    response.setHeader('cache-control', 'no-store'); response.json(await service.apply({
+      cvImportId, runId, ...payload, actor: { id: 'local-user', type: 'local' },
+      correlationId: String(response.locals.correlationId),
+    }));
+  }));
+
+  app.delete('/api/cv-imports/:importId', asyncRoute(async (request, response) => {
+    const id = z.string().uuid().parse(request.params.importId);
+    const payload = z.object({
+      confirmation: z.literal(`DELETE cv-import ${id}`), expectedRevision: z.number().int().positive(),
+      expectedSha256: z.string().regex(/^[a-f0-9]{64}$/),
+    }).strict().parse(request.body);
+    const imports = await cvImports();
+    const current = await imports.get(id);
+    if (!current) { response.status(404).json({ error: 'CV-Import nicht gefunden.' }); return; }
+    if (current.revision !== payload.expectedRevision || current.sha256 !== payload.expectedSha256) {
+      throw Object.assign(new Error('CV-Import wurde zwischenzeitlich geändert.'), { statusCode: 409 });
+    }
+    // Persistent CV-AI runs may still hold encrypted, source-bound suggestions.
+    // Purge those records and their raw AgentRun payloads before deleting the
+    // authoritative import. Memory-only compositions without a CV-AI service
+    // cannot have durable CV-AI residue and therefore need no cascade.
+    if (cvAiStructuringService || !(store instanceof MemoryConfigStore)) {
+      await (await cvAiStructuring()).deleteForImport(id);
+    }
+    response.setHeader('cache-control', 'no-store');
+    response.json({ removed: await imports.delete(id, payload.expectedRevision, payload.expectedSha256) ? 1 : 0 });
+  }));
+
+  app.patch('/api/cv-imports/:importId/facts', asyncRoute(async (request, response) => {
+    const id = z.string().uuid().parse(request.params.importId);
+    const payload = cvCasSchema.extend({ operations: z.array(cvFactOperationSchema).min(1).max(500) }).parse(request.body);
+    response.setHeader('cache-control', 'no-store');
+    response.json(publicCvImportRecord(await (await cvImports()).review(
+      id, payload.expectedRevision, payload.expectedSha256, payload.operations,
+    )));
+  }));
+
+  app.put('/api/cv-imports/:importId/theme', asyncRoute(async (request, response) => {
+    const id = z.string().uuid().parse(request.params.importId);
+    const payload = cvCasSchema.extend({ theme: cvThemeSchema.nullable() }).parse(request.body);
+    response.setHeader('cache-control', 'no-store');
+    response.json(publicCvImportRecord(await (await cvImports()).setTheme(
+      id, payload.expectedRevision, payload.expectedSha256, payload.theme ?? undefined,
+    )));
+  }));
+
+  app.post('/api/cv-imports/:importId/adopt', asyncRoute(async (request, response) => {
+    const id = z.string().uuid().parse(request.params.importId); const payload = cvCasSchema.parse(request.body);
+    response.setHeader('cache-control', 'no-store');
+    response.json(publicCvImportRecord(await (await cvImports()).adopt(id, payload.expectedRevision, payload.expectedSha256)));
+  }));
+
+  app.post('/api/application-cases/:caseId/cv-proposals', asyncRoute(async (request, response) => {
+    const caseId = z.string().uuid().parse(request.params.caseId);
+    const payload = cvCasSchema.extend({
+      importId: z.string().uuid(), documentRevisionId: z.string().uuid(),
+      expectedDocumentSha256: z.string().regex(/^[a-f0-9]{64}$/),
+    }).parse(request.body);
+    const application = await workspace.getApplicationCase(caseId);
+    if (!application) { response.status(404).json({ error: 'Bewerbungsfall nicht gefunden.' }); return; }
+    if (application.documentType !== 'cv') throw Object.assign(new Error('HTML-CV kann nur für einen CV-Bewerbungsfall gerendert werden.'), { statusCode: 409 });
+    const verified = await readVerifiedArtifactRevision(
+      workspace, application, payload.documentRevisionId, applicationPipeline.proofAuthority, applicationPipeline.workRoot,
+    );
+    const sourceAgentArtifact = verified.revision.sourceAgentArtifactId
+      ? await agentApi.artifacts.get(verified.revision.sourceAgentArtifactId) : undefined;
+    if (verified.revision.type !== 'cv' || verified.revision.sha256 !== payload.expectedDocumentSha256
+      || verified.revision.lifecycle !== 'approved' || verified.revision.review?.decision !== 'approved'
+      || verified.revision.review.expectedSha256 !== payload.expectedDocumentSha256
+      || !verified.revision.sourceAgentArtifactId
+      || !sourceAgentArtifact || sourceAgentArtifact.lifecycle !== 'used'
+      || sourceAgentArtifact.kind !== 'application-pipeline-package' || sourceAgentArtifact.mediaType !== 'application/json'
+      || sourceAgentArtifact.provenance.workflowId !== 'evidence-application-package'
+      || sourceAgentArtifact.provenance.workflowVersion !== '1.0.0'
+      || sourceAgentArtifact.provenance.templateId !== 'evidence-application-package-finalizer'
+      || sourceAgentArtifact.provenance.applicationCaseId !== application.id
+      || sourceAgentArtifact.provenance.jobId !== application.job.id
+      || sourceAgentArtifact.provenance.applicationCaseRevision === undefined
+      || sourceAgentArtifact.provenance.applicationCaseRevision > application.revision
+      || sourceAgentArtifact.adoption?.sourceReference !== `application-revision:${verified.revision.id}`
+      || !['approved', 'exported'].includes(application.state)
+      || application.approvedArtifactRevisionId !== verified.revision.id
+      || application.approvedArtifactSha256 !== verified.revision.sha256) {
+      throw Object.assign(new Error('HTML-Rendern benötigt die exakt menschlich freigegebene CV-Dokumentrevision.'), { statusCode: 409 });
+    }
+    const proof = verified.revision.pipelineProof!; const style = await (await styleProfiles()).get();
+    const record = await (await cvImports()).renderApproved(
+      payload.importId, payload.expectedRevision, payload.expectedSha256, {
+        applicationCaseId: caseId, jobId: application.job.id, identityMode: application.identityMode,
+        documentRevisionId: verified.revision.id, documentSha256: verified.revision.sha256,
+        documentContent: verified.content,
+        pipeline: {
+          candidateProfileSha256: proof.candidateProfileSha256, styleProfileSha256: proof.styleProfileSha256,
+          artifactSha256: proof.artifactSha256, pipelineContractVersion: proof.pipelineContractVersion,
+          completedStages: proof.completedStages,
+        },
+        styleProfile: { revision: style.revision, sha256: style.sha256 },
+        sourceAgentArtifactId: verified.revision.sourceAgentArtifactId!,
+      },
+    );
+    response.setHeader('cache-control', 'no-store'); response.status(201).json(publicCvImportRecord(record));
+  }));
+
+  app.get('/api/cv-imports/:importId/proposal.html', asyncRoute(async (request, response) => {
+    const id = z.string().uuid().parse(request.params.importId);
+    const query = z.object({ sha256: z.string().regex(/^[a-f0-9]{64}$/), download: z.enum(['true', 'false']).default('false') }).parse(request.query);
+    const record = await (await cvImports()).get(id);
+    if (!record?.proposal) { response.status(404).json({ error: 'HTML-CV nicht gefunden.' }); return; }
+    if (record.proposal.htmlSha256 !== query.sha256) throw Object.assign(new Error('HTML-CV-Hash stimmt nicht mit der aktuellen Revision überein.'), { statusCode: 409 });
+    if (query.download === 'true' && !record.proposal.downloadAllowed) throw Object.assign(new Error('Inkognito-CVs dürfen nicht heruntergeladen werden.'), { statusCode: 409 });
+    response.setHeader('cache-control', 'no-store');
+    response.setHeader('content-security-policy', "default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox");
+    response.setHeader('x-content-type-options', 'nosniff');
+    response.setHeader('content-disposition', `${query.download === 'true' ? 'attachment' : 'inline'}; filename="lebenslauf.html"`);
+    response.type('html').send(record.proposal.html);
+  }));
+
   app.post('/api/profile-imports/preview', asyncRoute(async (request, response) => {
     const payload = z.object({
       fileName: z.string().min(1).max(240),
@@ -2746,12 +3314,37 @@ export function createApp(
       });
       return;
     }
-    const statusCode = typeof error === 'object' && error && 'statusCode' in error ? Number(error.statusCode) : 500;
-    const category = statusCode === 409 ? 'policy' : statusCode === 401 || statusCode === 403 ? 'authentication' : statusCode === 429 ? 'rate_limit' : statusCode === 503 ? 'retryable_dependency' : 'internal';
-    const message = statusCode >= 500 ? 'Die lokale Abhängigkeit ist fehlgeschlagen.' : error instanceof Error ? error.message : 'Unbekannter Fehler';
+    const safeError = error instanceof SafeHttpError ? error : undefined;
+    const cvAiError = error instanceof CvAiStructuringError ? error : undefined;
+    const statusCode = safeError?.statusCode ?? cvAiError?.statusCode
+      ?? (typeof error === 'object' && error && 'statusCode' in error ? Number(error.statusCode) : 500);
+    const category = statusCode === 400 || statusCode === 422
+      ? 'validation'
+      : statusCode === 409
+        ? 'policy'
+        : statusCode === 401 || statusCode === 403
+          ? 'authentication'
+          : statusCode === 429
+            ? 'rate_limit'
+            : statusCode === 503
+              ? 'retryable_dependency'
+              : 'internal';
+    const message = safeError?.publicDetail ?? (cvAiError ? cvAiPublicErrorDetail(cvAiError.code) : undefined)
+      ?? (statusCode >= 500
+        ? 'Die lokale Abhängigkeit ist fehlgeschlagen.'
+        : error instanceof Error ? error.message : 'Unbekannter Fehler');
+    if (safeError || cvAiError) {
+      response.locals.safeErrorCode = safeError?.errorCode ?? cvAiError!.code;
+      response.locals.safeErrorStage = safeError?.stage ?? `cv_ai_${cvAiError!.stage}`;
+    }
     response.status(statusCode).json({
       type: `urn:job-match-and-apply:error:${category}`, title: 'Operation fehlgeschlagen', status: statusCode,
-      category, detail: message, error: message, correlationId, instance: request.path
+      category, detail: message, error: message, correlationId, instance: request.path,
+      ...(safeError || cvAiError ? {
+        errorCode: safeError?.errorCode ?? cvAiError!.code,
+        stage: safeError?.stage ?? cvAiError!.stage,
+        retryable: safeError?.retryable ?? cvAiError!.retryable,
+      } : {}),
     });
   });
 

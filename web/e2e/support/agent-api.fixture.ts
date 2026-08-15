@@ -24,10 +24,21 @@ import type {
   ApplicationStyleProfileView,
   ArtifactRevision,
   CorrelatedMail,
+  CvAiStructuringOptions,
+  CvAiStructuringPublicRun,
+  CvAiStructuringSuggestion,
+  CvFactOperation,
+  CvImportRecord,
+  CvImportSummary,
+  CvRecognitionVersionList,
+  CvTheme,
   McpRuntimeStatus
 } from '../../src/app/models';
 
 const FIXED_TIME = '2026-08-13T18:00:00.000Z';
+const CV_DETERMINISTIC_RECOGNITION_ID = 'recognition-1111111111111111';
+const CV_AI_RECOGNITION_ID = 'recognition-2222222222222222';
+const CV_RECOGNITION_VERSION_SHA256 = '6'.repeat(64);
 
 const CONFIG: AppConfig = {
   revision: 0,
@@ -133,6 +144,139 @@ const STYLE_PROFILE: ApplicationStyleProfileView = {
   }
 };
 
+function cvImportRecord(): CvImportRecord {
+  const sourceSha256 = '6'.repeat(64);
+  return {
+    contract: 'cv-import', contractVersion: '1.0',
+    id: '66666666-6666-4666-8666-666666666666', revision: 1, sha256: '7'.repeat(64), status: 'facts_pending',
+    createdAt: FIXED_TIME, updatedAt: FIXED_TIME,
+    source: {
+      fileName: 'synthetischer-cv.html', mimeType: 'text/html', bytes: 64, sha256: sourceSha256,
+      retention: 'upload_deleted_after_local_extraction'
+    },
+    facts: [
+      {
+        id: 'fact-employer', category: 'employment', recordId: 'employment-fixture', field: 'company', value: 'Beispiel GmbH',
+        decision: 'pending', provenance: { sourceSha256, anchor: 'Zeile 2', origin: 'imported' }
+      },
+      {
+        id: 'fact-period', category: 'employment', recordId: 'employment-fixture', field: 'period', value: '2022–2026',
+        decision: 'pending', provenance: { sourceSha256, anchor: 'Zeile 3', origin: 'imported' }
+      }
+    ],
+    warnings: ['Synthetische Zeitangabe bitte einzeln prüfen.'],
+    activeRecognitionVersionId: CV_DETERMINISTIC_RECOGNITION_ID
+  };
+}
+
+function cvImportSummary(record: CvImportRecord): CvImportSummary {
+  const factCount = (decision: 'pending' | 'confirmed' | 'rejected') => record.facts.filter((fact) => fact.decision === decision).length;
+  return {
+    contract: 'cv-import-summary', contractVersion: '1.0', id: record.id, revision: record.revision, sha256: record.sha256,
+    status: record.status, createdAt: record.createdAt, updatedAt: record.updatedAt, source: clone(record.source),
+    factCounts: {
+      total: record.facts.length, pending: factCount('pending'), confirmed: factCount('confirmed'), rejected: factCount('rejected')
+    },
+    warningCount: record.warnings.length, unresolvedConflictCount: 0,
+    hasTheme: Boolean(record.theme), hasAdoption: Boolean(record.adoption), hasProposal: Boolean(record.proposal)
+  };
+}
+
+function cvAiOptions(record: CvImportRecord): CvAiStructuringOptions {
+  return {
+    contract: 'cv-ai-structuring-options', contractVersion: '1.0', capturedAt: FIXED_TIME,
+    cvImport: { id: record.id, revision: record.revision, sha256: record.sha256 },
+    providers: [{
+      providerId: 'fake-interactive', installations: [{
+        runtimeTarget: 'windows', version: '1.0.0', adapterVersion: 'fixture-1', support: 'supported',
+        authStatus: 'not_required', ready: true, blockers: [],
+        network: {
+          toolNetwork: 'disabled', rootMcpTools: [], jobSearchMcpAccessible: false,
+          providerControlPlane: 'provider_managed_may_use_network'
+        }
+      }]
+    }],
+    disclosure: {
+      required: true, version: '1.0', extractedCvTextSentToSelectedProvider: true,
+      toolNetwork: 'disabled', rootMcpTools: [], jobSearchMcpAccessible: false,
+      providerControlPlane: 'provider_managed_may_use_network'
+    }
+  };
+}
+
+function cvAiSuggestions(): CvAiStructuringSuggestion[] {
+  const anchor = (line: number, quote: string) => ({
+    lineStart: line, lineEnd: line, charStart: 0, charEnd: quote.length, quote
+  });
+  return [
+    {
+      id: 'suggestion-1111111111111111', path: 'experience[0].employer', collection: 'experience', recordId: 'employment-fixture',
+      field: 'employer', category: 'employment', mergeable: true, value: 'Beispiel GmbH', sourceAnchor: anchor(2, 'Beispiel GmbH'),
+      confidence: .96, alternatives: [], questions: [], status: 'unverified'
+    },
+    {
+      id: 'suggestion-2222222222222222', path: 'experience[0].role', collection: 'experience', recordId: 'employment-fixture',
+      field: 'role', category: 'employment', mergeable: true, value: 'Entwickler', sourceAnchor: anchor(2, 'Entwickler'),
+      confidence: .63, alternatives: [{
+        id: 'alternative-aaaaaaaaaaaaaaaa', value: 'Senior Entwickler', sourceAnchor: anchor(2, 'Senior Entwickler'), confidence: .57
+      }], questions: ['Ist „Senior Entwickler“ die belegte Rollenbezeichnung?'], status: 'unverified'
+    },
+    {
+      id: 'suggestion-3333333333333333', path: 'experience[0].start_date', collection: 'experience', recordId: 'employment-fixture',
+      field: 'start_date', category: 'employment', mergeable: true, value: '2022-01', sourceAnchor: anchor(3, '01/2022'),
+      confidence: .91, alternatives: [], questions: [], status: 'unverified'
+    },
+    {
+      id: 'suggestion-4444444444444444', path: 'experience[0].end_date', collection: 'experience', recordId: 'employment-fixture',
+      field: 'end_date', category: 'employment', mergeable: true, value: 'present', sourceAnchor: anchor(3, 'heute'),
+      confidence: .89, alternatives: [], questions: [], status: 'unverified'
+    },
+    {
+      id: 'suggestion-5555555555555555', path: 'experience[0].location', collection: 'experience', recordId: 'employment-fixture',
+      field: 'location', category: 'employment', mergeable: true, value: 'Testregion', sourceAnchor: anchor(4, 'Testregion'),
+      confidence: .82, alternatives: [], questions: [], status: 'unverified'
+    },
+    {
+      id: 'suggestion-6666666666666666', path: 'sections[0].heading', collection: 'sections', recordId: null,
+      field: 'heading', category: 'additional', mergeable: false, sectionKind: 'unclassified', value: null, sourceAnchor: null,
+      confidence: .28, alternatives: [], questions: ['Welchem Lebenslaufabschnitt gehört diese Passage an?'], status: 'unverified'
+    }
+  ];
+}
+
+function cvAiRun(
+  record: CvImportRecord,
+  input: { attempt?: number; retryOf?: string; provider?: Record<string, unknown>; mode?: CvAiStructuringPublicRun['mode'] } = {}
+): CvAiStructuringPublicRun {
+  const provider = input.provider ?? {};
+  return {
+    contract: 'cv-ai-structuring-run', contractVersion: '1.0',
+    id: input.attempt === 2 ? '99999999-9999-4999-8999-999999999999' : '88888888-8888-4888-8888-888888888888',
+    cvImportId: record.id, revision: 1, sha256: 'a'.repeat(64), status: 'queued',
+    mode: input.mode ?? 'replace_with_ai_version', attempt: input.attempt ?? 1,
+    ...(input.retryOf ? { retryOf: input.retryOf } : {}),
+    createdAt: FIXED_TIME, updatedAt: FIXED_TIME, expiresAt: '2026-08-14T18:00:00.000Z',
+    provider: {
+      id: String(provider['providerId'] ?? 'fake-interactive'),
+      runtimeTarget: (provider['runtimeTarget'] ?? 'windows') as 'windows',
+      ...(typeof provider['wslDistribution'] === 'string' ? { wslDistribution: provider['wslDistribution'] } : {}),
+      version: String(provider['expectedVersion'] ?? '1.0.0'), adapterVersion: 'fixture-1'
+    },
+    disclosure: {
+      version: '1.0', confirmedAt: FIXED_TIME, confirmedBy: { id: 'local-user', type: 'local' },
+      extractedCvTextShared: true, providerControlPlaneNetworkAcknowledged: true,
+      toolNetwork: 'disabled', rootMcpTools: [], jobSearchMcpAccessible: false
+    },
+    binding: {
+      cvImportRevision: record.revision, cvImportSha256: record.sha256, sourceId: 'source-cv-1111111111111111',
+      sourceSha256: record.source.sha256, extractedTextSha256: 'b'.repeat(64), baseProposalSha256: 'c'.repeat(64),
+      lineManifestSha256: 'd'.repeat(64), promptTemplateVersion: 'cv-ai-structuring/1.0', promptSha256: 'e'.repeat(64),
+      outputContractVersion: '1.0', outputSchemaSha256: 'f'.repeat(64), inputSha256: '1'.repeat(64)
+    },
+    auditTrail: [{ sequence: 1, occurredAt: FIXED_TIME, action: 'started' }]
+  };
+}
+
 function pipelineRevision(lifecycle: ArtifactRevision['lifecycle'] = 'proposed'): ArtifactRevision {
   const sha256 = 'a'.repeat(64);
   return {
@@ -201,6 +345,24 @@ export class AgentApiStub {
   readonly orchestrationContinueRequests: Array<{ orchestrationId: string; body: Record<string, unknown> }> = [];
   readonly orchestrationCancelRequests: Array<{ orchestrationId: string; body: Record<string, unknown> }> = [];
   readonly orchestrationConflictResolveRequests: Array<{ orchestrationId: string; conflictId: string; body: Record<string, unknown> }> = [];
+  readonly cvImportRequests: Array<Record<string, unknown>> = [];
+  readonly cvFactReviewRequests: Array<Record<string, unknown>> = [];
+  readonly cvImportListRequests: string[] = [];
+  readonly cvImportDeleteRequests: Array<Record<string, unknown>> = [];
+  readonly cvThemeRequests: Array<Record<string, unknown>> = [];
+  readonly cvAdoptionRequests: Array<Record<string, unknown>> = [];
+  readonly cvRecognitionVersionListRequests: string[] = [];
+  readonly cvRecognitionVersionActivationRequests: Array<{ versionId: string; body: Record<string, unknown> }> = [];
+  readonly cvRecognitionVersionConfirmationRequests: Array<{ versionId: string; body: Record<string, unknown> }> = [];
+  readonly cvAiOptionsRequests: string[] = [];
+  readonly cvAiRunListRequests: string[] = [];
+  readonly cvAiStartRequests: Array<Record<string, unknown>> = [];
+  readonly cvAiRunGetRequests: string[] = [];
+  readonly cvAiCancelRequests: Array<Record<string, unknown>> = [];
+  readonly cvAiRetryRequests: Array<Record<string, unknown>> = [];
+  readonly cvAiApplyRequests: Array<Record<string, unknown>> = [];
+  readonly cvHtmlRenderRequests: Array<{ caseId: string; body: Record<string, unknown> }> = [];
+  readonly cvHtmlDownloadRequests: string[] = [];
   readonly unknownRequests: string[] = [];
   readonly externalRequests: string[] = [];
 
@@ -230,6 +392,14 @@ export class AgentApiStub {
   private createdOrchestrations = 0;
   private readonly recoveries = new Map<string, AgentRecoveryRun>();
   private readonly recoveryLeases = new Map<string, AgentRecoveryLease>();
+  private cvImport?: CvImportRecord;
+  private cvRecognitionVersions?: CvRecognitionVersionList;
+  private readonly cvRecognitionFacts = new Map<string, CvImportRecord['facts']>();
+  private rejectNextCvRecognitionActivation = false;
+  private failNextCvAiRun = false;
+  private readonly failedCvAiRuns = new Set<string>();
+  private readonly cvAiRuns = new Map<string, CvAiStructuringPublicRun>();
+  private createdCvFacts = 0;
   private createdRuns = 0;
   private readonly queueSnapshot: AgentQueueSnapshot = {
     capturedAt: '2026-08-14T08:00:00.000Z', depth: 1, active: 2,
@@ -295,6 +465,8 @@ export class AgentApiStub {
 
   seedStaleAgentConfigProfileSave(): void { this.rejectNextAgentConfigProfileSave = true; }
   seedStaleOrchestrationConflictResolve(): void { this.rejectNextOrchestrationConflictResolve = true; }
+  seedStaleCvRecognitionActivation(): void { this.rejectNextCvRecognitionActivation = true; }
+  seedFailedCvAiStructuring(): void { this.failNextCvAiRun = true; }
 
   seedLastKnownGoodAgentConfig(): void {
     this.agentConfigProfileView = {
@@ -415,6 +587,25 @@ export class AgentApiStub {
     this.applicationCases.set(application.id, application);
     this.applicationArtifacts.set(application.id, []);
     return clone(application);
+  }
+
+  seedCvPipelineCase(): ApplicationCase {
+    const application: ApplicationCase = { ...clone(PIPELINE_CASE), documentType: 'cv' };
+    this.applicationCases.set(application.id, application);
+    this.applicationArtifacts.set(application.id, []);
+    return clone(application);
+  }
+
+  approveCvCaseForHtml(caseId: string): ApplicationCase {
+    const current = this.applicationCases.get(caseId);
+    if (!current || current.documentType !== 'cv') throw new Error(`Unbekannter CV-Fixture-Fall ${caseId}`);
+    const approved: ApplicationCase = {
+      ...current, state: 'approved', revision: current.revision + 1, updatedAt: FIXED_TIME,
+      approvedArtifactRevisionId: '22222222-2222-4222-8222-222222222222',
+      approvedArtifactSha256: 'a'.repeat(64), approvedAt: FIXED_TIME
+    };
+    this.applicationCases.set(caseId, approved);
+    return clone(approved);
   }
 
   seedUnavailableLanguageBackend(): void { this.languageBackendAvailable = false; }
@@ -651,6 +842,356 @@ export class AgentApiStub {
       return this.json(route, PROVIDERS);
     }
     if (method === 'GET' && path === '/api/application-cases') return this.json(route, [...this.applicationCases.values()]);
+    if (method === 'GET' && path === '/api/cv-imports') {
+      this.cvImportListRequests.push(request.url());
+      const limit = Number(url.searchParams.get('limit') ?? '100');
+      return this.json(route, this.cvImport && limit > 0 ? [cvImportSummary(this.cvImport)] : []);
+    }
+    if (method === 'POST' && path === '/api/cv-imports') {
+      const body = request.postDataJSON() as Record<string, unknown>;
+      this.cvImportRequests.push(clone(body));
+      if (body['confirmed'] !== true || body['mimeType'] !== 'text/html' || typeof body['base64'] !== 'string') {
+        return this.json(route, { error: 'Fixture-CV-Import ist unvollständig.' }, 400);
+      }
+      this.cvImport = cvImportRecord();
+      this.initializeCvRecognitionVersions(this.cvImport);
+      return this.json(route, this.cvImport, 201);
+    }
+    const cvRecognitionVersionsMatch = path.match(/^\/api\/cv-imports\/([^/]+)\/recognition-versions$/);
+    if (method === 'GET' && cvRecognitionVersionsMatch) {
+      this.cvRecognitionVersionListRequests.push(request.url());
+      const importId = decodeURIComponent(cvRecognitionVersionsMatch[1]);
+      if (!this.cvImport || !this.cvRecognitionVersions || importId !== this.cvImport.id) {
+        return this.json(route, { error: 'Fixture-Erkennungsstände nicht gefunden.' }, 404);
+      }
+      return this.json(route, this.cvRecognitionVersions);
+    }
+    const cvRecognitionActivationMatch = path.match(/^\/api\/cv-imports\/([^/]+)\/recognition-versions\/([^/]+)\/activate$/);
+    if (method === 'POST' && cvRecognitionActivationMatch) {
+      const body = request.postDataJSON() as Record<string, unknown>;
+      const importId = decodeURIComponent(cvRecognitionActivationMatch[1]);
+      const versionId = decodeURIComponent(cvRecognitionActivationMatch[2]);
+      this.cvRecognitionVersionActivationRequests.push({ versionId, body: clone(body) });
+      if (this.rejectNextCvRecognitionActivation) {
+        this.rejectNextCvRecognitionActivation = false;
+        return this.json(route, { error: 'Fixture-CAS wurde absichtlich als veraltet abgelehnt.' }, 409);
+      }
+      const version = this.cvRecognitionVersions?.versions.find((item) => item.id === versionId);
+      const facts = this.cvRecognitionFacts.get(versionId);
+      if (!this.cvImport || !this.cvRecognitionVersions || importId !== this.cvImport.id || !version || !facts
+        || body['confirmed'] !== true || body['expectedRevision'] !== this.cvImport.revision
+        || body['expectedSha256'] !== this.cvImport.sha256) {
+        return this.json(route, { error: 'Fixture-Aktivierung benötigt die aktuelle Import-CAS und Bestätigung.' }, 409);
+      }
+      const revision = this.cvImport.revision + 1;
+      this.cvImport = {
+        ...this.cvImport, revision, sha256: Math.min(15, revision).toString(16).repeat(64), updatedAt: FIXED_TIME,
+        status: 'facts_pending', facts: clone(facts), activeRecognitionVersionId: versionId,
+        adoption: undefined, proposal: undefined
+      };
+      this.cvRecognitionVersions = {
+        ...this.cvRecognitionVersions, activeVersionId: versionId,
+        versions: this.cvRecognitionVersions.versions.map((item) => ({ ...item, active: item.id === versionId }))
+      };
+      return this.json(route, this.cvImport);
+    }
+    const cvRecognitionConfirmationMatch = path.match(/^\/api\/cv-imports\/([^/]+)\/recognition-versions\/([^/]+)\/confirm$/);
+    if (method === 'POST' && cvRecognitionConfirmationMatch) {
+      const body = request.postDataJSON() as Record<string, unknown>;
+      const importId = decodeURIComponent(cvRecognitionConfirmationMatch[1]);
+      const versionId = decodeURIComponent(cvRecognitionConfirmationMatch[2]);
+      this.cvRecognitionVersionConfirmationRequests.push({ versionId, body: clone(body) });
+      const active = this.cvRecognitionVersions?.versions.find((item) => item.id === versionId && item.active);
+      if (!this.cvImport || !this.cvRecognitionVersions || importId !== this.cvImport.id || !active
+        || active.factCounts.pending < 1 || body['confirmed'] !== true
+        || body['expectedRevision'] !== this.cvImport.revision || body['expectedSha256'] !== this.cvImport.sha256) {
+        return this.json(route, { error: 'Fixture-Standbestätigung benötigt den aktiven Stand und aktuelle CAS-Daten.' }, 409);
+      }
+      const revision = this.cvImport.revision + 1;
+      const facts = this.cvImport.facts.map((fact) => fact.decision === 'pending'
+        ? { ...fact, decision: 'confirmed' as const } : fact);
+      this.cvImport = {
+        ...this.cvImport, revision, sha256: Math.min(15, revision).toString(16).repeat(64), updatedAt: FIXED_TIME,
+        status: facts.some((fact) => fact.decision === 'pending') ? 'facts_pending' : 'facts_reviewed', facts
+      };
+      this.syncActiveCvRecognitionVersion();
+      return this.json(route, this.cvImport);
+    }
+    const cvAiOptionsMatch = path.match(/^\/api\/cv-imports\/([^/]+)\/ai-structuring\/options$/);
+    if (method === 'GET' && cvAiOptionsMatch) {
+      this.cvAiOptionsRequests.push(request.url());
+      const importId = decodeURIComponent(cvAiOptionsMatch[1]);
+      if (!this.cvImport || importId !== this.cvImport.id
+        || Number(url.searchParams.get('expectedRevision')) !== this.cvImport.revision
+        || url.searchParams.get('expectedSha256') !== this.cvImport.sha256) {
+        return this.json(route, { error: 'Fixture-AI-Optionen sind nicht an die aktuelle CV-Revision gebunden.' }, 409);
+      }
+      return this.json(route, cvAiOptions(this.cvImport));
+    }
+    const cvAiRunListMatch = path.match(/^\/api\/cv-imports\/([^/]+)\/ai-structuring\/runs$/);
+    if (method === 'GET' && cvAiRunListMatch) {
+      this.cvAiRunListRequests.push(request.url());
+      const importId = decodeURIComponent(cvAiRunListMatch[1]);
+      const limit = Number(url.searchParams.get('limit') ?? '20');
+      return this.json(route, [...this.cvAiRuns.values()].filter((run) => run.cvImportId === importId).slice(0, limit));
+    }
+    if (method === 'POST' && cvAiRunListMatch) {
+      const body = request.postDataJSON() as Record<string, unknown>;
+      this.cvAiStartRequests.push(clone(body));
+      const importId = decodeURIComponent(cvAiRunListMatch[1]);
+      const disclosure = body['disclosure'] as Record<string, unknown> | undefined;
+      const provider = body['provider'] as Record<string, unknown> | undefined;
+      if (!this.cvImport || importId !== this.cvImport.id || body['expectedRevision'] !== this.cvImport.revision
+        || body['expectedSha256'] !== this.cvImport.sha256 || body['mode'] !== 'replace_with_ai_version' || !provider
+        || disclosure?.['version'] !== '1.0' || disclosure['confirmed'] !== true
+        || disclosure['sendExtractedCvTextToProvider'] !== true
+        || disclosure['acknowledgeProviderControlPlaneNetwork'] !== true) {
+        return this.json(route, { error: 'Fixture-AI-Start benötigt aktuelle CAS-Daten und eine explizite Disclosure.' }, 409);
+      }
+      const run = cvAiRun(this.cvImport, { provider, mode: 'replace_with_ai_version' });
+      if (this.failNextCvAiRun) { this.failedCvAiRuns.add(run.id); this.failNextCvAiRun = false; }
+      this.cvAiRuns.set(run.id, run);
+      return this.json(route, run, 202);
+    }
+    const cvAiRunMatch = path.match(/^\/api\/cv-imports\/([^/]+)\/ai-structuring\/runs\/([^/]+)$/);
+    if (method === 'GET' && cvAiRunMatch) {
+      const importId = decodeURIComponent(cvAiRunMatch[1]); const runId = decodeURIComponent(cvAiRunMatch[2]);
+      this.cvAiRunGetRequests.push(request.url());
+      const current = this.cvAiRuns.get(runId);
+      if (!current || current.cvImportId !== importId) return this.json(route, { error: 'Fixture-AI-Lauf nicht gefunden.' }, 404);
+      const next = this.advanceCvAiRun(current); this.cvAiRuns.set(runId, next);
+      return this.json(route, next);
+    }
+    const cvAiCancelMatch = path.match(/^\/api\/cv-imports\/([^/]+)\/ai-structuring\/runs\/([^/]+)\/cancel$/);
+    if (method === 'POST' && cvAiCancelMatch) {
+      const body = request.postDataJSON() as Record<string, unknown>; this.cvAiCancelRequests.push(clone(body));
+      const importId = decodeURIComponent(cvAiCancelMatch[1]); const runId = decodeURIComponent(cvAiCancelMatch[2]);
+      const current = this.cvAiRuns.get(runId);
+      if (!current || current.cvImportId !== importId || body['confirmed'] !== true
+        || body['expectedRunRevision'] !== current.revision || body['expectedRunSha256'] !== current.sha256
+        || !['queued', 'running', 'validating', 'cancel_requested'].includes(current.status)) {
+        return this.json(route, { error: 'Fixture-AI-Abbruch benötigt die aktuelle Run-CAS.' }, 409);
+      }
+      const cancelled = this.updateCvAiRun(current, 'cancel_requested', 'cancel_requested');
+      this.cvAiRuns.set(runId, cancelled); return this.json(route, cancelled);
+    }
+    const cvAiRetryMatch = path.match(/^\/api\/cv-imports\/([^/]+)\/ai-structuring\/runs\/([^/]+)\/retry$/);
+    if (method === 'POST' && cvAiRetryMatch) {
+      const body = request.postDataJSON() as Record<string, unknown>; this.cvAiRetryRequests.push(clone(body));
+      const importId = decodeURIComponent(cvAiRetryMatch[1]); const runId = decodeURIComponent(cvAiRetryMatch[2]);
+      const current = this.cvAiRuns.get(runId); const disclosure = body['disclosure'] as Record<string, unknown> | undefined;
+      const provider = body['provider'] as Record<string, unknown> | undefined;
+      if (!this.cvImport || !current || current.cvImportId !== importId || !['cancelled', 'failed'].includes(current.status)
+        || body['expectedRunRevision'] !== current.revision || body['expectedRunSha256'] !== current.sha256
+        || body['expectedCvImportRevision'] !== this.cvImport.revision || body['expectedCvImportSha256'] !== this.cvImport.sha256
+        || body['mode'] !== 'replace_with_ai_version' || !provider || disclosure?.['version'] !== '1.0' || disclosure['confirmed'] !== true
+        || disclosure['sendExtractedCvTextToProvider'] !== true
+        || disclosure['acknowledgeProviderControlPlaneNetwork'] !== true) {
+        return this.json(route, { error: 'Fixture-AI-Retry benötigt frische Disclosure und beide CAS-Bindungen.' }, 409);
+      }
+      const retried = cvAiRun(this.cvImport, {
+        attempt: current.attempt + 1, retryOf: current.id, provider, mode: 'replace_with_ai_version'
+      });
+      if (this.failNextCvAiRun) { this.failedCvAiRuns.add(retried.id); this.failNextCvAiRun = false; }
+      this.cvAiRuns.set(retried.id, retried); return this.json(route, retried, 202);
+    }
+    const cvAiApplyMatch = path.match(/^\/api\/cv-imports\/([^/]+)\/ai-structuring\/runs\/([^/]+)\/apply$/);
+    if (method === 'POST' && cvAiApplyMatch) {
+      const body = request.postDataJSON() as Record<string, unknown>; this.cvAiApplyRequests.push(clone(body));
+      const importId = decodeURIComponent(cvAiApplyMatch[1]); const runId = decodeURIComponent(cvAiApplyMatch[2]);
+      const current = this.cvAiRuns.get(runId);
+      const selections = body['selections'] as Array<{ suggestionId: string; alternativeId: string | null }> | undefined;
+      if (!this.cvImport || !current || current.cvImportId !== importId || current.status !== 'suggestions_ready' || !current.proposal
+        || body['confirmed'] !== true || body['expectedRunRevision'] !== current.revision || body['expectedRunSha256'] !== current.sha256
+        || body['expectedCvImportRevision'] !== this.cvImport.revision || body['expectedCvImportSha256'] !== this.cvImport.sha256
+        || !Array.isArray(selections) || selections.length < 1) {
+        return this.json(route, { error: 'Fixture-AI-Apply benötigt Auswahl und beide aktuellen CAS-Bindungen.' }, 409);
+      }
+      const stagedFactIds: string[] = []; const facts = clone(this.cvImport.facts);
+      for (const selection of selections) {
+        const suggestion = current.proposal.suggestions.find((item) => item.id === selection.suggestionId);
+        const alternative = suggestion?.alternatives.find((item) => item.id === selection.alternativeId);
+        const value = selection.alternativeId === null ? suggestion?.value : alternative?.value;
+        const sourceAnchor = selection.alternativeId === null ? suggestion?.sourceAnchor : alternative?.sourceAnchor;
+        if (!suggestion?.mergeable || !value || !sourceAnchor
+          || (selection.alternativeId !== null && !alternative)) return this.json(route, { error: 'Fixture-AI-Auswahl ist ungültig.' }, 400);
+        const factId = `fact-ai-fixture-${stagedFactIds.length + 1}`; stagedFactIds.push(factId);
+        facts.push({
+          id: factId, category: suggestion.category as CvImportRecord['facts'][number]['category'],
+          recordId: suggestion.recordId ?? `ai-record-${stagedFactIds.length}`, field: suggestion.field, value, decision: 'pending',
+          provenance: {
+            sourceSha256: this.cvImport.source.sha256, anchor: `Zeilen ${sourceAnchor.lineStart}-${sourceAnchor.lineEnd}`, origin: 'imported',
+            recognition: {
+              method: 'ai_assisted', runId: current.id, proposalSha256: current.proposal.sha256,
+              suggestionId: suggestion.id, ...(selection.alternativeId ? { selectedAlternativeId: selection.alternativeId } : {}),
+              confidence: alternative?.confidence ?? suggestion.confidence, questions: clone(suggestion.questions),
+              sourceSpan: {
+                lineStart: sourceAnchor.lineStart, lineEnd: sourceAnchor.lineEnd,
+                charStart: sourceAnchor.charStart, charEnd: sourceAnchor.charEnd
+              }
+            }
+          }
+        });
+      }
+      const revision = this.cvImport.revision + 1; const sha256 = revision.toString(16).repeat(64);
+      this.cvImport = {
+        ...this.cvImport, revision, sha256, updatedAt: FIXED_TIME, status: 'facts_pending', facts,
+        adoption: undefined, proposal: undefined
+      };
+      this.syncActiveCvRecognitionVersion();
+      const applied: CvAiStructuringPublicRun = {
+        ...current, revision: current.revision + 1, sha256: (current.revision + 1).toString(16).repeat(64), status: 'applied',
+        updatedAt: FIXED_TIME, result: { cvImportRevision: revision, cvImportSha256: sha256, stagedFactIds, factsRemainPending: true },
+        auditTrail: [...current.auditTrail, { sequence: current.auditTrail.length + 1, occurredAt: FIXED_TIME, action: 'applied' }]
+      };
+      this.cvAiRuns.set(runId, applied); return this.json(route, applied);
+    }
+    const cvImportMatch = path.match(/^\/api\/cv-imports\/([^/]+)$/);
+    if (method === 'GET' && cvImportMatch) {
+      return this.cvImport?.id === decodeURIComponent(cvImportMatch[1])
+        ? this.json(route, this.cvImport) : this.json(route, { error: 'Fixture-CV-Import nicht gefunden.' }, 404);
+    }
+    if (method === 'DELETE' && cvImportMatch) {
+      const body = request.postDataJSON() as Record<string, unknown>;
+      this.cvImportDeleteRequests.push(clone(body));
+      const id = decodeURIComponent(cvImportMatch[1]);
+      if (!this.cvImport || id !== this.cvImport.id) return this.json(route, { removed: 0 });
+      if (body['confirmation'] !== `DELETE cv-import ${id}`
+        || body['expectedRevision'] !== this.cvImport.revision || body['expectedSha256'] !== this.cvImport.sha256) {
+        return this.json(route, { error: 'Fixture-CV-Löschung benötigt exakte Bestätigung und CAS.' }, 409);
+      }
+      this.cvImport = undefined;
+      this.cvRecognitionVersions = undefined; this.cvRecognitionFacts.clear();
+      return this.json(route, { removed: 1 });
+    }
+    const cvFactsMatch = path.match(/^\/api\/cv-imports\/([^/]+)\/facts$/);
+    if (method === 'PATCH' && cvFactsMatch) {
+      const body = request.postDataJSON() as { expectedRevision: number; expectedSha256: string; confirmed: boolean; operations: CvFactOperation[] };
+      this.cvFactReviewRequests.push(clone(body) as Record<string, unknown>);
+      if (!this.cvImport || body.confirmed !== true || body.expectedRevision !== this.cvImport.revision || body.expectedSha256 !== this.cvImport.sha256) {
+        return this.json(route, { error: 'Fixture-CV-CAS ist stale.' }, 409);
+      }
+      const facts = clone(this.cvImport.facts);
+      const newRecordIds = new Map<string, string>();
+      for (const operation of body.operations) {
+        if (operation.action === 'add') {
+          const recordId = operation.recordId ?? (operation.newRecordKey
+            ? (newRecordIds.get(operation.newRecordKey) ?? `record-user-fixture-${this.createdCvFacts + 1}`) : undefined);
+          if (!recordId || (operation.recordId && !facts.some((fact) => fact.recordId === operation.recordId && fact.category === operation.category))) {
+            return this.json(route, { error: 'Fixture-Zusatzfakt referenziert keine passende Station.' }, 409);
+          }
+          if (operation.newRecordKey) newRecordIds.set(operation.newRecordKey, recordId);
+          this.createdCvFacts += 1;
+          facts.push({
+            id: `fact-user-fixture-${this.createdCvFacts}`, category: operation.category, recordId,
+            field: operation.field, value: operation.value, decision: operation.explicitlyConfirmed === true ? 'confirmed' : 'pending',
+            provenance: { sourceSha256: this.cvImport.source.sha256, anchor: `user:${FIXED_TIME}`, origin: 'user_supplied' }
+          });
+          continue;
+        }
+        const index = facts.findIndex((fact) => fact.id === operation.factId);
+        if (index < 0) return this.json(route, { error: 'Fixture-Fakt unbekannt.' }, 409);
+        const fact = facts[index]!;
+        if (operation.action === 'edit') {
+          facts[index] = { ...fact, decision: 'rejected' };
+          this.createdCvFacts += 1;
+          facts.push({
+            id: `fact-user-fixture-${this.createdCvFacts}`, category: operation.category, recordId: operation.recordId,
+            field: operation.field, value: operation.value, decision: 'pending',
+            provenance: { ...fact.provenance, anchor: `user:${FIXED_TIME}`, origin: 'user_supplied' }
+          });
+        } else facts[index] = { ...fact, decision: operation.action === 'confirm' ? 'confirmed' : 'rejected' };
+      }
+      const revision = this.cvImport.revision + 1;
+      this.cvImport = {
+        ...this.cvImport, revision, sha256: revision.toString(16).repeat(64), updatedAt: FIXED_TIME, facts,
+        status: facts.some((fact) => fact.decision === 'pending') ? 'facts_pending' : 'facts_reviewed', adoption: undefined, proposal: undefined
+      };
+      this.syncActiveCvRecognitionVersion();
+      return this.json(route, this.cvImport);
+    }
+    const cvThemeMatch = path.match(/^\/api\/cv-imports\/([^/]+)\/theme$/);
+    if (method === 'PUT' && cvThemeMatch) {
+      const body = request.postDataJSON() as { expectedRevision: number; expectedSha256: string; confirmed: boolean; theme: CvTheme | null };
+      this.cvThemeRequests.push(clone(body) as Record<string, unknown>);
+      if (!this.cvImport || body.confirmed !== true || body.expectedRevision !== this.cvImport.revision || body.expectedSha256 !== this.cvImport.sha256) {
+        return this.json(route, { error: 'Fixture-CV-Theme-CAS ist stale.' }, 409);
+      }
+      const revision = this.cvImport.revision + 1;
+      this.cvImport = {
+        ...this.cvImport, revision, sha256: revision.toString(16).repeat(64), updatedAt: FIXED_TIME,
+        ...(body.theme ? { theme: clone(body.theme) } : { theme: undefined }), proposal: undefined
+      };
+      return this.json(route, this.cvImport);
+    }
+    const cvAdoptMatch = path.match(/^\/api\/cv-imports\/([^/]+)\/adopt$/);
+    if (method === 'POST' && cvAdoptMatch) {
+      const body = request.postDataJSON() as { expectedRevision: number; expectedSha256: string; confirmed: boolean };
+      this.cvAdoptionRequests.push(clone(body) as Record<string, unknown>);
+      if (!this.cvImport || body.confirmed !== true || body.expectedRevision !== this.cvImport.revision || body.expectedSha256 !== this.cvImport.sha256
+        || this.cvImport.facts.some((fact) => fact.decision === 'pending')) {
+        return this.json(route, { error: 'Fixture-CV-Adoption ist nicht freigegeben.' }, 409);
+      }
+      const confirmedFacts = this.cvImport.facts.filter((fact) => fact.decision === 'confirmed');
+      const revision = this.cvImport.revision + 1;
+      this.cvImport = {
+        ...this.cvImport, revision, sha256: revision.toString(16).repeat(64), updatedAt: FIXED_TIME, status: 'adopted',
+        adoption: {
+          adoptedAt: FIXED_TIME, adoptedClaimIds: confirmedFacts.map((fact) => `claim-${fact.id}`),
+          adoptedRecordIds: [...new Set(confirmedFacts.map((fact) => fact.recordId))],
+          candidateProfileSha256: 'b'.repeat(64), candidateProfileRevision: 'fixture-profile-revision-1',
+          recognitionVersionId: this.cvImport.activeRecognitionVersionId,
+          recognitionVersionSha256: CV_RECOGNITION_VERSION_SHA256
+        }
+      };
+      return this.json(route, this.cvImport);
+    }
+    const cvRenderMatch = path.match(/^\/api\/application-cases\/([^/]+)\/cv-proposals$/);
+    if (method === 'POST' && cvRenderMatch) {
+      const caseId = decodeURIComponent(cvRenderMatch[1]);
+      const body = request.postDataJSON() as Record<string, unknown>;
+      this.cvHtmlRenderRequests.push({ caseId, body: clone(body) });
+      const application = this.applicationCases.get(caseId);
+      if (!this.cvImport || !application || application.state !== 'approved'
+        || body['confirmed'] !== true || body['expectedRevision'] !== this.cvImport.revision || body['expectedSha256'] !== this.cvImport.sha256
+        || body['documentRevisionId'] !== application.approvedArtifactRevisionId || body['expectedDocumentSha256'] !== application.approvedArtifactSha256) {
+        return this.json(route, { error: 'Fixture-HTML benötigt die exakt freigegebene CV-Revision.' }, 409);
+      }
+      const revision = this.cvImport.revision + 1;
+      this.cvImport = {
+        ...this.cvImport, revision, sha256: revision.toString(16).repeat(64), updatedAt: FIXED_TIME, status: 'proposal_ready',
+        proposal: {
+          applicationCaseId: application.id, jobId: application.job.id, createdAt: FIXED_TIME,
+          htmlSha256: 'e'.repeat(64), documentRevisionId: application.approvedArtifactRevisionId!,
+          documentSha256: application.approvedArtifactSha256!, lifecycle: 'approved_revision_preview', format: 'html',
+          downloadAllowed: application.identityMode === 'real',
+          inputSnapshot: {
+            cvImportRevision: this.cvImport.revision, cvImportSha256: this.cvImport.sha256,
+            candidateProfileSha256: 'b'.repeat(64), candidateProfileRevision: 'fixture-profile-revision-1',
+            styleProfileRevision: 3, styleProfileSha256: '8'.repeat(64), themeSha256: 'f'.repeat(64),
+            agentWorkflowId: 'evidence-application-package', sourceAgentArtifactId: 'fixture-used-agent-artifact',
+            pipelineContractVersion: '1.0.0',
+            completedStages: ['validate_profiles', 'analyze_job', 'build_match_matrix', 'audit_claims', 'check_style', 'validate_iteration'],
+            agentOrchestrationRequired: false,
+            recognitionVersionId: this.cvImport.activeRecognitionVersionId,
+            recognitionVersionSha256: CV_RECOGNITION_VERSION_SHA256
+          }
+        }
+      };
+      return this.json(route, this.cvImport, 201);
+    }
+    const cvHtmlMatch = path.match(/^\/api\/cv-imports\/([^/]+)\/proposal\.html$/);
+    if (method === 'GET' && cvHtmlMatch) {
+      if (!this.cvImport?.proposal || url.searchParams.get('sha256') !== this.cvImport.proposal.htmlSha256) {
+        return this.json(route, { error: 'Fixture-HTML-Hash ist stale.' }, 409);
+      }
+      if (url.searchParams.get('download') === 'true') this.cvHtmlDownloadRequests.push(request.url());
+      return route.fulfill({
+        status: 200, contentType: 'text/html; charset=utf-8',
+        headers: { 'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; sandbox", 'x-content-type-options': 'nosniff' },
+        body: '<!doctype html><html lang="de"><head><meta charset="utf-8"><title>Fixture CV</title></head><body><h1>Synthetischer HTML-Lebenslauf</h1><p>Proof-verifizierte Offline-Fixture.</p></body></html>'
+      });
+    }
     if (method === 'GET' && path === '/api/crm/companies') {
       const applications = [...this.applicationCases.values()].map((application) => ({
         ...clone(application), tracking: [{ id: 'fixture-tracking', status: 'review', occurredAt: FIXED_TIME }], messages: [],
@@ -1337,6 +1878,119 @@ export class AgentApiStub {
           : Object.fromEntries(genericNodes.map((node) => [node.nodeId, node.runIds])),
       artifactRefs: evidenceWorkflow ? [evidenceArtifact] : [], budget: { wallTimeMs: 1500, tokens: 90, costMicros: 0, toolCalls: 1, iterations: 1 },
       createdAt: FIXED_TIME, updatedAt: FIXED_TIME
+    };
+  }
+
+  private advanceCvAiRun(current: CvAiStructuringPublicRun): CvAiStructuringPublicRun {
+    if (current.status === 'queued') return this.updateCvAiRun(current, 'running');
+    if (current.status === 'running' && this.failedCvAiRuns.has(current.id)) {
+      this.failedCvAiRuns.delete(current.id);
+      return {
+        ...this.updateCvAiRun(current, 'failed', 'failed'),
+        failure: { code: 'fixture_ai_failed', stage: 'agent', retryable: true }
+      };
+    }
+    if (current.status === 'running') return this.updateCvAiRun(current, 'validating', 'provider_completed');
+    if (current.status === 'validating') return this.materializeCvAiRecognitionVersion(current);
+    if (current.status === 'cancel_requested') return this.updateCvAiRun(current, 'cancelled', 'cancelled');
+    return clone(current);
+  }
+
+  private initializeCvRecognitionVersions(record: CvImportRecord): void {
+    const id = CV_DETERMINISTIC_RECOGNITION_ID;
+    this.cvRecognitionFacts.clear(); this.cvRecognitionFacts.set(id, clone(record.facts));
+    this.cvRecognitionVersions = {
+      contract: 'cv-recognition-version-list', contractVersion: '1.0', importId: record.id, activeVersionId: id,
+      versions: [{
+        id, ordinal: 1, kind: 'deterministic', label: 'Deterministische Erkennung',
+        createdAt: record.createdAt, updatedAt: record.updatedAt, active: true,
+        factCounts: this.cvFactCounts(record.facts), warningCount: record.warnings.length
+      }]
+    };
+  }
+
+  private materializeCvAiRecognitionVersion(current: CvAiStructuringPublicRun): CvAiStructuringPublicRun {
+    if (!this.cvImport || !this.cvRecognitionVersions) return {
+      ...this.updateCvAiRun(current, 'failed', 'failed'),
+      failure: { code: 'fixture_recognition_state_missing', stage: 'apply', retryable: false }
+    };
+    const sourceSha256 = this.cvImport.source.sha256;
+    const fields = [
+      ['employer', 'Beispiel GmbH'], ['role', 'Entwickler'], ['start_date', '2022-01'],
+      ['end_date', 'present'], ['location', 'Testregion']
+    ] as const;
+    const facts: CvImportRecord['facts'] = fields.map(([field, value], index) => ({
+      id: `fact-ai-${field}`, category: 'employment', recordId: 'employment-fixture', field, value,
+      decision: 'pending', provenance: {
+        sourceSha256, anchor: `Zeile ${index + 2}`, origin: 'imported',
+        recognition: {
+          method: 'ai_assisted', runId: current.id, proposalSha256: '2'.repeat(64),
+          suggestionId: `suggestion-${String(index + 1).repeat(16)}`, confidence: .9,
+          questions: [], sourceSpan: { lineStart: index + 2, lineEnd: index + 2, charStart: 0, charEnd: value.length }
+        }
+      }
+    }));
+    const versionId = CV_AI_RECOGNITION_ID;
+    const revision = this.cvImport.revision + 1; const sha256 = Math.min(15, revision).toString(16).repeat(64);
+    this.cvRecognitionFacts.set(versionId, clone(facts));
+    this.cvRecognitionVersions = {
+      ...this.cvRecognitionVersions, activeVersionId: versionId,
+      versions: [
+        ...this.cvRecognitionVersions.versions.map((version) => ({ ...version, active: false })),
+        {
+          id: versionId, ordinal: 2, kind: 'ai', label: 'KI-Strukturierung', createdAt: FIXED_TIME,
+          updatedAt: FIXED_TIME, active: true, factCounts: this.cvFactCounts(facts),
+          warningCount: 0, provider: { id: current.provider.id, version: current.provider.version }
+        }
+      ]
+    };
+    this.cvImport = {
+      ...this.cvImport, revision, sha256, updatedAt: FIXED_TIME, status: 'facts_pending', facts: clone(facts),
+      activeRecognitionVersionId: versionId, adoption: undefined, proposal: undefined
+    };
+    const applied = this.updateCvAiRun(current, 'applied', 'applied');
+    return {
+      ...applied,
+      result: {
+        cvImportRevision: revision, cvImportSha256: sha256, stagedFactIds: facts.map((fact) => fact.id),
+        factsRemainPending: true, recognitionVersionId: versionId,
+        recognitionVersionCount: this.cvRecognitionVersions.versions.length
+      }
+    };
+  }
+
+  private cvFactCounts(facts: CvImportRecord['facts']): { total: number; pending: number; confirmed: number; rejected: number } {
+    return {
+      total: facts.length,
+      pending: facts.filter((fact) => fact.decision === 'pending').length,
+      confirmed: facts.filter((fact) => fact.decision === 'confirmed').length,
+      rejected: facts.filter((fact) => fact.decision === 'rejected').length
+    };
+  }
+
+  private syncActiveCvRecognitionVersion(): void {
+    if (!this.cvImport || !this.cvRecognitionVersions) return;
+    const activeId = this.cvRecognitionVersions.activeVersionId;
+    this.cvRecognitionFacts.set(activeId, clone(this.cvImport.facts));
+    this.cvRecognitionVersions = {
+      ...this.cvRecognitionVersions,
+      versions: this.cvRecognitionVersions.versions.map((version) => version.id === activeId
+        ? { ...version, updatedAt: this.cvImport!.updatedAt, factCounts: this.cvFactCounts(this.cvImport!.facts), warningCount: this.cvImport!.warnings.length }
+        : version)
+    };
+  }
+
+  private updateCvAiRun(
+    current: CvAiStructuringPublicRun,
+    status: CvAiStructuringPublicRun['status'],
+    action?: CvAiStructuringPublicRun['auditTrail'][number]['action']
+  ): CvAiStructuringPublicRun {
+    const revision = current.revision + 1;
+    return {
+      ...current, revision, sha256: Math.min(15, revision + 1).toString(16).repeat(64), status, updatedAt: FIXED_TIME,
+      auditTrail: action ? [...current.auditTrail, {
+        sequence: current.auditTrail.length + 1, occurredAt: FIXED_TIME, action
+      }] : current.auditTrail
     };
   }
 

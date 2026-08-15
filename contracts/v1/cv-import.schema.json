@@ -1,0 +1,125 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://job-match-and-apply.local/contracts/v1/cv-import.schema.json",
+  "title": "CV import public record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract", "contractVersion", "id", "revision", "sha256", "status", "createdAt", "updatedAt", "source", "facts", "warnings", "activeRecognitionVersionId"],
+  "properties": {
+    "contract": { "const": "cv-import" },
+    "contractVersion": { "const": "1.0" },
+    "id": { "$ref": "#/$defs/uuid" },
+    "revision": { "type": "integer", "minimum": 1 },
+    "sha256": { "$ref": "#/$defs/sha256" },
+    "status": { "enum": ["facts_pending", "facts_reviewed", "adopted", "proposal_ready"] },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "updatedAt": { "type": "string", "format": "date-time" },
+    "source": {
+      "type": "object", "additionalProperties": false,
+      "required": ["fileName", "mimeType", "bytes", "sha256", "retention"],
+      "properties": {
+        "fileName": { "type": "string", "minLength": 1, "maxLength": 240 },
+        "mimeType": { "enum": ["text/html", "application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/vnd.oasis.opendocument.text"] },
+        "bytes": { "type": "integer", "minimum": 1, "maximum": 10485760 },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "retention": { "const": "upload_deleted_after_local_extraction" }
+      }
+    },
+    "facts": { "type": "array", "maxItems": 2000, "items": { "$ref": "#/$defs/fact" } },
+    "warnings": { "type": "array", "maxItems": 100, "items": { "type": "string", "maxLength": 500 } },
+    "activeRecognitionVersionId": { "$ref": "#/$defs/recognitionVersionId" },
+    "theme": { "$ref": "#/$defs/theme" },
+    "adoption": { "$ref": "#/$defs/adoption" },
+    "proposal": { "$ref": "#/$defs/proposal" }
+  },
+  "$defs": {
+    "uuid": { "type": "string", "format": "uuid" },
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "recognitionVersionId": { "type": "string", "pattern": "^recognition-[a-f0-9]{16}$" },
+    "safeId": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+    "fact": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "category", "recordId", "field", "value", "decision", "provenance"],
+      "properties": {
+        "id": { "$ref": "#/$defs/safeId" }, "claimId": { "$ref": "#/$defs/safeId" },
+        "category": { "enum": ["profile", "contact", "employment", "project", "education", "skill", "certification", "language", "additional"] },
+        "recordId": { "$ref": "#/$defs/safeId" }, "field": { "type": "string", "maxLength": 64, "pattern": "^[a-z][a-z0-9_.]*(?:\\[[0-9]{1,4}\\])?$" },
+        "value": { "type": "string", "minLength": 1, "maxLength": 5000 }, "decision": { "enum": ["pending", "confirmed", "rejected"] },
+        "provenance": {
+          "type": "object", "additionalProperties": false, "required": ["sourceSha256", "anchor", "origin"],
+          "properties": {
+            "sourceSha256": { "$ref": "#/$defs/sha256" },
+            "anchor": { "type": "string", "minLength": 1, "maxLength": 300 },
+            "origin": { "enum": ["imported", "user_supplied"] },
+            "recognition": { "$ref": "#/$defs/recognition" }
+          }
+        }
+      }
+    },
+    "recognition": {
+      "type": "object", "additionalProperties": false, "required": ["method"],
+      "properties": {
+        "method": { "enum": ["deterministic", "ai_assisted"] },
+        "runId": { "$ref": "#/$defs/uuid" },
+        "proposalSha256": { "$ref": "#/$defs/sha256" },
+        "suggestionId": { "type": "string", "pattern": "^suggestion-[a-f0-9]{16}$" },
+        "selectedAlternativeId": { "type": "string", "pattern": "^alternative-[a-f0-9]{16}$" },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "questions": { "type": "array", "maxItems": 10, "items": { "type": "string", "minLength": 1, "maxLength": 1000 } },
+        "sourceSpan": {
+          "type": "object", "additionalProperties": false,
+          "required": ["lineStart", "lineEnd", "charStart", "charEnd"],
+          "properties": {
+            "lineStart": { "type": "integer", "minimum": 1 },
+            "lineEnd": { "type": "integer", "minimum": 1 },
+            "charStart": { "type": "integer", "minimum": 0 },
+            "charEnd": { "type": "integer", "minimum": 1 }
+          }
+        }
+      }
+    },
+    "theme": {
+      "type": "object", "additionalProperties": false, "required": ["template", "font", "accentColor", "spacing", "sectionOrder"],
+      "properties": {
+        "template": { "enum": ["classic", "compact", "modern"] }, "font": { "enum": ["Arial", "Calibri", "Georgia", "Helvetica"] },
+        "accentColor": { "enum": ["#1f2937", "#1d4ed8", "#047857", "#7c3aed"] }, "spacing": { "enum": ["compact", "comfortable", "spacious"] },
+        "sectionOrder": { "type": "array", "uniqueItems": true, "maxItems": 8, "items": { "enum": ["profile", "employment", "project", "education", "skill", "certification", "language", "additional"] } }
+      }
+    },
+    "adoption": {
+      "type": "object", "additionalProperties": false,
+      "required": ["adoptedAt", "adoptedClaimIds", "adoptedRecordIds", "candidateProfileSha256", "candidateProfileRevision"],
+      "properties": {
+        "adoptedAt": { "type": "string", "format": "date-time" }, "adoptedClaimIds": { "type": "array", "items": { "$ref": "#/$defs/safeId" } },
+        "adoptedRecordIds": { "type": "array", "items": { "$ref": "#/$defs/safeId" } }, "candidateProfileSha256": { "$ref": "#/$defs/sha256" },
+        "candidateProfileRevision": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "recognitionVersionId": { "$ref": "#/$defs/recognitionVersionId" },
+        "recognitionVersionSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "proposal": {
+      "type": "object", "additionalProperties": false,
+      "required": ["applicationCaseId", "jobId", "createdAt", "htmlSha256", "documentRevisionId", "documentSha256", "lifecycle", "format", "downloadAllowed", "inputSnapshot"],
+      "properties": {
+        "applicationCaseId": { "$ref": "#/$defs/uuid" }, "jobId": { "type": "string", "minLength": 1 }, "createdAt": { "type": "string", "format": "date-time" },
+        "htmlSha256": { "$ref": "#/$defs/sha256" }, "documentRevisionId": { "$ref": "#/$defs/uuid" }, "documentSha256": { "$ref": "#/$defs/sha256" },
+        "lifecycle": { "const": "approved_revision_preview" }, "format": { "const": "html" }, "downloadAllowed": { "type": "boolean" },
+        "inputSnapshot": {
+          "type": "object", "additionalProperties": false,
+          "required": ["cvImportRevision", "cvImportSha256", "candidateProfileSha256", "candidateProfileRevision", "styleProfileRevision", "styleProfileSha256", "agentWorkflowId", "sourceAgentArtifactId", "pipelineContractVersion", "completedStages", "agentOrchestrationRequired"],
+          "properties": {
+            "cvImportRevision": { "type": "integer", "minimum": 1 }, "cvImportSha256": { "$ref": "#/$defs/sha256" },
+            "candidateProfileSha256": { "$ref": "#/$defs/sha256" }, "candidateProfileRevision": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+            "styleProfileRevision": { "type": "integer", "minimum": 0 }, "styleProfileSha256": { "$ref": "#/$defs/sha256" },
+            "themeSha256": { "$ref": "#/$defs/sha256" }, "agentWorkflowId": { "const": "evidence-application-package" },
+            "sourceAgentArtifactId": { "$ref": "#/$defs/uuid" }, "pipelineContractVersion": { "type": "string", "minLength": 1, "maxLength": 80 },
+            "completedStages": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 120 } },
+            "agentOrchestrationRequired": { "const": false },
+            "recognitionVersionId": { "$ref": "#/$defs/recognitionVersionId" },
+            "recognitionVersionSha256": { "$ref": "#/$defs/sha256" }
+          }
+        }
+      }
+    }
+  }
+}

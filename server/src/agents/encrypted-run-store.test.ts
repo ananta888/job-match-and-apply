@@ -51,6 +51,21 @@ describe('EncryptedAgentRunStore', () => {
     expect((await store.events(failing.id))[0]?.data).toMatchObject({ state: 'failed', failure: { message: 'private failure detail' } });
   });
 
+  it('does not encrypt an absent optional failure on a successful terminal event', async () => {
+    const inner = new MemoryAgentRunStore();
+    const store = new EncryptedAgentRunStore(inner, new StaticAgentVaultKeyProvider(randomBytes(32)));
+    const successful = structuredClone(run); successful.id = 'successful-run'; successful.state = 'running';
+    successful.startedAt = successful.requestedAt;
+    await store.create(successful);
+    await expect(store.append({
+      schemaVersion: AGENT_CONTRACT_VERSION, runId: successful.id, provider: 'fake', sequence: 1,
+      timestamp: '2026-08-13T00:00:01Z', correlationId: 'c1', kind: 'run_completed',
+      data: { state: 'succeeded', failure: undefined },
+    })).resolves.toBe('appended');
+    expect((await store.get(successful.id))?.state).toBe('succeeded');
+    expect((await store.events(successful.id))[0]?.data.failure).toBeUndefined();
+  });
+
   it('never writes prompt or response canaries to the disk index', async () => {
     const root = await mkdtemp(join(tmpdir(), 'encrypted-agent-store-')); roots.push(root);
     const store = new EncryptedAgentRunStore(new JsonAgentRunStore(join(root, 'runs')), new StaticAgentVaultKeyProvider(randomBytes(32)));

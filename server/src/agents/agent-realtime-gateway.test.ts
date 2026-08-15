@@ -19,20 +19,21 @@ describe('AgentRealtimeTicketAuthority', () => {
   it('binds one-time tickets to run, origin and loopback client and expires them', () => {
     let now = Date.parse('2026-08-13T12:00:00.000Z');
     const authority = new AgentRealtimeTicketAuthority({ ttlMs: 1_000, now: () => now });
-    const ticket = authority.issue({ runId: 'run-1', afterSequence: 4, origin: 'http://127.0.0.1:4200', remoteAddress: '::ffff:127.0.0.1' });
-    expect(() => authority.consume({ token: ticket.token, runId: 'run-2', origin: 'http://127.0.0.1:4200', remoteAddress: '127.0.0.1' })).toThrow(/Sitzung/);
-    expect(authority.consume({ token: ticket.token, runId: 'run-1', origin: 'http://127.0.0.1:4200', remoteAddress: '127.0.0.1' })).toMatchObject({ runId: 'run-1', afterSequence: 4 });
-    expect(() => authority.consume({ token: ticket.token, runId: 'run-1', origin: 'http://127.0.0.1:4200', remoteAddress: '127.0.0.1' })).toThrow(/bereits/);
+    const ticket = authority.issue({ runId: 'run-1', afterSequence: 4, origin: 'http://127.0.0.1:4201', remoteAddress: '::ffff:127.0.0.1' });
+    expect(() => authority.consume({ token: ticket.token, runId: 'run-2', origin: 'http://127.0.0.1:4201', remoteAddress: '127.0.0.1' })).toThrow(/Sitzung/);
+    expect(authority.consume({ token: ticket.token, runId: 'run-1', origin: 'http://127.0.0.1:4201', remoteAddress: '127.0.0.1' })).toMatchObject({ runId: 'run-1', afterSequence: 4 });
+    expect(() => authority.consume({ token: ticket.token, runId: 'run-1', origin: 'http://127.0.0.1:4201', remoteAddress: '127.0.0.1' })).toThrow(/bereits/);
 
-    const expired = authority.issue({ runId: 'run-1', afterSequence: 0, origin: 'http://127.0.0.1:4200', remoteAddress: '127.0.0.1' });
+    const expired = authority.issue({ runId: 'run-1', afterSequence: 0, origin: 'http://127.0.0.1:4201', remoteAddress: '127.0.0.1' });
     now += 1_001;
-    expect(() => authority.consume({ token: expired.token, runId: 'run-1', origin: 'http://127.0.0.1:4200', remoteAddress: '127.0.0.1' })).toThrow(/abgelaufen/);
-    expect(() => authority.issue({ runId: 'run-1', afterSequence: 0, origin: 'http://127.0.0.1:4200', remoteAddress: '10.0.0.4' })).toThrow(/Loopback/);
+    expect(() => authority.consume({ token: expired.token, runId: 'run-1', origin: 'http://127.0.0.1:4201', remoteAddress: '127.0.0.1' })).toThrow(/abgelaufen/);
+    expect(() => authority.issue({ runId: 'run-1', afterSequence: 0, origin: 'http://127.0.0.1:4201', remoteAddress: '10.0.0.4' })).toThrow(/Loopback/);
   });
 
   it('accepts only same-service or Angular-development loopback origins', () => {
     expect(assertAllowedRealtimeOrigin('http://127.0.0.1:43187', '127.0.0.1:43187')).toBe('http://127.0.0.1:43187');
-    expect(assertAllowedRealtimeOrigin('http://localhost:4200', '127.0.0.1:43187')).toBe('http://localhost:4200');
+    expect(assertAllowedRealtimeOrigin('http://localhost:4201', '127.0.0.1:43187')).toBe('http://localhost:4201');
+    expect(() => assertAllowedRealtimeOrigin('http://localhost:4200', '127.0.0.1:43187')).toThrow(/stimmt nicht/);
     expect(() => assertAllowedRealtimeOrigin('https://example.org', '127.0.0.1:43187')).toThrow(/lokale/);
     expect(() => assertAllowedRealtimeOrigin(undefined, '127.0.0.1:43187')).toThrow(/Origin/);
     expect(isLoopbackAddress('::1')).toBe(true);
@@ -59,7 +60,7 @@ describe('AgentRealtimeGateway', () => {
     expect(created.status).toBe(201);
     const response = await request(app)
       .post(`/api/agent-runs/${created.body.id}/realtime-ticket`)
-      .set('Origin', 'http://127.0.0.1:4200')
+      .set('Origin', 'http://127.0.0.1:4201')
       .send({ afterSequence: 0 });
     expect(response.status).toBe(503);
     expect((await request(app).get(`/api/agent-runs/${created.body.id}/events?after=0`)).status).toBe(200);

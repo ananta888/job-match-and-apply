@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://job-match-and-apply.local/contracts/v1/cv-recognition-version-list.schema.json",
+  "title": "Privacy-minimized CV recognition version inventory",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract", "contractVersion", "importId", "activeVersionId", "versions"],
+  "properties": {
+    "contract": { "const": "cv-recognition-version-list" },
+    "contractVersion": { "const": "1.0" },
+    "importId": { "$ref": "#/$defs/uuid" },
+    "activeVersionId": { "$ref": "#/$defs/recognitionVersionId" },
+    "versions": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 20,
+      "items": { "$ref": "#/$defs/version" }
+    }
+  },
+  "$defs": {
+    "uuid": { "type": "string", "format": "uuid" },
+    "recognitionVersionId": { "type": "string", "pattern": "^recognition-[a-f0-9]{16}$" },
+    "safeId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$" },
+    "factCounts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["total", "pending", "confirmed", "rejected"],
+      "properties": {
+        "total": { "type": "integer", "minimum": 0, "maximum": 2000 },
+        "pending": { "type": "integer", "minimum": 0, "maximum": 2000 },
+        "confirmed": { "type": "integer", "minimum": 0, "maximum": 2000 },
+        "rejected": { "type": "integer", "minimum": 0, "maximum": 2000 }
+      }
+    },
+    "provider": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version"],
+      "properties": {
+        "id": { "$ref": "#/$defs/safeId" },
+        "version": { "type": "string", "minLength": 1, "maxLength": 256 }
+      }
+    },
+    "version": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "ordinal", "kind", "label", "createdAt", "updatedAt", "active", "factCounts", "warningCount"],
+      "properties": {
+        "id": { "$ref": "#/$defs/recognitionVersionId" },
+        "ordinal": { "type": "integer", "minimum": 1, "maximum": 20 },
+        "kind": { "enum": ["deterministic", "ai"] },
+        "label": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "active": { "type": "boolean" },
+        "factCounts": { "$ref": "#/$defs/factCounts" },
+        "warningCount": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "provider": { "$ref": "#/$defs/provider" }
+      }
+    }
+  }
+}

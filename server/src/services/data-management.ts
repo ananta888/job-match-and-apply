@@ -21,6 +21,16 @@ export function dataInventory(config: AppConfig, workspace: Awaited<ReturnType<W
       { id: 'agent_runs', location: '.local-data/agent-runs/', purpose: 'Append-only Agentenlauf-Snapshots und kanonische Ereignisse', records: null, encryptedFields: ['prompt', 'message', 'input', 'output'] },
       { id: 'agent_artifacts', location: '.local-data/agent-artifacts/', purpose: 'Content-addressed Vorschläge mit Run- und Bewerbungs-Provenance; Inhalte sind nicht verschlüsselt', records: null, encryptedFields: [] },
       { id: 'agent_keys', location: '.local-data/keys/', purpose: 'Lokale Schlüssel für Run-Vault und Freigabetokens', records: null, encryptedFields: ['all'] },
+      {
+        id: 'cv_imports', location: '.local-data/cv-imports/',
+        purpose: 'Versionierte Lebenslauf-Fakten, Entscheidungen, Themes und HTML-Provenienz; nur manuell per revisionsgebundener CV-Import-Löschung aufbewahrt oder entfernt',
+        records: null, encryptedFields: ['all'], retention: 'manual_delete_only',
+      },
+      {
+        id: 'cv_ai_structuring_runs', location: '.local-data/cv-ai-structuring-runs/',
+        purpose: 'Kurzlebige, verschlüsselte KI-Strukturvorschläge und deren Hash-, Provider- und Einwilligungsprovenienz; fehlgeschlagene Bereinigung bleibt für Wiederholungen getrackt',
+        records: null, encryptedFields: ['all'], retention: 'automatic_ttl_with_tracked_retry',
+      },
       { id: 'portal_sessions', location: 'JOB_MCP_STATE_DIR', purpose: 'Upstream-Browsersitzungen und verschlüsselte Credentials', records: null, encryptedFields: ['credentials'] }
     ]
   };

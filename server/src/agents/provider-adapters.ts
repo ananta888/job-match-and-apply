@@ -64,7 +64,7 @@ export const OPENCODE_MANIFEST: AgentAdapterManifest = {
       approvalSemantics: 'provider-auto-reject-unapproved',
       pause: false, pauseSemantics: 'unsupported_cancel_only',
       externalSandbox: 'wsl-bubblewrap-v1', networkEnforcement: 'provider-tool-capability-policy',
-      networkMechanism: 'server-owned-read-only-tool-allowlist', networkAccessClaim: 'provider-control-plane-only'
+      networkMechanism: 'server-owned-read-only-tool-allowlist', networkAccessClaim: 'provider-control-plane-only',
     }
   }
 };
@@ -92,7 +92,9 @@ export const CLAUDE_CLI_MANIFEST: AgentAdapterManifest = {
       customizations: 'safe-mode-strict-empty-mcp-and-slash-commands-disabled',
       pause: false, pauseSemantics: 'unsupported_cancel_only',
       externalSandbox: 'wsl-bubblewrap-v1', networkEnforcement: 'provider-tool-capability-policy',
-      networkMechanism: 'server-owned-read-only-tool-allowlist', networkAccessClaim: 'provider-control-plane-only'
+      networkMechanism: 'server-owned-read-only-tool-allowlist', networkAccessClaim: 'provider-control-plane-only',
+      serverOwnedNoToolsMode: 'cv-ai-structuring-v1',
+      serverOwnedNoToolsFixture: 'contracts/fixtures/v1/claude-cli-cv-zero-tools-events.json',
     }
   }
 };
@@ -218,7 +220,7 @@ export const mapOpenCodeJsonEvent: ProviderEventMapper = (value): AgentEventDraf
   return [{ kind: 'warning', data: { code: 'unknown_opencode_event', providerEventType: type } }];
 };
 
-export const mapClaudeStreamEvent: ProviderEventMapper = (value): AgentEventDraft[] => {
+export const mapClaudeStreamEvent: ProviderEventMapper = (value, context): AgentEventDraft[] => {
   const event = object(value); const type = typeof event?.type === 'string' ? event.type : undefined;
   if (!event || !type) return [{ kind: 'warning', data: { code: 'invalid_claude_event' } }];
   if (type === 'assistant') {
@@ -267,8 +269,15 @@ export const mapClaudeStreamEvent: ProviderEventMapper = (value): AgentEventDraf
     return drafts;
   }
   if (type === 'system' && event.subtype === 'init') {
-    const exactTools = Array.isArray(event.tools) && event.tools.length === 1 && event.tools[0] === 'Read';
     const empty = (candidate: unknown): boolean => Array.isArray(candidate) && candidate.length === 0;
+    const zeroToolsMode = context?.request.metadata?.workflowId === 'cv-ai-structuring'
+      && context.request.metadata?.providerToolMode === 'none'
+      && context.request.approvalMode === 'deny'
+      && Array.isArray(context.request.metadata?.requiredRootMcpTools)
+      && context.request.metadata.requiredRootMcpTools.length === 0;
+    const exactTools = zeroToolsMode
+      ? empty(event.tools)
+      : Array.isArray(event.tools) && event.tools.length === 1 && event.tools[0] === 'Read';
     const conforms = event.claude_code_version === '2.1.232' && event.permissionMode === 'plan' && exactTools
       && empty(event.mcp_servers) && empty(event.plugins) && empty(event.skills) && empty(event.slash_commands);
     if (!conforms) return [{ kind: 'error', data: {

@@ -63,4 +63,18 @@ describe('AgentTelemetry', () => {
       groupBy: 'template', groups: [{ key: 'job-research', runs: 2, known: { tokens: 100, toolCalls: 1, durationMs: 50 }, unknown: { tokens: 1, toolCalls: 1, durationMs: 1, cost: 1 }, costs: [{ currency: 'EUR', amountMicros: 1_000, providerReportedRuns: 1, estimatedRuns: 0 }] }]
     });
   });
+
+  it('keeps private CV structuring runs out of generic usage projections', () => {
+    const metrics = new AgentTelemetry();
+    metrics.markPrivateRun('private-cv-run');
+    metrics.recordUsage('private-cv-run', {
+      provider: 'fake', source: 'provider', capturedAt: '2026-08-14T00:00:00Z',
+      workflowId: 'cv-ai-structuring', totalTokens: 999,
+    });
+    expect(metrics.isPrivateRun('private-cv-run')).toBe(true);
+    expect(metrics.usageFor('private-cv-run')).toBeUndefined();
+    expect(metrics.usageTrend('workflow').groups).toEqual([]);
+    metrics.forgetRun('private-cv-run');
+    expect(metrics.isPrivateRun('private-cv-run')).toBe(false);
+  });
 });

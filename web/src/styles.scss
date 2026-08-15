@@ -299,6 +299,20 @@ main .agent-operations-grid > .panel > .description { color: #4d586b; }
 .mcp-runtime-grid small { margin-bottom: 6px; color: #525d70; font-size: 8px; font-weight: 700; text-transform: uppercase; }
 .mcp-runtime-grid strong { color: #29344b; font-size: 10px; overflow-wrap: anywhere; }
 .runtime-note { padding: 10px; border-left: 3px solid #6250d3; color: #4d586b; background: #f4f2ff; font-size: 9px; line-height: 1.55; }
+.mcp-runtimes { margin-top: 14px; }
+.mcp-runtimes > h4 { margin: 0 0 8px; color: #29344b; font-size: 11px; }
+.mcp-runtime-list { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.mcp-runtime-card { padding: 12px; border: 1px solid #e1e5eb; border-radius: 10px; background: #f7f9fc; }
+.mcp-runtime-card.active { border-color: #6250d3; box-shadow: inset 3px 0 0 #6250d3; }
+.mcp-runtime-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
+.mcp-runtime-head strong { color: #29344b; font-size: 10px; }
+.mcp-runtime-card > small { color: #657084; font-size: 8px; }
+.mcp-runtime-card > p { margin: 6px 0 10px; color: #525d70; font-size: 8px; line-height: 1.5; overflow-wrap: anywhere; }
+.mcp-runtime-badge { padding: 2px 7px; border-radius: 999px; font-size: 7px; font-weight: 800; color: #8a5b1a; background: #fdf2d6; }
+.mcp-runtime-badge.ok { color: #0f7a43; background: #dcf5e7; }
+.mcp-runtime-badge.active { color: #493a9e; background: #ece8ff; }
+.mcp-runtime-card button { width: 100%; }
+@media (max-width: 760px) { .mcp-runtime-list { grid-template-columns: 1fr; } }
 .mcp-managed-config { margin-top: 14px; padding: 13px; border: 1px solid #e1e5eb; border-radius: 9px; }
 .mcp-managed-config h4, .portal-permission h4 { margin: 0 0 6px; color: #29344b; font-size: 11px; }
 .mcp-managed-config > p, .portal-permission > div > p { margin: 0; color: #525d70; font-size: 9px; line-height: 1.55; }

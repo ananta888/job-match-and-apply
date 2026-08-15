@@ -4,7 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { DomSanitizer, type SafeResourceUrl } from '@angular/platform-browser';
 import { ApiService } from './api.service';
 import { forkJoin, type Subscription } from 'rxjs';
-import type { AgentApproval, AgentArtifactContent, AgentArtifactRecord, AgentConfigProfile, AgentConfigProfileView, AgentOrchestrationConfirmationInput, AgentOrchestrationConflict, AgentOrchestrationConflictStrategy, AgentOrchestrationCreateRequest, AgentOrchestrationGate, AgentOrchestrationRecord, AgentProvider, AgentProviderConfigProfile, AgentProviderInstallation, AgentQueueBlockReason, AgentQueueSnapshot, AgentRecoveryDecision, AgentRecoveryLease, AgentRecoveryRun, AgentRun, AgentRunEvent, AgentRunPreflight, AgentRunRequest, AgentRunStatus, AgentRuntimeTarget, AgentWorkflow, AgentWorkspaceMode, AppConfig, ApplicationCase, ApplicationDraft, ApplicationExportResult, ApplicationNextActionsProposalProjection, ApplicationProfileSetupStatus, ApplicationStyleDocumentType, ApplicationStyleExampleDocumentType, ApplicationStyleProfileView, ArtifactRevision, CandidateMatchAnalysis, CandidateProfileSummary, CompanyCrm, CorrelatedMail, CvAiProviderSelection, CvAiStructuringOptions, CvAiStructuringPublicRun, CvAiStructuringSelection, CvAiStructuringSuggestion, CvFact, CvFactCategory, CvFactDecision, CvFactOperation, CvImportRecord, CvImportSummary, CvRecognitionVersionList, CvRecognitionVersionSummary, CvTheme, CvLayoutFingerprint, CvLayoutSection, CvThemeOriginalLayout, CvLayoutPalette, JobInventoryView, JobInventoryCategory, SearchRunSummary, AtsCheckReport, DataInventory, EditableApplicationStyleProfile, EmployerResponseTriageProposalProjection, IdentityProfile, JobDecision, JobMatch, JobSourceCapabilities, LanguageCheckResult, MailAccount, McpRuntimeStatus, ProfileImportPreview, SearchSchedule, Section, SourceCapability, SourceStatus } from './models';
+import type { AgentApproval, AgentArtifactContent, AgentArtifactRecord, AgentConfigProfile, AgentConfigProfileView, AgentOrchestrationConfirmationInput, AgentOrchestrationConflict, AgentOrchestrationConflictStrategy, AgentOrchestrationCreateRequest, AgentOrchestrationGate, AgentOrchestrationRecord, AgentProvider, AgentProviderConfigProfile, AgentProviderInstallation, AgentQueueBlockReason, AgentQueueSnapshot, AgentRecoveryDecision, AgentRecoveryLease, AgentRecoveryRun, AgentRun, AgentRunEvent, AgentRunPreflight, AgentRunRequest, AgentRunStatus, AgentRuntimeTarget, AgentWorkflow, AgentWorkspaceMode, AppConfig, ApplicationCase, ApplicationDraft, ApplicationExportResult, ApplicationNextActionsProposalProjection, ApplicationProfileSetupStatus, ApplicationStyleDocumentType, ApplicationStyleExampleDocumentType, ApplicationStyleProfileView, ArtifactRevision, CandidateMatchAnalysis, CandidateProfileSummary, CompanyCrm, CorrelatedMail, CvAiProviderSelection, CvAiStructuringOptions, CvAiStructuringPublicRun, CvAiStructuringSelection, CvAiStructuringSuggestion, CvFact, CvFactCategory, CvFactDecision, CvFactOperation, CvImportRecord, CvImportSummary, CvRecognitionVersionList, CvRecognitionVersionSummary, CvTheme, CvLayoutFingerprint, CvLayoutSection, CvThemeOriginalLayout, CvLayoutPalette, JobInventoryView, JobInventoryCategory, SearchRunSummary, AtsCheckReport, JobSearchMcpRuntimeCandidate, DataInventory, EditableApplicationStyleProfile, EmployerResponseTriageProposalProjection, IdentityProfile, JobDecision, JobMatch, JobSourceCapabilities, LanguageCheckResult, MailAccount, McpRuntimeStatus, ProfileImportPreview, SearchSchedule, Section, SourceCapability, SourceStatus } from './models';
 
 type AgentEventLevelFilter = 'all' | 'debug' | 'info' | 'warning' | 'error';
 type AgentTimelineView = 'readable' | 'diagnostic';
@@ -86,6 +86,8 @@ export class App implements OnInit, OnDestroy {
   sources: SourceStatus[] = [];
   capabilities?: JobSourceCapabilities;
   mcpRuntime?: McpRuntimeStatus;
+  mcpRuntimeCandidates: JobSearchMcpRuntimeCandidate[] = [];
+  mcpRuntimeBusy = false;
   matches: JobMatch[] = [];
   searchFailures: Array<{ sourceId: string; category: string; retryable: boolean; detail: string }> = [];
   jobDecisions: JobDecision[] = [];
@@ -360,7 +362,25 @@ export class App implements OnInit, OnDestroy {
         this.refreshView();
       }
     });
+    this.api.mcpRuntimeCandidates().subscribe({
+      next: (result) => { this.mcpRuntimeCandidates = result.candidates; this.refreshView(); },
+      error: () => { this.mcpRuntimeCandidates = []; this.refreshView(); }
+    });
   }
+
+  selectMcpRuntime(runtimeTarget: 'windows' | 'wsl'): void {
+    if (!this.config || this.mcpRuntimeBusy) return;
+    this.mcpRuntimeBusy = true; this.error = ''; this.notice = '';
+    this.api.selectMcpRuntime(runtimeTarget, this.config.revision).subscribe({
+      next: (config) => {
+        this.config = config; this.mcpRuntimeBusy = false;
+        this.notice = `Job-Suche-MCP läuft jetzt über die ${runtimeTarget === 'windows' ? 'native Windows' : 'WSL'}-Runtime.`;
+        this.refreshSources(); this.refreshView();
+      },
+      error: (error) => { this.mcpRuntimeBusy = false; this.error = this.message(error); this.refreshView(); }
+    });
+  }
+  mcpRuntimeLabelFor(target: 'windows' | 'wsl'): string { return target === 'windows' ? 'Nativ (Windows)' : 'WSL (Ubuntu)'; }
 
   select(section: Section): void {
     this.section = section; this.notice = ''; this.error = '';

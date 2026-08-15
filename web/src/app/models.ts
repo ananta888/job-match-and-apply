@@ -180,6 +180,14 @@ export interface McpRuntimeStatus {
   note: string;
 }
 
+export interface JobSearchMcpRuntimeCandidate {
+  runtimeTarget: 'windows' | 'wsl';
+  available: boolean;
+  active: boolean;
+  distribution?: string;
+  note: string;
+}
+
 export interface CandidateClaim {
   id: string; statement: string; status: 'verified' | 'user_confirmed' | 'inferred' | 'unverified' | 'do_not_use';
   evidenceRefs: string[]; allowedOutputs: string[]; validFrom?: string; validTo?: string;

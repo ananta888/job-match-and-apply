@@ -19,6 +19,7 @@ import type { WorkspaceStore } from './services/workspace-store.js';
 import { JsonWorkspaceStore, MemoryWorkspaceStore } from './services/workspace-store.js';
 import { deduplicateJobs } from './services/job-normalization.js';
 import { buildInventoryView } from './services/job-inventory.js';
+import { buildJobSearchMcpRuntimeSettings, discoverJobSearchMcpRuntimes } from './services/job-search-mcp-discovery.js';
 
 function inventoryMatch(match: SearchPreferenceMatch) {
   return {
@@ -2407,6 +2408,28 @@ export function createApp(
     }
     const status = await inspectTrustedHostMcpRuntime(config.mcp);
     response.status(status.state === 'invalid' ? 503 : 200).json(status);
+  }));
+
+  app.get('/api/sources/runtime/candidates', asyncRoute(async (_request, response) => {
+    const config = await store.load();
+    response.setHeader('cache-control', 'no-store');
+    response.json({
+      contract: 'job-search-mcp-runtime-candidates', contractVersion: '1.0',
+      candidates: await discoverJobSearchMcpRuntimes(config),
+    });
+  }));
+
+  app.post('/api/sources/runtime/select', asyncRoute(async (request, response) => {
+    const input = z.object({
+      runtimeTarget: z.enum(['windows', 'wsl']), confirmed: z.literal(true), expectedRevision: z.number().int().nonnegative(),
+    }).strict().parse(request.body);
+    const projectRoot = resolve(process.cwd(), '..');
+    const saved = await store.compareAndSave(input.expectedRevision, async (config) => {
+      const settings = await buildJobSearchMcpRuntimeSettings(input.runtimeTarget, config, projectRoot);
+      return { ...config, mcp: settings };
+    });
+    response.setHeader('cache-control', 'no-store');
+    response.json(publicConfigView(saved.config, saved.revision));
   }));
 
   app.delete('/api/identities/:identityId', asyncRoute(async (request, response) => {

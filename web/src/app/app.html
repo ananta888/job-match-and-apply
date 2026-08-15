@@ -786,6 +786,25 @@
             <div><small>Protokollverbindung</small><strong>{{ mcpRuntime?.connected ? 'Verbunden' : 'Nicht verbunden' }}</strong></div>
           </section>
           <p class="runtime-note">{{ mcpRuntime?.note || 'Runtime-Status wird ausschließlich über GET /api/sources/runtime geprüft.' }}</p>
+          @if (mcpRuntimeCandidates.length) {
+            <section class="mcp-runtimes" data-testid="mcp-runtime-candidates" aria-label="Verfügbare MCP-Runtimes">
+              <h4>Runtime wählen — beide Umgebungen werden aktiv geprüft</h4>
+              <div class="mcp-runtime-list">
+                @for (candidate of mcpRuntimeCandidates; track candidate.runtimeTarget) {
+                  <div class="mcp-runtime-card" [class.available]="candidate.available" [class.active]="candidate.active" [attr.data-target]="candidate.runtimeTarget">
+                    <div class="mcp-runtime-head">
+                      <strong>{{ mcpRuntimeLabelFor(candidate.runtimeTarget) }}</strong>
+                      <span class="mcp-runtime-badge" [class.ok]="candidate.available">{{ candidate.available ? 'verfügbar' : 'nicht verfügbar' }}</span>
+                      @if (candidate.active) { <span class="mcp-runtime-badge active">aktiv</span> }
+                    </div>
+                    @if (candidate.distribution) { <small>{{ candidate.distribution }}</small> }
+                    <p>{{ candidate.note }}</p>
+                    <button class="secondary compact" type="button" [attr.data-testid]="'mcp-select-' + candidate.runtimeTarget" (click)="selectMcpRuntime(candidate.runtimeTarget)" [disabled]="mcpRuntimeBusy || !candidate.available || candidate.active">{{ candidate.active ? 'Aktiv' : 'Diese Runtime verwenden' }}</button>
+                  </div>
+                }
+              </div>
+            </section>
+          }
           <section class="mcp-managed-config" aria-labelledby="mcp-managed-config-heading"><h4 id="mcp-managed-config-heading">Serverseitig verwalteter Startvertrag</h4><p>Command, Argumente, State-Verzeichnis und Environment-Werte sind in Angular nicht bearbeitbar. Sichtbar bleiben nur nicht-geheime Metadaten.</p><dl><div><dt>Isolation</dt><dd>trusted-host</dd></div><div><dt>Konfigurierte Environment-Keys</dt><dd>@for (key of mcpConfiguredEnvironmentKeys(); track key) { <code>{{ key }}</code> } @empty { Keine }</dd></div></dl></section>
           <section class="portal-permission" aria-labelledby="portal-permission-heading"><div><h4 id="portal-permission-heading">Explizite Portal-Freigabe</h4><p>Der aktuelle Wert bleibt absichtlich verborgen. Jede Änderung setzt ausschließlich <code>ALLOW_EXTERNAL_PORTALS</code> auf <code>1</code> oder <code>0</code>.</p></div><div class="portal-permission-actions"><button #portalPermissionDisableButton class="secondary" type="button" (click)="openPortalPermissionDialog('disable', portalPermissionDisableButton)" [disabled]="busy || !!portalPermissionUnavailableReason('disable')">Portalzugriff sperren</button><button #portalPermissionEnableButton class="primary" type="button" (click)="openPortalPermissionDialog('enable', portalPermissionEnableButton)" [disabled]="busy || !!portalPermissionUnavailableReason('enable')">Portalzugriff freigeben</button></div>
             @if (portalPermissionUnavailableReason('enable'); as reason) { <p class="approval-block-reason" role="status">Fail-closed: {{ reason }}</p> }

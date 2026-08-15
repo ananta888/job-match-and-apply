@@ -294,6 +294,23 @@ describe('API', () => {
     await request(app).delete(`/api/comparison-notes/${note.body.id}`).send({ confirmation: `DELETE comparison-note ${note.body.id}` }).expect(200);
   });
 
+  it('actively discovers both native and WSL job-search MCP runtime candidates', async () => {
+    const app = createApp(new MemoryConfigStore());
+    const response = await request(app).get('/api/sources/runtime/candidates').expect(200);
+    expect(response.body.contract).toBe('job-search-mcp-runtime-candidates');
+    const byTarget = Object.fromEntries((response.body.candidates as Array<{ runtimeTarget: string }>).map((c) => [c.runtimeTarget, c]));
+    expect(Object.keys(byTarget).sort()).toEqual(['windows', 'wsl']);
+    for (const candidate of response.body.candidates as Array<{ available: unknown; active: unknown; note: unknown }>) {
+      expect(typeof candidate.available).toBe('boolean');
+      expect(typeof candidate.active).toBe('boolean');
+      expect(typeof candidate.note).toBe('string');
+    }
+    // Selecting a runtime that is not installed fails closed instead of switching blindly.
+    await request(app).post('/api/sources/runtime/select')
+      .send({ runtimeTarget: 'wsl', confirmed: true, expectedRevision: 0 })
+      .expect((res) => { if (![200, 409].includes(res.status)) throw new Error(`unexpected ${res.status}`); });
+  }, 30_000);
+
   it('builds a deduplicated central job inventory from search runs and supports categorization', async () => {
     const workspace = new MemoryWorkspaceStore();
     const app = createApp(new MemoryConfigStore(), new MemoryAuditLogger(), workspace);

@@ -350,6 +350,11 @@ describe('App', () => {
         contract: 'job-search-mcp-runtime-status', contractVersion: '1.0', mode: 'stdio', state: 'ready_to_connect',
         runtimeTarget: 'windows', launchValidated: true, connected: false, note: 'Synthetischer Startpfad ist validiert.'
       })),
+      mcpRuntimeCandidates: vi.fn().mockReturnValue(of({ candidates: [
+        { runtimeTarget: 'windows', available: true, active: true, note: 'nativ validiert' },
+        { runtimeTarget: 'wsl', available: true, active: false, distribution: 'Ubuntu', note: 'WSL validiert' }
+      ] })),
+      selectMcpRuntime: vi.fn().mockImplementation(() => of(structuredClone(config))),
       capabilities: vi.fn().mockReturnValue(of({ contract: 'job-search-mcp', contractVersion: '1.0', compatible: true, tools: [], errorCategories: [], sources: [] })),
       applicationPipelineSetup: vi.fn().mockReturnValue(of({
         contract: 'application-profile-setup', contractVersion: '1.0', candidateProfile: 'present', styleProfile: 'present', initialized: true,
@@ -1887,6 +1892,18 @@ describe('App', () => {
     expect(apiMock['atsCheckCv']).toHaveBeenCalledWith(record, 'theme-preview', expect.any(Array), expect.any(Array));
     expect(component.cvAtsReport?.summary.parseable).toBe(true);
     expect(component.cvAtsReport?.summary.fail).toBe(0);
+    fixture.destroy();
+  });
+
+  it('lists both MCP runtime candidates and switches to a selected one', async () => {
+    const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
+    const component = fixture.componentInstance;
+    component.select('sources'); fixture.detectChanges(); await fixture.whenStable();
+    expect(component.mcpRuntimeCandidates.map((candidate) => candidate.runtimeTarget).sort()).toEqual(['windows', 'wsl']);
+    const element = fixture.nativeElement as HTMLElement;
+    expect(element.querySelector('[data-testid="mcp-runtime-candidates"]')).toBeTruthy();
+    component.selectMcpRuntime('wsl');
+    expect(apiMock['selectMcpRuntime']).toHaveBeenCalledWith('wsl', expect.any(Number));
     fixture.destroy();
   });
 });

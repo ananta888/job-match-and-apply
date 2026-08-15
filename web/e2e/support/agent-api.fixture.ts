@@ -778,6 +778,16 @@ export class AgentApiStub {
     if (method === 'GET' && path === '/api/sources/runtime') {
       return this.json(route, this.runtimeStatus, this.runtimeStatus.state === 'invalid' ? 503 : 200);
     }
+    if (method === 'GET' && path === '/api/sources/runtime/candidates') {
+      return this.json(route, { contract: 'job-search-mcp-runtime-candidates', contractVersion: '1.0', candidates: [
+        { runtimeTarget: 'windows', available: true, active: true, note: 'Synthetisch nativ validiert.' },
+        { runtimeTarget: 'wsl', available: false, active: false, distribution: 'Ubuntu', note: 'Synthetisch: WSL nicht installiert.' }
+      ] });
+    }
+    if (method === 'POST' && path === '/api/sources/runtime/select') {
+      this.config = { ...this.config, revision: this.config.revision + 1 };
+      return this.json(route, this.config);
+    }
     if (method === 'GET' && path === '/api/capabilities') return this.json(route, { contract: 'fixture', contractVersion: '1.0.0', compatible: true, tools: [], errorCategories: [], sources: [] });
     if (method === 'GET' && path === '/api/job-decisions') return this.json(route, []);
     if (method === 'GET' && path === '/api/job-inventory') return this.json(route, []);

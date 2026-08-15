@@ -2,7 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { EMPTY, of, throwError } from 'rxjs';
 import { App } from './app';
 import { ApiService } from './api.service';
-import type { AgentArtifactRecord, AgentConfigProfileView, AgentOrchestrationConflict, AgentOrchestrationRecord, AgentRecoveryRun, AgentRun, AgentRunPreflight, AgentRunRequest, AppConfig, ApplicationCase, ApplicationStyleProfileView, ArtifactRevision, CorrelatedMail, CvAiStructuringOptions, CvAiStructuringPublicRun, CvImportRecord, CvRecognitionVersionList } from './models';
+import type { AgentArtifactRecord, AgentConfigProfileView, AgentOrchestrationConflict, AgentOrchestrationRecord, AgentRecoveryRun, AgentRun, AgentRunPreflight, AgentRunRequest, AppConfig, ApplicationCase, ApplicationStyleProfileView, ArtifactRevision, CorrelatedMail, CvAiStructuringOptions, CvAiStructuringPublicRun, CvImportRecord, CvLayoutFingerprint, CvRecognitionVersionList, JobInventoryView } from './models';
 
 const CV_DETERMINISTIC_RECOGNITION_ID = 'recognition-1111111111111111';
 const CV_AI_RECOGNITION_ID = 'recognition-2222222222222222';
@@ -380,6 +380,8 @@ describe('App', () => {
       deleteCvImport: vi.fn(),
       reviewCvFacts: vi.fn(),
       saveCvTheme: vi.fn(),
+      previewCvTheme: vi.fn().mockReturnValue(of({ html: '<!doctype html><html></html>', htmlSha256: 'e'.repeat(64) })),
+      atsCheckCv: vi.fn(),
       adoptCvFacts: vi.fn(),
       createCvProposal: vi.fn(),
       cvProposalHtmlUrl: vi.fn().mockImplementation((importId: string, sha256: string) => `/api/cv-imports/${importId}/proposal.html?sha256=${sha256}&download=false`),
@@ -394,6 +396,10 @@ describe('App', () => {
       createApplicationPackage: vi.fn(),
       createSubmissionDryRun: vi.fn(),
       jobDecisions: vi.fn().mockReturnValue(of([])),
+      jobInventory: vi.fn().mockReturnValue(of([])),
+      setJobInventoryCategory: vi.fn(),
+      markJobInventoryApplied: vi.fn(),
+      searchRunsSummary: vi.fn().mockReturnValue(of([])),
       dataInventory: vi.fn().mockReturnValue(of({ generatedAt: '2026-01-01T00:00:00Z', stores: [] })),
       schedules: vi.fn().mockReturnValue(of([])),
       saveConfig: vi.fn().mockImplementation((value) => of(structuredClone(value))),
@@ -1780,6 +1786,102 @@ describe('App', () => {
     component.renderApprovedCvHtml();
     expect(apiMock['createCvProposal']).not.toHaveBeenCalled();
     expect(component.cvError).toContain('HTML-Erzeugung und Download sind gesperrt');
+    fixture.destroy();
+  });
+
+  it('derives ATS and original format templates from the captured layout fingerprint', async () => {
+    const fingerprint: CvLayoutFingerprint = {
+      contract: 'cv-layout-fingerprint', contractVersion: '1.0', sourceFormat: 'html', columns: 2, fontFamily: 'sans',
+      confidence: 'high',
+      palette: { text: '#222222', heading: '#111111', accent: '#7c3aed', background: '#ffffff', sidebar: '#0f172a', sidebarText: '#f9fafb' },
+      sections: [
+        { section: 'profile', label: 'Profil', column: 'side' },
+        { section: 'skill', label: 'Kenntnisse', column: 'side' },
+        { section: 'employment', label: 'Berufserfahrung', column: 'main' },
+        { section: 'education', label: 'Ausbildung', column: 'main' }
+      ],
+      warnings: []
+    };
+    const record: CvImportRecord = {
+      ...cvImportFixture(['confirmed', 'confirmed']), status: 'facts_reviewed', layoutFingerprint: fingerprint
+    };
+    const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
+    const component = fixture.componentInstance;
+    component.select('cv'); fixture.detectChanges(); await fixture.whenStable();
+    (component as unknown as { applyCvImport(record: CvImportRecord): void }).applyCvImport(record);
+    expect(component.cvThemeVariant).toBe('ats');
+
+    component.selectCvThemeVariant('original');
+    expect(component.cvThemeDraft.mode).toBe('original');
+    expect(component.cvThemeDraft.original?.columns).toBe(2);
+    expect(component.cvThemeDraft.original?.side).toEqual(['profile', 'skill']);
+    expect(component.cvThemeDraft.original?.main).toEqual(['employment', 'education']);
+    expect(component.cvThemeDraft.original?.palette.accent).toBe('#7c3aed');
+    expect(component.cvThemeDraft.accentColor).toBe('#7c3aed');
+
+    component.prefillAtsFromOriginal();
+    expect(component.cvThemeDraft.mode).toBe('ats');
+    expect(component.cvThemeDraft.original).toBeUndefined();
+    expect(component.cvThemeDraft.sectionOrder.slice(0, 4)).toEqual(['profile', 'skill', 'employment', 'education']);
+    expect(component.cvThemeDraft.sectionOrder.length).toBe(8);
+    fixture.destroy();
+  });
+
+  it('shows the central job inventory grouped by category and moves jobs between categories', async () => {
+    const entry: JobInventoryView = {
+      key: 'angular engineer|beispiel gmbh|berlin',
+      job: { id: 'job-1', sourceId: 'demo', title: 'Angular Engineer', company: 'Beispiel GmbH', location: 'Berlin', workModel: 'hybrid', employmentType: 'full_time', description: 'x', skills: ['Angular', 'RxJS'] },
+      category: 'inbox', firstSeenAt: '2026-08-15T09:00:00Z', lastSeenAt: '2026-08-15T10:00:00Z', runCount: 2, sourceIds: ['demo'],
+      status: { applied: false, cases: [], documents: [], appliedWith: [], tracking: [] }
+    };
+    apiMock['jobInventory'].mockReturnValue(of([entry]));
+    apiMock['searchRunsSummary'].mockReturnValue(of([{ id: 'run-1', createdAt: '2026-08-15T10:00:00Z', sourceIds: ['demo'], matchCount: 5, acceptedCount: 3, newJobCount: 2, partialFailureCount: 0 }]));
+    apiMock['setJobInventoryCategory'].mockImplementation((_key: string, category: string) => of({ ...structuredClone(entry), category }));
+    apiMock['markJobInventoryApplied'].mockImplementation((_key: string, applied: boolean, note?: string) => of({ ...structuredClone(entry), status: { ...entry.status, applied, ...(applied ? { manualApplied: { at: '2026-08-15T11:00:00Z', note } } : {}) } }));
+
+    const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
+    const component = fixture.componentInstance;
+    component.select('jobs'); fixture.detectChanges(); await fixture.whenStable();
+    expect(component.jobInventory).toHaveLength(1);
+    expect(component.jobsInCategory('inbox')).toHaveLength(1);
+    expect(component.jobCategoryCount('inbox')).toBe(1);
+    expect(component.searchRunSummaries[0].newJobCount).toBe(2);
+
+    component.moveJobCategory(entry, 'apply');
+    expect(apiMock['setJobInventoryCategory']).toHaveBeenCalledWith(entry.key, 'apply');
+    expect(component.jobInventory[0].category).toBe('apply');
+    expect(component.jobsInCategory('inbox')).toHaveLength(0);
+    expect(component.jobsInCategory('apply')).toHaveLength(1);
+
+    component.toggleJobApplied(component.jobInventory[0]!);
+    expect(apiMock['markJobInventoryApplied']).toHaveBeenCalledWith(entry.key, true);
+    expect(component.jobInventory[0].status.applied).toBe(true);
+    expect(component.appliedJobCount()).toBe(1);
+
+    const element = fixture.nativeElement as HTMLElement;
+    expect(element.querySelector('[data-testid="jobs-board"]')).toBeTruthy();
+    fixture.destroy();
+  });
+
+  it('runs the local ATS check and surfaces the deterministic report', async () => {
+    apiMock['atsCheckCv'].mockReturnValue(of({
+      contract: 'ats-check', contractVersion: '1.0', engine: 'deterministic-local', checkedAt: '2026-08-15T10:00:00Z', htmlSha256: 'a'.repeat(64),
+      summary: { pass: 4, warn: 1, fail: 0, parseable: true },
+      lint: [{ id: 'single-column', label: 'Einspaltige Lesereihenfolge', status: 'pass', detail: 'Eine Spalte.' }],
+      parse: { parser: 'local-rule-based-ats-parser', parserVersion: '1.0', detectedSections: [], recovered: { hasDateRanges: true }, counts: { sections: 3, experienceItems: 2, educationItems: 1, skills: 3, bullets: 6 }, warnings: [] },
+      coverage: { mustHave: { total: 2, matched: 1, terms: [] }, niceToHave: { total: 1, matched: 1, terms: [] } },
+      disclaimer: 'Lokale ATS-Heuristik ohne Score.'
+    }));
+    const record: CvImportRecord = { ...cvImportFixture(['confirmed', 'confirmed']), status: 'facts_reviewed' };
+    const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
+    const component = fixture.componentInstance;
+    component.select('cv'); fixture.detectChanges(); await fixture.whenStable();
+    (component as unknown as { applyCvImport(record: CvImportRecord): void }).applyCvImport(record);
+
+    component.runCvAtsCheck('theme-preview');
+    expect(apiMock['atsCheckCv']).toHaveBeenCalledWith(record, 'theme-preview', expect.any(Array), expect.any(Array));
+    expect(component.cvAtsReport?.summary.parseable).toBe(true);
+    expect(component.cvAtsReport?.summary.fail).toBe(0);
     fixture.destroy();
   });
 });

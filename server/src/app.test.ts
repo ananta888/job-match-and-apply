@@ -294,6 +294,35 @@ describe('API', () => {
     await request(app).delete(`/api/comparison-notes/${note.body.id}`).send({ confirmation: `DELETE comparison-note ${note.body.id}` }).expect(200);
   });
 
+  it('builds a deduplicated central job inventory from search runs and supports categorization', async () => {
+    const workspace = new MemoryWorkspaceStore();
+    const app = createApp(new MemoryConfigStore(), new MemoryAuditLogger(), workspace);
+    const first = await request(app).post('/api/jobs/search').send({}).expect(200);
+    expect(first.body.newJobCount).toBeGreaterThan(0);
+    // A second identical run must not add new jobs (cross-run deduplication).
+    const second = await request(app).post('/api/jobs/search').send({}).expect(200);
+    expect(second.body.newJobCount).toBe(0);
+
+    const inventory = await request(app).get('/api/job-inventory').expect(200);
+    expect(inventory.body.length).toBe(first.body.matches.length);
+    expect(inventory.body.every((entry: { category: string }) => entry.category === 'inbox')).toBe(true);
+    expect(inventory.body[0]).toHaveProperty('status.applied', false);
+
+    const key = inventory.body[0].key as string;
+    const categorized = await request(app).put(`/api/job-inventory/${encodeURIComponent(key)}/category`).send({ category: 'apply' }).expect(200);
+    expect(categorized.body.category).toBe('apply');
+    const applied = await request(app).post(`/api/job-inventory/${encodeURIComponent(key)}/applied`).send({ applied: true, note: 'Extern beworben' }).expect(200);
+    expect(applied.body.status.applied).toBe(true);
+    expect(applied.body.status.manualApplied.note).toBe('Extern beworben');
+
+    const summary = await request(app).get('/api/search-runs-summary').expect(200);
+    expect(summary.body).toHaveLength(2);
+    expect(summary.body[0]).toMatchObject({ matchCount: first.body.matches.length });
+    expect(summary.body.some((run: { newJobCount: number }) => run.newJobCount > 0)).toBe(true);
+
+    await request(app).put(`/api/job-inventory/${encodeURIComponent('missing|key|nowhere')}/category`).send({ category: 'archive' }).expect(404);
+  });
+
   it('requires provenance for portal tracking and keeps explicit corrections append-only', async () => {
     const app = createApp(new MemoryConfigStore());
     const search = await request(app).post('/api/jobs/search').send({}).expect(200);

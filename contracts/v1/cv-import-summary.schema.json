@@ -6,7 +6,7 @@
   "additionalProperties": false,
   "required": [
     "contract", "contractVersion", "id", "revision", "sha256", "status", "createdAt", "updatedAt",
-    "source", "factCounts", "warningCount", "unresolvedConflictCount", "hasTheme", "hasAdoption", "hasProposal"
+    "source", "factCounts", "warningCount", "unresolvedConflictCount", "hasTheme", "hasLayoutFingerprint", "hasAdoption", "hasProposal"
   ],
   "properties": {
     "contract": { "const": "cv-import-summary" },
@@ -43,6 +43,7 @@
     "warningCount": { "type": "integer", "minimum": 0, "maximum": 100 },
     "unresolvedConflictCount": { "type": "integer", "minimum": 0, "maximum": 100 },
     "hasTheme": { "type": "boolean" },
+    "hasLayoutFingerprint": { "type": "boolean" },
     "hasAdoption": { "type": "boolean" },
     "hasProposal": { "type": "boolean" }
   },

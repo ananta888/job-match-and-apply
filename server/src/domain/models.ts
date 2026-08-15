@@ -104,6 +104,32 @@ export interface SearchRun {
   sourceIds: string[];
   matches: SearchPreferenceMatch[];
   partialFailures?: Array<{ sourceId: string; category: string; retryable: boolean; detail: string }>;
+  /** Canonical inventory keys that this run added to the central job list for the first time. */
+  newInventoryKeys?: string[];
+}
+
+export type JobInventoryCategory = 'inbox' | 'apply' | 'watchlist' | 'archive';
+
+/**
+ * A durable, deduplicated central job record enriched by every search run. Unlike {@link SearchRun}
+ * snapshots, inventory entries survive run retention and carry the user's manual categorization and
+ * a manual applied mark. Application status (documents generated, applied-with) is derived at read
+ * time by joining application cases, artifact revisions and tracking events over {@link jobIds}.
+ */
+export interface JobInventoryEntry {
+  key: string;
+  job: JobPosting;
+  category: JobInventoryCategory;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  updatedAt: string;
+  /** Search-run ids that surfaced this job, most-recent first (bounded). */
+  runIds: string[];
+  /** All source `job.id`s ever merged into this entry (for joining cases/artifacts/tracking). */
+  jobIds: string[];
+  sourceIds: string[];
+  /** Explicit "applied outside the app" mark; the derived status also accounts for in-app cases. */
+  manualApplied?: { at: string; note?: string };
 }
 
 export type ApplicationCaseState = 'selected' | 'analysis' | 'questions' | 'draft' | 'review' | 'approved' | 'exported' | 'dry_run' | 'submitted' | 'closed';

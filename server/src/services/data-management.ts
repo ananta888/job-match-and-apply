@@ -16,6 +16,7 @@ export function dataInventory(config: AppConfig, workspace: Awaited<ReturnType<W
       { id: 'search_schedules', location: '.local-data/workspace.json', purpose: 'Explizit aktivierte Suchpläne', records: workspace.searchSchedules.length, encryptedFields: [] },
       { id: 'follow_up_reminders', location: '.local-data/workspace.json', purpose: 'Lokale Wiedervorlagen', records: workspace.reminders.length, encryptedFields: [] },
       { id: 'job_decisions', location: '.local-data/workspace.json', purpose: 'Merk- und Ausblendentscheidungen', records: workspace.jobDecisions.length, encryptedFields: [] },
+      { id: 'job_inventory', location: '.local-data/workspace.json', purpose: 'Zentrale, laufübergreifend angereicherte Jobliste mit Kategorien', records: workspace.jobInventory.length, encryptedFields: [] },
       { id: 'comparison_notes', location: '.local-data/workspace.json', purpose: 'Subjektive Vergleichsnotizen', records: workspace.comparisonNotes.length, encryptedFields: [] },
       { id: 'work_artifacts', location: '.application-work/', purpose: 'Temporäre Evidence- und Exportartefakte', records: null, encryptedFields: [] },
       { id: 'agent_runs', location: '.local-data/agent-runs/', purpose: 'Append-only Agentenlauf-Snapshots und kanonische Ereignisse', records: null, encryptedFields: ['prompt', 'message', 'input', 'output'] },

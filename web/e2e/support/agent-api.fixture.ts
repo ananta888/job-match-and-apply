@@ -178,7 +178,8 @@ function cvImportSummary(record: CvImportRecord): CvImportSummary {
       total: record.facts.length, pending: factCount('pending'), confirmed: factCount('confirmed'), rejected: factCount('rejected')
     },
     warningCount: record.warnings.length, unresolvedConflictCount: 0,
-    hasTheme: Boolean(record.theme), hasAdoption: Boolean(record.adoption), hasProposal: Boolean(record.proposal)
+    hasTheme: Boolean(record.theme), hasLayoutFingerprint: Boolean(record.layoutFingerprint),
+    hasAdoption: Boolean(record.adoption), hasProposal: Boolean(record.proposal)
   };
 }
 
@@ -779,6 +780,18 @@ export class AgentApiStub {
     }
     if (method === 'GET' && path === '/api/capabilities') return this.json(route, { contract: 'fixture', contractVersion: '1.0.0', compatible: true, tools: [], errorCategories: [], sources: [] });
     if (method === 'GET' && path === '/api/job-decisions') return this.json(route, []);
+    if (method === 'GET' && path === '/api/job-inventory') return this.json(route, []);
+    if (method === 'GET' && path === '/api/search-runs-summary') return this.json(route, []);
+    const jobInventoryCategoryMatch = path.match(/^\/api\/job-inventory\/([^/]+)\/category$/);
+    if (method === 'PUT' && jobInventoryCategoryMatch) {
+      const body = request.postDataJSON() as { category: string };
+      return this.json(route, { key: decodeURIComponent(jobInventoryCategoryMatch[1]!), category: body.category, status: { applied: false, cases: [], documents: [], appliedWith: [], tracking: [] } });
+    }
+    const jobInventoryAppliedMatch = path.match(/^\/api\/job-inventory\/([^/]+)\/applied$/);
+    if (method === 'POST' && jobInventoryAppliedMatch) {
+      const body = request.postDataJSON() as { applied: boolean; note?: string };
+      return this.json(route, { key: decodeURIComponent(jobInventoryAppliedMatch[1]!), category: 'inbox', status: { applied: body.applied, ...(body.applied ? { manualApplied: { at: FIXED_TIME, note: body.note } } : {}), cases: [], documents: [], appliedWith: [], tracking: [] } });
+    }
     if (method === 'GET' && path === '/api/assistant/status') return this.json(route, { available: true, note: 'Synthetisches Offline-Fixture.' });
     if (method === 'GET' && path === '/api/agents/config-profile') return this.json(route, this.agentConfigProfileView);
     if (method === 'PUT' && path === '/api/agents/config-profile') {
@@ -1109,6 +1122,23 @@ export class AgentApiStub {
       };
       this.syncActiveCvRecognitionVersion();
       return this.json(route, this.cvImport);
+    }
+    const cvThemePreviewMatch = path.match(/^\/api\/cv-imports\/([^/]+)\/theme\/preview$/);
+    if (method === 'POST' && cvThemePreviewMatch) {
+      const body = request.postDataJSON() as { theme: CvTheme };
+      const mode = body.theme?.mode === 'original' ? 'original' : 'ats';
+      const html = `<!doctype html><html lang="de"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:"></head><body data-mode="${mode}"><main><h1>Layout-Vorschau</h1></main></body></html>`;
+      return this.json(route, { html, htmlSha256: 'e'.repeat(64) });
+    }
+    const cvAtsCheckMatch = path.match(/^\/api\/cv-imports\/([^/]+)\/ats-check$/);
+    if (method === 'POST' && cvAtsCheckMatch) {
+      return this.json(route, {
+        contract: 'ats-check', contractVersion: '1.0', engine: 'deterministic-local', checkedAt: FIXED_TIME, htmlSha256: 'a'.repeat(64),
+        summary: { pass: 4, warn: 1, fail: 0, parseable: true },
+        lint: [{ id: 'single-column', label: 'Einspaltige Lesereihenfolge', status: 'pass', detail: 'Eine Spalte.' }],
+        parse: { parser: 'local-rule-based-ats-parser', parserVersion: '1.0', detectedSections: [], recovered: { hasDateRanges: true }, counts: { sections: 3, experienceItems: 2, educationItems: 1, skills: 3, bullets: 6 }, warnings: [] },
+        disclaimer: 'Lokale ATS-Heuristik ohne Score.'
+      });
     }
     const cvThemeMatch = path.match(/^\/api\/cv-imports\/([^/]+)\/theme$/);
     if (method === 'PUT' && cvThemeMatch) {

@@ -1,7 +1,8 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { dirname, resolve } from 'node:path';
-import type { ApplicationArtifactRevision, ApplicationCase, ApplicationStatusEvent, ApplicationTrackingEvent, ComparisonNote, FollowUpReminder, JobDecision, SearchRun, SearchSchedule } from '../domain/models.js';
+import type { ApplicationArtifactRevision, ApplicationCase, ApplicationStatusEvent, ApplicationTrackingEvent, ComparisonNote, FollowUpReminder, JobDecision, JobInventoryCategory, JobInventoryEntry, JobPosting, SearchRun, SearchSchedule } from '../domain/models.js';
+import { foldInventory, setInventoryApplied, setInventoryCategory } from './job-inventory.js';
 
 export interface WorkspaceEnvelope {
   schemaVersion: 1;
@@ -14,9 +15,10 @@ export interface WorkspaceEnvelope {
   comparisonNotes: ComparisonNote[];
   trackingEvents: ApplicationTrackingEvent[];
   artifactRevisions: ApplicationArtifactRevision[];
+  jobInventory: JobInventoryEntry[];
 }
 
-const emptyWorkspace = (): WorkspaceEnvelope => ({ schemaVersion: 1, searchRuns: [], applicationCases: [], applicationEvents: [], searchSchedules: [], reminders: [], jobDecisions: [], comparisonNotes: [], trackingEvents: [], artifactRevisions: [] });
+const emptyWorkspace = (): WorkspaceEnvelope => ({ schemaVersion: 1, searchRuns: [], applicationCases: [], applicationEvents: [], searchSchedules: [], reminders: [], jobDecisions: [], comparisonNotes: [], trackingEvents: [], artifactRevisions: [], jobInventory: [] });
 const writeQueues = new Map<string, Promise<void>>();
 interface RetentionCounts { searchRuns: number; closedApplications: number; reminders: number; comparisonNotes: number; neutralDecisions: number }
 
@@ -30,7 +32,7 @@ export interface WorkspaceStore {
   appendApplicationEvent(event: ApplicationStatusEvent): Promise<void>;
   listApplicationEvents(caseId: string): Promise<ApplicationStatusEvent[]>;
   exportSnapshot(): Promise<WorkspaceEnvelope>;
-  clear(scope: 'search_runs' | 'application_cases' | 'search_schedules' | 'reminders' | 'job_decisions' | 'comparison_notes'): Promise<number>;
+  clear(scope: 'search_runs' | 'application_cases' | 'search_schedules' | 'reminders' | 'job_decisions' | 'comparison_notes' | 'job_inventory'): Promise<number>;
   saveSearchSchedule(schedule: SearchSchedule): Promise<void>;
   listSearchSchedules(): Promise<SearchSchedule[]>;
   saveReminder(reminder: FollowUpReminder): Promise<void>;
@@ -44,6 +46,11 @@ export interface WorkspaceStore {
   listTrackingEvents(caseId: string): Promise<ApplicationTrackingEvent[]>;
   saveArtifactRevision(revision: ApplicationArtifactRevision): Promise<void>;
   listArtifactRevisions(caseId?: string): Promise<ApplicationArtifactRevision[]>;
+  listJobInventory(): Promise<JobInventoryEntry[]>;
+  /** Atomically fold a run's jobs into the central inventory; returns the keys added for the first time. */
+  foldJobsIntoInventory(jobs: JobPosting[], runId: string, now: string): Promise<{ newKeys: string[] }>;
+  setJobInventoryCategory(key: string, category: JobInventoryCategory, now: string): Promise<JobInventoryEntry | undefined>;
+  setJobInventoryApplied(key: string, applied: boolean, note: string | undefined, now: string): Promise<JobInventoryEntry | undefined>;
   purgeBefore(cutoffIso: string): Promise<RetentionCounts>;
 }
 
@@ -87,7 +94,7 @@ export class JsonWorkspaceStore implements WorkspaceStore {
     return structuredClone((await this.load()).applicationEvents.filter((event) => event.applicationCaseId === caseId));
   }
   async exportSnapshot() { return structuredClone(await this.load()); }
-  async clear(scope: 'search_runs' | 'application_cases' | 'search_schedules' | 'reminders' | 'job_decisions' | 'comparison_notes'): Promise<number> {
+  async clear(scope: 'search_runs' | 'application_cases' | 'search_schedules' | 'reminders' | 'job_decisions' | 'comparison_notes' | 'job_inventory'): Promise<number> {
     let removed = 0;
     await this.mutate((data) => {
       if (scope === 'search_runs') { removed = data.searchRuns.length; data.searchRuns = []; }
@@ -95,6 +102,7 @@ export class JsonWorkspaceStore implements WorkspaceStore {
       else if (scope === 'reminders') { removed = data.reminders.length; data.reminders = []; }
       else if (scope === 'job_decisions') { removed = data.jobDecisions.length; data.jobDecisions = []; }
       else if (scope === 'comparison_notes') { removed = data.comparisonNotes.length; data.comparisonNotes = []; }
+      else if (scope === 'job_inventory') { removed = data.jobInventory.length; data.jobInventory = []; }
       else {
         removed = data.applicationCases.length + data.applicationEvents.length + data.trackingEvents.length + data.artifactRevisions.length + data.reminders.length;
         data.applicationCases = [];
@@ -143,6 +151,22 @@ export class JsonWorkspaceStore implements WorkspaceStore {
     });
   }
   async listArtifactRevisions(caseId?: string): Promise<ApplicationArtifactRevision[]> { const items = (await this.load()).artifactRevisions; return structuredClone(caseId ? items.filter((item) => item.applicationCaseId === caseId) : items); }
+  async listJobInventory(): Promise<JobInventoryEntry[]> { return structuredClone((await this.load()).jobInventory); }
+  async foldJobsIntoInventory(jobs: JobPosting[], runId: string, now: string): Promise<{ newKeys: string[] }> {
+    let newKeys: string[] = [];
+    await this.mutate((data) => { const folded = foldInventory(data.jobInventory, jobs, runId, now); data.jobInventory = folded.entries; newKeys = folded.newKeys; });
+    return { newKeys };
+  }
+  async setJobInventoryCategory(key: string, category: JobInventoryCategory, now: string): Promise<JobInventoryEntry | undefined> {
+    let entry: JobInventoryEntry | undefined;
+    await this.mutate((data) => { const result = setInventoryCategory(data.jobInventory, key, category, now); data.jobInventory = result.entries; entry = result.entry; });
+    return entry ? structuredClone(entry) : undefined;
+  }
+  async setJobInventoryApplied(key: string, applied: boolean, note: string | undefined, now: string): Promise<JobInventoryEntry | undefined> {
+    let entry: JobInventoryEntry | undefined;
+    await this.mutate((data) => { const result = setInventoryApplied(data.jobInventory, key, applied, note, now); data.jobInventory = result.entries; entry = result.entry; });
+    return entry ? structuredClone(entry) : undefined;
+  }
   async purgeBefore(cutoffIso: string): Promise<RetentionCounts> {
     const removed: RetentionCounts = { searchRuns: 0, closedApplications: 0, reminders: 0, comparisonNotes: 0, neutralDecisions: 0 };
     await this.mutate((data) => {
@@ -183,6 +207,7 @@ export class JsonWorkspaceStore implements WorkspaceStore {
       parsed.comparisonNotes ??= [];
       parsed.trackingEvents ??= [];
       parsed.artifactRevisions ??= [];
+      parsed.jobInventory ??= [];
       return parsed;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return emptyWorkspace();
@@ -201,6 +226,7 @@ export class MemoryWorkspaceStore implements WorkspaceStore {
   private readonly comparisonNotes: ComparisonNote[] = [];
   private readonly trackingEvents: ApplicationTrackingEvent[] = [];
   private readonly artifacts: ApplicationArtifactRevision[] = [];
+  private jobInventoryEntries: JobInventoryEntry[] = [];
   async saveSearchRun(run: SearchRun): Promise<void> { this.runs.unshift(structuredClone(run)); }
   async listSearchRuns(): Promise<SearchRun[]> { return structuredClone(this.runs); }
   async getSearchRun(id: string): Promise<SearchRun | undefined> { return structuredClone(this.runs.find((run) => run.id === id)); }
@@ -217,9 +243,10 @@ export class MemoryWorkspaceStore implements WorkspaceStore {
     if (!existing) this.events.push(structuredClone(event));
   }
   async listApplicationEvents(caseId: string): Promise<ApplicationStatusEvent[]> { return structuredClone(this.events.filter((event) => event.applicationCaseId === caseId)); }
-  async exportSnapshot() { return { schemaVersion: 1 as const, searchRuns: structuredClone(this.runs), applicationCases: structuredClone(this.cases), applicationEvents: structuredClone(this.events), searchSchedules: structuredClone(this.schedules), reminders: structuredClone(this.reminders), jobDecisions: structuredClone(this.decisions), comparisonNotes: structuredClone(this.comparisonNotes), trackingEvents: structuredClone(this.trackingEvents), artifactRevisions: structuredClone(this.artifacts) }; }
-  async clear(scope: 'search_runs' | 'application_cases' | 'search_schedules' | 'reminders' | 'job_decisions' | 'comparison_notes'): Promise<number> {
+  async exportSnapshot() { return { schemaVersion: 1 as const, searchRuns: structuredClone(this.runs), applicationCases: structuredClone(this.cases), applicationEvents: structuredClone(this.events), searchSchedules: structuredClone(this.schedules), reminders: structuredClone(this.reminders), jobDecisions: structuredClone(this.decisions), comparisonNotes: structuredClone(this.comparisonNotes), trackingEvents: structuredClone(this.trackingEvents), artifactRevisions: structuredClone(this.artifacts), jobInventory: structuredClone(this.jobInventoryEntries) }; }
+  async clear(scope: 'search_runs' | 'application_cases' | 'search_schedules' | 'reminders' | 'job_decisions' | 'comparison_notes' | 'job_inventory'): Promise<number> {
     if (scope === 'search_runs') { const count = this.runs.length; this.runs.splice(0); return count; }
+    if (scope === 'job_inventory') { const count = this.jobInventoryEntries.length; this.jobInventoryEntries = []; return count; }
     if (scope === 'search_schedules') { const count = this.schedules.length; this.schedules.splice(0); return count; }
     if (scope === 'reminders') { const count = this.reminders.length; this.reminders.splice(0); return count; }
     if (scope === 'job_decisions') { const count = this.decisions.length; this.decisions.splice(0); return count; }
@@ -258,6 +285,16 @@ export class MemoryWorkspaceStore implements WorkspaceStore {
     if (index >= 0) this.artifacts.splice(index, 1); this.artifacts.unshift(structuredClone(revision));
   }
   async listArtifactRevisions(caseId?: string): Promise<ApplicationArtifactRevision[]> { return structuredClone(caseId ? this.artifacts.filter((item) => item.applicationCaseId === caseId) : this.artifacts); }
+  async listJobInventory(): Promise<JobInventoryEntry[]> { return structuredClone(this.jobInventoryEntries); }
+  async foldJobsIntoInventory(jobs: JobPosting[], runId: string, now: string): Promise<{ newKeys: string[] }> {
+    const folded = foldInventory(this.jobInventoryEntries, jobs, runId, now); this.jobInventoryEntries = folded.entries; return { newKeys: folded.newKeys };
+  }
+  async setJobInventoryCategory(key: string, category: JobInventoryCategory, now: string): Promise<JobInventoryEntry | undefined> {
+    const result = setInventoryCategory(this.jobInventoryEntries, key, category, now); this.jobInventoryEntries = result.entries; return result.entry ? structuredClone(result.entry) : undefined;
+  }
+  async setJobInventoryApplied(key: string, applied: boolean, note: string | undefined, now: string): Promise<JobInventoryEntry | undefined> {
+    const result = setInventoryApplied(this.jobInventoryEntries, key, applied, note, now); this.jobInventoryEntries = result.entries; return result.entry ? structuredClone(result.entry) : undefined;
+  }
   async purgeBefore(cutoffIso: string): Promise<RetentionCounts> {
     const removed: RetentionCounts = { searchRuns: 0, closedApplications: 0, reminders: 0, comparisonNotes: 0, neutralDecisions: 0 };
     const oldRuns = this.runs.filter((item) => item.createdAt < cutoffIso); removed.searchRuns = oldRuns.length;

@@ -27,7 +27,7 @@
     <header class="topbar">
       <div>
         <p class="eyebrow">Arbeitsbereich</p>
-        <h1>{{ section === 'overview' ? 'Guten Tag' : section === 'search' ? 'Jobsuche' : section === 'identity' ? 'Profil & Identität' : section === 'cv' ? 'Lebenslauf-Studio' : section === 'sources' ? 'Quellen & MCP' : section === 'crm' ? 'Firmen & Antworten' : section === 'agents' ? 'Agent Center' : section === 'operations' ? 'Daten & Betrieb' : 'Bewerbungswerkstatt' }}</h1>
+        <h1>{{ section === 'overview' ? 'Guten Tag' : section === 'search' ? 'Jobsuche' : section === 'jobs' ? 'Meine Jobs' : section === 'identity' ? 'Profil & Identität' : section === 'cv' ? 'Lebenslauf-Studio' : section === 'sources' ? 'Quellen & MCP' : section === 'crm' ? 'Firmen & Antworten' : section === 'agents' ? 'Agent Center' : section === 'operations' ? 'Daten & Betrieb' : 'Bewerbungswerkstatt' }}</h1>
       </div>
       <div class="top-actions">
         <span class="mode-pill" [attr.data-runtime-state]="mcpRuntimeState()"><i></i>{{ mcpRuntimeLabel() }}</span>
@@ -123,6 +123,88 @@
             }
           </section>
         </section>
+      }
+
+      @if (section === 'jobs') {
+        <section class="page-intro">
+          <div><span class="kicker">ZENTRALE JOBLISTE</span><h2>Meine Jobs</h2><p>Alle Suchläufe fließen dubletten-geprüft in eine zentrale Liste. Sortiere Stellen in Kategorien und behalte den Bewerbungsstatus im Blick.</p></div>
+          <button class="primary" type="button" data-testid="jobs-search" (click)="refreshJobsSearch()" [disabled]="jobsBusy || !config">{{ jobsBusy ? 'Suche läuft …' : 'Neue Suche & anreichern' }}</button>
+        </section>
+
+        @if (jobsNotice) { <div class="toast success" role="status">{{ jobsNotice }}</div> }
+        @if (jobsError) { <div class="toast error" role="alert">{{ jobsError }}</div> }
+
+        <section class="jobs-overview">
+          <div class="jobs-metrics">
+            <div class="metric"><strong>{{ jobInventory.length }}</strong><small>Jobs gesamt</small></div>
+            <div class="metric"><strong>{{ jobCategoryCount('inbox') }}</strong><small>Neu</small></div>
+            <div class="metric"><strong>{{ jobCategoryCount('apply') }}</strong><small>Bewerben</small></div>
+            <div class="metric"><strong>{{ appliedJobCount() }}</strong><small>Beworben</small></div>
+          </div>
+          <div class="jobs-filter" role="tablist" aria-label="Filter">
+            <button type="button" role="tab" [class.active]="jobsFilter === 'all'" [attr.aria-selected]="jobsFilter === 'all'" (click)="jobsFilter = 'all'">Alle</button>
+            <button type="button" role="tab" [class.active]="jobsFilter === 'open'" [attr.aria-selected]="jobsFilter === 'open'" (click)="jobsFilter = 'open'">Offen</button>
+            <button type="button" role="tab" [class.active]="jobsFilter === 'applied'" [attr.aria-selected]="jobsFilter === 'applied'" (click)="jobsFilter = 'applied'">Beworben</button>
+          </div>
+        </section>
+
+        @if (searchRunSummaries.length) {
+          <details class="jobs-runs" data-testid="jobs-run-history">
+            <summary>Lauf-Historie ({{ searchRunSummaries.length }}) · zuletzt {{ searchRunSummaries[0].newJobCount }} neue Jobs</summary>
+            <ol>
+              @for (run of searchRunSummaries; track run.id) {
+                <li><span class="run-when">{{ run.createdAt | date:'dd.MM. HH:mm' }}</span><span class="run-sources">{{ run.sourceIds.join(', ') }}</span><span class="run-count">{{ run.matchCount }} bewertet</span><span class="run-new" [class.has-new]="run.newJobCount > 0">+{{ run.newJobCount }} neu</span>@if (run.partialFailureCount) { <span class="run-fail">{{ run.partialFailureCount }} Teilausfall</span> }</li>
+              }
+            </ol>
+          </details>
+        }
+
+        @if (!jobInventory.length) {
+          <div class="empty" data-testid="jobs-empty"><span>⌕</span><h3>Noch keine Jobs in der zentralen Liste</h3><p>Starte oben eine Suche. Jeder Lauf reichert die Liste dublettenfrei an.</p></div>
+        } @else {
+          <section class="jobs-board" data-testid="jobs-board">
+            @for (category of jobCategories; track category) {
+              <div class="jobs-column" [attr.data-category]="category">
+                <header><h3>{{ jobCategoryLabel(category) }}</h3><span class="count">{{ jobsInCategory(category).length }}</span></header>
+                @for (entry of jobsInCategory(category); track entry.key) {
+                  <article class="job-inventory-card" [class.applied]="entry.status.applied">
+                    <div class="job-inventory-head">
+                      <div><h4>{{ entry.job.title }}</h4><p>{{ entry.job.company }} · {{ entry.job.location }}</p></div>
+                      @if (entry.status.applied) { <span class="badge applied" title="Bereits beworben">Beworben</span> }
+                    </div>
+                    <div class="chips">@for (skill of entry.job.skills.slice(0, 4); track skill) { <span class="chip">{{ skill }}</span> }</div>
+                    <div class="job-inventory-meta"><span>Quellen: {{ entry.sourceIds.join(', ') }}</span><span>{{ entry.runCount }} Lauf(e) · zuletzt {{ entry.lastSeenAt | date:'dd.MM.yy' }}</span></div>
+
+                    @if (jobGeneratedDocuments(entry).length) {
+                      <div class="job-docs">
+                        <small>Erstellte Dokumente</small>
+                        <div class="chips">@for (document of jobGeneratedDocuments(entry); track document.revisionId) { <span class="chip doc" [class.used]="document.lifecycle === 'used'">{{ jobDocumentLabel(document.type) }}{{ document.lifecycle === 'used' ? ' · beworben mit' : (document.lifecycle === 'approved' ? ' · freigegeben' : '') }}</span> }</div>
+                      </div>
+                    }
+                    @if (entry.status.cases.length) {
+                      <div class="job-cases"><small>Bewerbungsfälle</small>@for (item of entry.status.cases; track item.id) { <span class="chip case">{{ jobDocumentLabel(item.documentType === 'email' ? 'application_email' : item.documentType) }} · {{ item.state }}</span> }</div>
+                    }
+                    @if (entry.status.manualApplied) { <p class="job-manual-note">Manuell als beworben markiert{{ entry.status.manualApplied.note ? ': ' + entry.status.manualApplied.note : '' }}.</p> }
+
+                    <div class="job-inventory-actions">
+                      <label class="job-move"><span>Kategorie</span>
+                        <select [ngModel]="entry.category" (ngModelChange)="moveJobCategory(entry, $any($event))">
+                          @for (option of jobCategories; track option) { <option [value]="option">{{ jobCategoryLabel(option) }}</option> }
+                        </select>
+                      </label>
+                      <div class="job-inventory-buttons">
+                        <button class="secondary compact" type="button" (click)="toggleJobApplied(entry)">{{ entry.status.manualApplied ? 'Beworben-Markierung entfernen' : 'Als beworben markieren' }}</button>
+                        @if (entry.job.url) { <a class="secondary compact" [href]="entry.job.url" target="_blank" rel="noopener noreferrer">Stelle öffnen ↗</a> }
+                        <button class="primary compact" type="button" (click)="startApplicationFromInventory(entry)" [disabled]="jobsBusy">Bewerbung anlegen →</button>
+                      </div>
+                    </div>
+                  </article>
+                }
+                @if (!jobsInCategory(category).length) { <p class="jobs-column-empty">Keine Jobs</p> }
+              </div>
+            }
+          </section>
+        }
       }
 
       @if (section === 'identity') {
@@ -541,15 +623,93 @@
 
         @if (cvStep === 4) {
           <section class="panel cv-step-panel" data-testid="cv-theme-step" aria-labelledby="cv-step-heading-4">
-            <div class="cv-step-heading"><span class="cv-step-number">04</span><div><span class="kicker">GESCHLOSSENE HTML-VORLAGE</span><h2 id="cv-step-heading-4" tabindex="-1">ATS-sicheres Erscheinungsbild festlegen</h2><p>Keine freie CSS- oder HTML-Eingabe: nur servervalidierte Werte, eine Spalte und eine eindeutige Lesereihenfolge.</p></div></div>
-            <fieldset class="cv-theme-fields"><legend>Optionale Formatvorlage</legend>
-              <div><label for="cv-theme-template">Vorlage</label><select id="cv-theme-template" data-testid="cv-theme-template" [(ngModel)]="cvThemeDraft.template" (ngModelChange)="cvThemeConfirmed = false"><option value="classic">Klassisch</option><option value="compact">Kompakt</option><option value="modern">Modern, einspaltig</option></select></div>
-              <div><label for="cv-theme-font">Schrift</label><select id="cv-theme-font" [(ngModel)]="cvThemeDraft.font" (ngModelChange)="cvThemeConfirmed = false"><option value="Arial">Arial</option><option value="Calibri">Calibri</option><option value="Georgia">Georgia</option><option value="Helvetica">Helvetica</option></select></div>
-              <div><label for="cv-theme-accent">Akzentfarbe</label><select id="cv-theme-accent" data-testid="cv-theme-accent" [(ngModel)]="cvThemeDraft.accentColor" (ngModelChange)="cvThemeConfirmed = false"><option value="#1f2937">Anthrazit</option><option value="#1d4ed8">Blau</option><option value="#047857">Grün</option><option value="#7c3aed">Violett</option></select></div>
-              <div><label for="cv-theme-spacing">Abstände</label><select id="cv-theme-spacing" [(ngModel)]="cvThemeDraft.spacing" (ngModelChange)="cvThemeConfirmed = false"><option value="compact">Kompakt</option><option value="comfortable">Komfortabel</option><option value="spacious">Großzügig</option></select></div>
-            </fieldset>
-            <fieldset class="cv-order"><legend>Einspaltige Abschnittsreihenfolge</legend><ol>@for (category of cvThemeDraft.sectionOrder; track category; let index = $index) { <li><strong>{{ cvFactCategoryLabel(category) }}</strong><span><button type="button" class="secondary compact" (click)="moveCvThemeSection(index, -1)" [disabled]="index === 0" [attr.aria-label]="cvFactCategoryLabel(category) + ' nach oben'">↑</button><button type="button" class="secondary compact" (click)="moveCvThemeSection(index, 1)" [disabled]="index === cvThemeDraft.sectionOrder.length - 1" [attr.aria-label]="cvFactCategoryLabel(category) + ' nach unten'">↓</button></span></li> }</ol></fieldset>
-            <div class="cv-adoption-bar"><label class="explicit-confirmation"><input data-testid="cv-theme-confirmation" type="checkbox" [(ngModel)]="cvThemeConfirmed"><span>Diese geschlossene Vorlage exakt gegen CV-Revision {{ cvImport?.revision }} und SHA-256 speichern.</span></label><div><button class="secondary" type="button" (click)="clearCvTheme()" [disabled]="cvBusy || !cvThemeConfirmed">Serverstandard verwenden</button> <button class="primary" data-testid="cv-theme-save" type="button" (click)="saveCvTheme()" [disabled]="cvBusy || !cvThemeConfirmed">Vorlage speichern</button></div></div>
+            <div class="cv-step-heading"><span class="cv-step-number">04</span><div><span class="kicker">FORMATVORLAGE</span><h2 id="cv-step-heading-4" tabindex="-1">Erscheinungsbild wählen: ATS-sicher oder originalgetreu</h2><p>Wähle zwischen der geschlossenen, maschinenlesbaren ATS-Vorlage und einer aus deinem Originaldokument abgeleiteten Layout-Vorlage (nur Struktur und Farben — keine Inhalte). Farben werden serverseitig auf sichere Werte begrenzt, freies HTML/CSS ist ausgeschlossen.</p></div></div>
+
+            @if (cvLayoutFingerprint(); as fingerprint) {
+              <div class="cv-layout-origin" data-testid="cv-layout-fingerprint">
+                <div class="cv-layout-origin-head">
+                  <span class="cv-origin-badge local">AUS ORIGINAL · {{ cvLayoutSourceFormatLabel(fingerprint.sourceFormat) }}</span>
+                  <span class="cv-layout-meta">{{ fingerprint.columns === 2 ? 'Zweispaltig' : 'Einspaltig' }} · {{ cvLayoutConfidenceLabel(fingerprint.confidence) }}</span>
+                </div>
+                <div class="cv-layout-detected">
+                  <div class="cv-layout-colors">
+                    <small>Erkannte Farben</small>
+                    <div class="cv-swatches">
+                      <span class="cv-swatch" [style.background]="fingerprint.palette.background" title="Hintergrund"></span>
+                      <span class="cv-swatch" [style.background]="fingerprint.palette.text" title="Text"></span>
+                      <span class="cv-swatch" [style.background]="fingerprint.palette.heading" title="Überschrift"></span>
+                      <span class="cv-swatch accent" [style.background]="fingerprint.palette.accent" title="Akzent"></span>
+                      @if (fingerprint.palette.sidebar) { <span class="cv-swatch" [style.background]="fingerprint.palette.sidebar" title="Seitenspalte"></span> }
+                    </div>
+                  </div>
+                  <div class="cv-layout-structure">
+                    <small>Erkannte Struktur — wo welche Information steht</small>
+                    <ol>@for (entry of fingerprint.sections; track entry.section) { <li><strong>{{ cvFactCategoryLabel(entry.section) }}</strong> @if (fingerprint.columns === 2) { <span class="cv-col-tag" [class.side]="entry.column === 'side'">{{ cvLayoutColumnLabel(entry.column) }}</span> }</li> }</ol>
+                  </div>
+                </div>
+                @if (fingerprint.confidence === 'low') { <p class="cv-layout-hint" role="status">Aus diesem Dokumenttyp ließ sich das Layout nur grob ableiten. Prüfe die Vorschau; die ATS-Variante bleibt am robustesten.</p> }
+              </div>
+            } @else {
+              <div class="info-box" data-testid="cv-layout-missing"><strong>Kein Original-Layout verfügbar</strong><p>Für diesen Import wurde noch kein Layout-Fingerprint erfasst (ältere Importe verwerfen das Original-Styling). Für eine originalgetreue Vorlage bitte den Lebenslauf neu importieren. Die ATS-Vorlage steht weiterhin zur Verfügung.</p></div>
+            }
+
+            <div class="cv-variant-switch" role="tablist" aria-label="Formatvorlage-Variante">
+              <button type="button" role="tab" data-testid="cv-variant-ats" [class.active]="cvThemeVariant === 'ats'" [attr.aria-selected]="cvThemeVariant === 'ats'" (click)="selectCvThemeVariant('ats')">ATS-sicher · einspaltig</button>
+              <button type="button" role="tab" data-testid="cv-variant-original" [class.active]="cvThemeVariant === 'original'" [attr.aria-selected]="cvThemeVariant === 'original'" [disabled]="!cvLayoutFingerprint()" (click)="selectCvThemeVariant('original')">Originalgetreu · aus Dokument</button>
+            </div>
+            <p class="cv-variant-note">{{ cvThemeVariant === 'original' ? 'Reproduziert Spalten, Platzierung und Farben des Originals. Kann von manchen ATS-Systemen schlechter gelesen werden — du entscheidest den Kompromiss.' : 'Eine Spalte, klare Lesereihenfolge, servervalidierte Werte — maximale Maschinenlesbarkeit für Bewerberportale.' }}</p>
+
+            @if (cvThemeVariant === 'ats') {
+              <fieldset class="cv-theme-fields"><legend>ATS-Formatvorlage</legend>
+                <div><label for="cv-theme-template">Vorlage</label><select id="cv-theme-template" data-testid="cv-theme-template" [(ngModel)]="cvThemeDraft.template" (ngModelChange)="onCvThemeChanged()"><option value="classic">Klassisch</option><option value="compact">Kompakt</option><option value="modern">Modern, einspaltig</option></select></div>
+                <div><label for="cv-theme-font">Schrift</label><select id="cv-theme-font" [(ngModel)]="cvThemeDraft.font" (ngModelChange)="onCvThemeChanged()"><option value="Arial">Arial</option><option value="Calibri">Calibri</option><option value="Georgia">Georgia</option><option value="Helvetica">Helvetica</option></select></div>
+                <div><label for="cv-theme-accent">Akzentfarbe</label><select id="cv-theme-accent" data-testid="cv-theme-accent" [(ngModel)]="cvThemeDraft.accentColor" (ngModelChange)="onCvThemeChanged()"><option value="#1f2937">Anthrazit</option><option value="#1d4ed8">Blau</option><option value="#047857">Grün</option><option value="#7c3aed">Violett</option></select></div>
+                <div><label for="cv-theme-spacing">Abstände</label><select id="cv-theme-spacing" [(ngModel)]="cvThemeDraft.spacing" (ngModelChange)="onCvThemeChanged()"><option value="compact">Kompakt</option><option value="comfortable">Komfortabel</option><option value="spacious">Großzügig</option></select></div>
+              </fieldset>
+              @if (cvLayoutFingerprint()) { <button class="secondary" type="button" data-testid="cv-ats-prefill" (click)="prefillAtsFromOriginal()">Struktur &amp; Akzentfarbe aus Original übernehmen</button> }
+              <fieldset class="cv-order"><legend>Einspaltige Abschnittsreihenfolge</legend><ol>@for (category of cvThemeDraft.sectionOrder; track category; let index = $index) { <li><strong>{{ cvFactCategoryLabel(category) }}</strong><span><button type="button" class="secondary compact" (click)="moveCvThemeSection(index, -1)" [disabled]="index === 0" [attr.aria-label]="cvFactCategoryLabel(category) + ' nach oben'">↑</button><button type="button" class="secondary compact" (click)="moveCvThemeSection(index, 1)" [disabled]="index === cvThemeDraft.sectionOrder.length - 1" [attr.aria-label]="cvFactCategoryLabel(category) + ' nach unten'">↓</button></span></li> }</ol></fieldset>
+            } @else if (cvThemeDraft.original; as clone) {
+              <fieldset class="cv-order cv-original-summary" data-testid="cv-original-summary"><legend>Original-Layout ({{ clone.columns === 2 ? 'zweispaltig' : 'einspaltig' }})</legend>
+                @if (clone.columns === 2) {
+                  <div class="cv-original-columns">
+                    <div><small>Seitenspalte</small><ol>@for (section of clone.side; track section) { <li>{{ cvFactCategoryLabel(section) }}</li> }</ol></div>
+                    <div><small>Hauptspalte</small><ol>@for (section of clone.main; track section) { <li>{{ cvFactCategoryLabel(section) }}</li> }</ol></div>
+                  </div>
+                } @else {
+                  <ol>@for (section of clone.main; track section) { <li>{{ cvFactCategoryLabel(section) }}</li> }</ol>
+                }
+                <p class="cv-layout-hint">Diese Platzierung und die Farben stammen aus deinem Originaldokument. Inhalte werden erst später aus deinen bestätigten Fakten eingesetzt.</p>
+              </fieldset>
+            }
+
+            <div class="cv-theme-preview" data-testid="cv-theme-preview">
+              <div class="cv-theme-preview-head"><h3>Vorschau (nur Layout &amp; Farben)</h3><button class="secondary compact" type="button" (click)="refreshCvThemePreview()" [disabled]="cvThemePreviewBusy">{{ cvThemePreviewBusy ? 'Lädt …' : 'Vorschau aktualisieren' }}</button></div>
+              @if (cvThemePreviewUrl) {
+                <iframe [src]="cvThemePreviewUrl" sandbox="" title="Formatvorlage-Vorschau" loading="lazy"></iframe>
+              } @else {
+                <p role="status">Wähle eine Variante oder aktualisiere die Vorschau, um Struktur und Farben als Platzhalter-Skelett zu sehen.</p>
+              }
+            </div>
+
+            <div class="cv-ats-check" data-testid="cv-ats-check">
+              <div class="cv-ats-head"><div><h3>ATS-Check (lokal, ohne Fake-Score)</h3><p>Deterministische Prüfung des aktuellen Layouts plus regelbasierter Parser-Round-Trip — vollständig auf diesem Gerät.</p></div><button class="secondary compact" type="button" data-testid="cv-ats-run" (click)="runCvAtsCheck('theme-preview')" [disabled]="cvAtsBusy">{{ cvAtsBusy ? 'Prüft …' : 'ATS-Check ausführen' }}</button></div>
+              @if (cvAtsError) { <p class="warning-box" role="alert">{{ cvAtsError }}</p> }
+              @if (cvAtsReport; as report) {
+                <div class="cv-ats-summary" [class.parseable]="report.summary.parseable"><span class="cv-ats-pill pass">{{ report.summary.pass }} OK</span><span class="cv-ats-pill warn">{{ report.summary.warn }} Hinweise</span><span class="cv-ats-pill fail">{{ report.summary.fail }} Probleme</span><span class="cv-ats-parse">{{ report.summary.parseable ? 'ATS-parsebar' : 'nicht sicher parsebar' }}</span></div>
+                <ul class="cv-ats-rules">@for (rule of report.lint; track rule.id) { <li [attr.data-status]="rule.status"><span class="cv-ats-status">{{ atsLintStatusLabel(rule.status) }}</span><div><strong>{{ rule.label }}</strong><small>{{ rule.detail }}</small></div></li> }</ul>
+                <div class="cv-ats-parser">
+                  <small>Parser-Round-Trip ({{ report.parse.parser }})</small>
+                  <p>Abschnitte: {{ report.parse.counts.sections }} · Erfahrung: {{ report.parse.counts.experienceItems }} · Ausbildung: {{ report.parse.counts.educationItems }} · Skills: {{ report.parse.counts.skills }} · Kontakt: {{ report.parse.recovered.email || report.parse.recovered.phone ? 'erkannt' : 'fehlt' }}</p>
+                  @for (warning of report.parse.warnings; track warning) { <p class="cv-ats-warn">◇ {{ warning }}</p> }
+                </div>
+                @if (report.coverage; as coverage) {
+                  <div class="cv-ats-coverage"><small>Keyword-Coverage (Zählung, kein Score)</small><p>Must-have: {{ coverage.mustHave.matched }}/{{ coverage.mustHave.total }} · Nice-to-have: {{ coverage.niceToHave.matched }}/{{ coverage.niceToHave.total }}</p></div>
+                }
+                <p class="cv-ats-disclaimer">{{ report.disclaimer }}</p>
+              }
+            </div>
+
+            <div class="cv-adoption-bar"><label class="explicit-confirmation"><input data-testid="cv-theme-confirmation" type="checkbox" [(ngModel)]="cvThemeConfirmed"><span>Diese {{ cvThemeVariant === 'original' ? 'originalgetreue' : 'geschlossene ATS-' }}Vorlage exakt gegen CV-Revision {{ cvImport?.revision }} und SHA-256 speichern.</span></label><div><button class="secondary" type="button" (click)="clearCvTheme()" [disabled]="cvBusy || !cvThemeConfirmed">Serverstandard verwenden</button> <button class="primary" data-testid="cv-theme-save" type="button" (click)="saveCvTheme()" [disabled]="cvBusy || !cvThemeConfirmed">Vorlage speichern</button></div></div>
             <div class="cv-step-actions"><button class="primary" type="button" (click)="selectCvStep(5)">Zielstelle wählen →</button></div>
           </section>
         }

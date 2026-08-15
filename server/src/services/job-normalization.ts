@@ -8,7 +8,14 @@ function mergeReferences(left: SourceReference[] = [], right: SourceReference[] 
   return [...byKey.values()];
 }
 
-function mergeJob(left: JobPosting, right: JobPosting): JobPosting {
+/** Stable cross-source/cross-run identity key: normalized URL (query/hash stripped) or `title|company|location`. */
+export function jobIdentityKey(job: JobPosting): string {
+  const urlKey = job.url ? normalized(job.url).replace(/[?#].*$/, '') : '';
+  const semanticKey = [job.title, job.company, job.location].map(normalized).join('|');
+  return urlKey || semanticKey;
+}
+
+export function mergeJob(left: JobPosting, right: JobPosting): JobPosting {
   const prefer = (first: string, second: string): string => first.trim().length >= second.trim().length ? first : second;
   const selectedDescription = left.description.trim().length >= right.description.trim().length ? left : right;
   const references = mergeReferences(left.sourceReferences, right.sourceReferences);
@@ -41,9 +48,7 @@ function mergeJob(left: JobPosting, right: JobPosting): JobPosting {
 export function deduplicateJobs(jobs: JobPosting[]): JobPosting[] {
   const merged = new Map<string, JobPosting>();
   for (const job of jobs) {
-    const urlKey = job.url ? normalized(job.url).replace(/[?#].*$/, '') : '';
-    const semanticKey = [job.title, job.company, job.location].map(normalized).join('|');
-    const key = urlKey || semanticKey;
+    const key = jobIdentityKey(job);
     merged.set(key, merged.has(key) ? mergeJob(merged.get(key)!, job) : structuredClone(job));
   }
   return [...merged.values()];

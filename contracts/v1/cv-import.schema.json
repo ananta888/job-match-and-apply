@@ -28,6 +28,7 @@
     "facts": { "type": "array", "maxItems": 2000, "items": { "$ref": "#/$defs/fact" } },
     "warnings": { "type": "array", "maxItems": 100, "items": { "type": "string", "maxLength": 500 } },
     "activeRecognitionVersionId": { "$ref": "#/$defs/recognitionVersionId" },
+    "layoutFingerprint": { "$ref": "#/$defs/layoutFingerprint" },
     "theme": { "$ref": "#/$defs/theme" },
     "adoption": { "$ref": "#/$defs/adoption" },
     "proposal": { "$ref": "#/$defs/proposal" }
@@ -37,6 +38,8 @@
     "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
     "recognitionVersionId": { "type": "string", "pattern": "^recognition-[a-f0-9]{16}$" },
     "safeId": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+    "hexColor": { "type": "string", "pattern": "^#[0-9a-f]{6}$" },
+    "layoutSection": { "enum": ["profile", "employment", "project", "education", "skill", "certification", "language", "additional"] },
     "fact": {
       "type": "object", "additionalProperties": false,
       "required": ["id", "category", "recordId", "field", "value", "decision", "provenance"],
@@ -78,12 +81,53 @@
         }
       }
     },
+    "layoutFingerprint": {
+      "type": "object", "additionalProperties": false,
+      "required": ["contract", "contractVersion", "sourceFormat", "columns", "palette", "fontFamily", "sections", "confidence", "warnings"],
+      "properties": {
+        "contract": { "const": "cv-layout-fingerprint" }, "contractVersion": { "const": "1.0" },
+        "sourceFormat": { "enum": ["html", "pdf", "docx", "odt"] },
+        "columns": { "enum": [1, 2] }, "fontFamily": { "enum": ["sans", "serif"] },
+        "confidence": { "enum": ["high", "medium", "low"] },
+        "palette": { "$ref": "#/$defs/layoutPalette" },
+        "sections": {
+          "type": "array", "minItems": 1, "maxItems": 8,
+          "items": {
+            "type": "object", "additionalProperties": false, "required": ["section", "label", "column"],
+            "properties": {
+              "section": { "$ref": "#/$defs/layoutSection" },
+              "label": { "type": "string", "maxLength": 60 },
+              "column": { "enum": ["main", "side"] }
+            }
+          }
+        },
+        "warnings": { "type": "array", "maxItems": 12, "items": { "type": "string", "maxLength": 80 } }
+      }
+    },
+    "layoutPalette": {
+      "type": "object", "additionalProperties": false, "required": ["text", "heading", "accent", "background"],
+      "properties": {
+        "text": { "$ref": "#/$defs/hexColor" }, "heading": { "$ref": "#/$defs/hexColor" },
+        "accent": { "$ref": "#/$defs/hexColor" }, "background": { "$ref": "#/$defs/hexColor" },
+        "sidebar": { "$ref": "#/$defs/hexColor" }, "sidebarText": { "$ref": "#/$defs/hexColor" }
+      }
+    },
+    "themeOriginalLayout": {
+      "type": "object", "additionalProperties": false, "required": ["columns", "palette", "fontFamily", "main", "side"],
+      "properties": {
+        "columns": { "enum": [1, 2] }, "palette": { "$ref": "#/$defs/layoutPalette" }, "fontFamily": { "enum": ["sans", "serif"] },
+        "main": { "type": "array", "uniqueItems": true, "maxItems": 8, "items": { "$ref": "#/$defs/layoutSection" } },
+        "side": { "type": "array", "uniqueItems": true, "maxItems": 8, "items": { "$ref": "#/$defs/layoutSection" } }
+      }
+    },
     "theme": {
       "type": "object", "additionalProperties": false, "required": ["template", "font", "accentColor", "spacing", "sectionOrder"],
       "properties": {
+        "mode": { "enum": ["ats", "original"] },
         "template": { "enum": ["classic", "compact", "modern"] }, "font": { "enum": ["Arial", "Calibri", "Georgia", "Helvetica"] },
         "accentColor": { "enum": ["#1f2937", "#1d4ed8", "#047857", "#7c3aed"] }, "spacing": { "enum": ["compact", "comfortable", "spacious"] },
-        "sectionOrder": { "type": "array", "uniqueItems": true, "maxItems": 8, "items": { "enum": ["profile", "employment", "project", "education", "skill", "certification", "language", "additional"] } }
+        "sectionOrder": { "type": "array", "uniqueItems": true, "maxItems": 8, "items": { "$ref": "#/$defs/layoutSection" } },
+        "original": { "$ref": "#/$defs/themeOriginalLayout" }
       }
     },
     "adoption": {

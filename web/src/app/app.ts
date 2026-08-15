@@ -4,7 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { DomSanitizer, type SafeResourceUrl } from '@angular/platform-browser';
 import { ApiService } from './api.service';
 import { forkJoin, type Subscription } from 'rxjs';
-import type { AgentApproval, AgentArtifactContent, AgentArtifactRecord, AgentConfigProfile, AgentConfigProfileView, AgentOrchestrationConfirmationInput, AgentOrchestrationConflict, AgentOrchestrationConflictStrategy, AgentOrchestrationCreateRequest, AgentOrchestrationGate, AgentOrchestrationRecord, AgentProvider, AgentProviderConfigProfile, AgentProviderInstallation, AgentQueueBlockReason, AgentQueueSnapshot, AgentRecoveryDecision, AgentRecoveryLease, AgentRecoveryRun, AgentRun, AgentRunEvent, AgentRunPreflight, AgentRunRequest, AgentRunStatus, AgentRuntimeTarget, AgentWorkflow, AgentWorkspaceMode, AppConfig, ApplicationCase, ApplicationDraft, ApplicationExportResult, ApplicationNextActionsProposalProjection, ApplicationProfileSetupStatus, ApplicationStyleDocumentType, ApplicationStyleExampleDocumentType, ApplicationStyleProfileView, ArtifactRevision, CandidateMatchAnalysis, CandidateProfileSummary, CompanyCrm, CorrelatedMail, CvAiProviderSelection, CvAiStructuringOptions, CvAiStructuringPublicRun, CvAiStructuringSelection, CvAiStructuringSuggestion, CvFact, CvFactCategory, CvFactDecision, CvFactOperation, CvImportRecord, CvImportSummary, CvRecognitionVersionList, CvRecognitionVersionSummary, CvTheme, DataInventory, EditableApplicationStyleProfile, EmployerResponseTriageProposalProjection, IdentityProfile, JobDecision, JobMatch, JobSourceCapabilities, LanguageCheckResult, MailAccount, McpRuntimeStatus, ProfileImportPreview, SearchSchedule, Section, SourceCapability, SourceStatus } from './models';
+import type { AgentApproval, AgentArtifactContent, AgentArtifactRecord, AgentConfigProfile, AgentConfigProfileView, AgentOrchestrationConfirmationInput, AgentOrchestrationConflict, AgentOrchestrationConflictStrategy, AgentOrchestrationCreateRequest, AgentOrchestrationGate, AgentOrchestrationRecord, AgentProvider, AgentProviderConfigProfile, AgentProviderInstallation, AgentQueueBlockReason, AgentQueueSnapshot, AgentRecoveryDecision, AgentRecoveryLease, AgentRecoveryRun, AgentRun, AgentRunEvent, AgentRunPreflight, AgentRunRequest, AgentRunStatus, AgentRuntimeTarget, AgentWorkflow, AgentWorkspaceMode, AppConfig, ApplicationCase, ApplicationDraft, ApplicationExportResult, ApplicationNextActionsProposalProjection, ApplicationProfileSetupStatus, ApplicationStyleDocumentType, ApplicationStyleExampleDocumentType, ApplicationStyleProfileView, ArtifactRevision, CandidateMatchAnalysis, CandidateProfileSummary, CompanyCrm, CorrelatedMail, CvAiProviderSelection, CvAiStructuringOptions, CvAiStructuringPublicRun, CvAiStructuringSelection, CvAiStructuringSuggestion, CvFact, CvFactCategory, CvFactDecision, CvFactOperation, CvImportRecord, CvImportSummary, CvRecognitionVersionList, CvRecognitionVersionSummary, CvTheme, CvLayoutFingerprint, CvLayoutSection, CvThemeOriginalLayout, CvLayoutPalette, JobInventoryView, JobInventoryCategory, SearchRunSummary, AtsCheckReport, DataInventory, EditableApplicationStyleProfile, EmployerResponseTriageProposalProjection, IdentityProfile, JobDecision, JobMatch, JobSourceCapabilities, LanguageCheckResult, MailAccount, McpRuntimeStatus, ProfileImportPreview, SearchSchedule, Section, SourceCapability, SourceStatus } from './models';
 
 type AgentEventLevelFilter = 'all' | 'debug' | 'info' | 'warning' | 'error';
 type AgentTimelineView = 'readable' | 'diagnostic';
@@ -89,6 +89,13 @@ export class App implements OnInit, OnDestroy {
   matches: JobMatch[] = [];
   searchFailures: Array<{ sourceId: string; category: string; retryable: boolean; detail: string }> = [];
   jobDecisions: JobDecision[] = [];
+  jobInventory: JobInventoryView[] = [];
+  searchRunSummaries: SearchRunSummary[] = [];
+  jobsBusy = false;
+  jobsError = '';
+  jobsNotice = '';
+  jobsFilter: 'all' | 'applied' | 'open' = 'all';
+  readonly jobCategories: JobInventoryCategory[] = ['inbox', 'apply', 'watchlist', 'archive'];
   selectedMatch?: JobMatch;
   draft?: ApplicationDraft;
   profileSetup?: ApplicationProfileSetupStatus;
@@ -146,6 +153,15 @@ export class App implements OnInit, OnDestroy {
   };
   cvAdoptionConfirmed = false;
   cvThemeConfirmed = false;
+  cvThemeVariant: 'ats' | 'original' = 'ats';
+  cvThemePreviewUrl?: SafeResourceUrl;
+  cvThemePreviewVariant?: 'ats' | 'original';
+  cvThemePreviewBusy = false;
+  private cvThemePreviewObjectUrl?: string;
+  cvAtsReport?: AtsCheckReport;
+  cvAtsBusy = false;
+  cvAtsError = '';
+  cvAtsSource: 'theme-preview' | 'proposal' = 'theme-preview';
   cvProposalHtmlUrl?: SafeResourceUrl;
   cvAgentOrchestrationId?: string;
   cvBusy = false;
@@ -284,6 +300,7 @@ export class App implements OnInit, OnDestroy {
   readonly nav: { id: Section; label: string; icon: string }[] = [
     { id: 'overview', label: 'Übersicht', icon: 'grid' },
     { id: 'search', label: 'Jobsuche', icon: 'search' },
+    { id: 'jobs', label: 'Meine Jobs', icon: 'grid' },
     { id: 'identity', label: 'Profil & Identität', icon: 'user' },
     { id: 'cv', label: 'Lebenslauf', icon: 'file' },
     { id: 'sources', label: 'Quellen & MCP', icon: 'nodes' },
@@ -349,6 +366,7 @@ export class App implements OnInit, OnDestroy {
     this.section = section; this.notice = ''; this.error = '';
     if (section !== 'agents') { this.stopAgentPolling(); this.stopAgentStream(); this.closeAgentRecoveryDialog(); }
     if (section !== 'cv') this.stopCvAiPolling();
+    if (section === 'jobs') this.loadJobs();
     if (section === 'identity') { this.loadProfileSetup(); this.loadCandidateProfile(); }
     if (section === 'cv') this.loadCvStudio();
     if (section === 'applications') this.loadApplicationCases();
@@ -1882,6 +1900,90 @@ export class App implements OnInit, OnDestroy {
     });
   }
 
+  // --- Zentrale Jobliste ("Meine Jobs") ---
+  loadJobs(): void {
+    this.jobsBusy = true; this.jobsError = '';
+    this.api.jobInventory().subscribe({
+      next: (entries) => { this.jobInventory = entries; this.jobsBusy = false; this.refreshView(); },
+      error: (error) => { this.jobsError = this.message(error); this.jobsBusy = false; this.refreshView(); }
+    });
+    this.api.searchRunsSummary().subscribe({
+      next: (runs) => { this.searchRunSummaries = runs; this.refreshView(); },
+      error: () => { /* Lauf-Historie ist nicht kritisch für die Liste. */ }
+    });
+  }
+
+  refreshJobsSearch(): void {
+    if (!this.config) return;
+    this.jobsBusy = true; this.jobsError = ''; this.jobsNotice = '';
+    this.api.search(this.config.searchProfile).subscribe({
+      next: ({ matches, partialFailures, newJobCount }) => {
+        this.jobsNotice = `${matches.length} Stellen bewertet · ${newJobCount ?? 0} neu in der zentralen Liste${partialFailures.length ? ` · ${partialFailures.length} Quelle(n) mit Teilausfall` : ''}.`;
+        this.loadJobs();
+      },
+      error: (error) => { this.jobsError = this.message(error); this.jobsBusy = false; this.refreshView(); }
+    });
+  }
+
+  moveJobCategory(entry: JobInventoryView, category: JobInventoryCategory): void {
+    if (entry.category === category) return;
+    this.api.setJobInventoryCategory(entry.key, category).subscribe({
+      next: (updated) => {
+        this.jobInventory = this.jobInventory.map((item) => item.key === updated.key ? updated : item);
+        this.jobsNotice = `„${updated.job.title}" nach „${this.jobCategoryLabel(category)}" verschoben.`; this.refreshView();
+      },
+      error: (error) => { this.jobsError = this.message(error); this.refreshView(); }
+    });
+  }
+
+  toggleJobApplied(entry: JobInventoryView): void {
+    const applied = !entry.status.manualApplied;
+    this.api.markJobInventoryApplied(entry.key, applied).subscribe({
+      next: (updated) => {
+        this.jobInventory = this.jobInventory.map((item) => item.key === updated.key ? updated : item);
+        this.jobsNotice = applied ? 'Als beworben markiert.' : 'Beworben-Markierung entfernt.'; this.refreshView();
+      },
+      error: (error) => { this.jobsError = this.message(error); this.refreshView(); }
+    });
+  }
+
+  startApplicationFromInventory(entry: JobInventoryView): void {
+    if (!this.config) return;
+    const match: JobMatch = {
+      job: entry.job, searchPreferenceScore: 0, accepted: false,
+      matchedMustHave: [], missingMustHave: [], matchedNiceToHave: [], exclusions: [],
+      scoreBreakdown: { mustHave: 0, niceToHave: 0, region: 0, workModel: 0, exclusions: 0 }
+    };
+    this.selectedMatch = match;
+    this.jobsBusy = true;
+    this.api.createApplicationCase(match, this.config.activeIdentityId, this.documentType).subscribe({
+      next: (application) => {
+        this.applicationCases.unshift(application);
+        this.applicationArtifacts[application.id] = [];
+        this.selectApplicationCase(application);
+        this.jobsBusy = false; this.section = 'applications';
+        this.notice = `Bewerbungsfall für „${entry.job.title}" angelegt.`; this.refreshView();
+      },
+      error: (error) => { this.jobsError = this.message(error); this.jobsBusy = false; this.refreshView(); }
+    });
+  }
+
+  jobsInCategory(category: JobInventoryCategory): JobInventoryView[] {
+    return this.jobInventory
+      .filter((entry) => entry.category === category)
+      .filter((entry) => this.jobsFilter === 'all' || (this.jobsFilter === 'applied' ? entry.status.applied : !entry.status.applied))
+      .sort((left, right) => right.lastSeenAt.localeCompare(left.lastSeenAt));
+  }
+  jobCategoryCount(category: JobInventoryCategory): number { return this.jobInventory.filter((entry) => entry.category === category).length; }
+  jobCategoryLabel(category: JobInventoryCategory): string { return { inbox: 'Neu', apply: 'Bewerben', watchlist: 'Merken', archive: 'Archiv' }[category]; }
+  appliedJobCount(): number { return this.jobInventory.filter((entry) => entry.status.applied).length; }
+  jobDocumentLabel(type: 'cv' | 'cover_letter' | 'application_email'): string {
+    return { cv: 'Lebenslauf', cover_letter: 'Anschreiben', application_email: 'E-Mail' }[type];
+  }
+  jobGeneratedDocuments(entry: JobInventoryView): JobInventoryView['status']['documents'] {
+    return entry.status.documents.filter((document) => document.lifecycle !== 'rejected');
+  }
+
   chooseMatch(match: JobMatch): void { this.selectedMatch = match; }
   jobDecision(jobId: string): JobDecision['state'] { return this.jobDecisions.find((item) => item.jobId === jobId)?.state ?? 'neutral'; }
   visibleMatches(): JobMatch[] {
@@ -3341,6 +3443,122 @@ export class App implements OnInit, OnDestroy {
     [order[index], order[target]] = [order[target]!, order[index]!];
     this.cvThemeDraft = { ...this.cvThemeDraft, sectionOrder: order };
     this.cvThemeConfirmed = false;
+    this.refreshCvThemePreview();
+  }
+
+  cvLayoutFingerprint(): CvLayoutFingerprint | undefined { return this.cvImport?.layoutFingerprint; }
+
+  cvLayoutSourceFormatLabel(format: CvLayoutFingerprint['sourceFormat']): string {
+    return { html: 'HTML', pdf: 'PDF', docx: 'Word (DOCX)', odt: 'OpenDocument (ODT)' }[format];
+  }
+  cvLayoutConfidenceLabel(confidence: CvLayoutFingerprint['confidence']): string {
+    return { high: 'hohe Treue', medium: 'mittlere Treue', low: 'grobe Näherung' }[confidence];
+  }
+  cvLayoutColumnLabel(column: 'main' | 'side'): string { return column === 'side' ? 'Seitenspalte' : 'Hauptspalte'; }
+
+  /** Switch the presentation between the closed ATS template and the derived original-layout clone. */
+  selectCvThemeVariant(variant: 'ats' | 'original'): void {
+    if (this.cvThemeVariant === variant && this.cvThemeDraft.mode === variant) { this.refreshCvThemePreview(); return; }
+    const fingerprint = this.cvImport?.layoutFingerprint;
+    if (variant === 'original') {
+      if (!fingerprint) return;
+      this.cvThemeDraft = this.buildOriginalThemeFromFingerprint(fingerprint);
+    } else {
+      this.cvThemeDraft = { ...this.cvThemeDraft, mode: 'ats', original: undefined };
+    }
+    this.cvThemeVariant = variant;
+    this.cvThemeConfirmed = false;
+    this.refreshCvThemePreview();
+  }
+
+  /** Prefill the closed ATS template with the section order and accent colour detected in the original. */
+  prefillAtsFromOriginal(): void {
+    const fingerprint = this.cvImport?.layoutFingerprint;
+    if (!fingerprint) return;
+    this.cvThemeVariant = 'ats';
+    this.cvThemeDraft = this.buildAtsThemeFromFingerprint(fingerprint);
+    this.cvThemeConfirmed = false;
+    this.refreshCvThemePreview();
+  }
+
+  onCvThemeChanged(): void { this.cvThemeConfirmed = false; this.refreshCvThemePreview(); }
+
+  private buildAtsThemeFromFingerprint(fingerprint: CvLayoutFingerprint): CvTheme {
+    const detected = fingerprint.sections.map((entry) => entry.section);
+    const sectionOrder = [...detected, ...this.cvSectionCategories.filter((category) => !detected.includes(category))];
+    return {
+      mode: 'ats', template: this.cvThemeDraft.template, font: this.cvThemeDraft.font,
+      accentColor: this.nearestAtsAccent(fingerprint.palette.accent), spacing: this.cvThemeDraft.spacing, sectionOrder,
+    };
+  }
+
+  private buildOriginalThemeFromFingerprint(fingerprint: CvLayoutFingerprint): CvTheme {
+    const main = fingerprint.sections.filter((entry) => entry.column === 'main').map((entry) => entry.section);
+    const side = fingerprint.columns === 2 ? fingerprint.sections.filter((entry) => entry.column === 'side').map((entry) => entry.section) : [];
+    const sectionOrder = this.cvThemeDraft.sectionOrder.length === this.cvSectionCategories.length
+      ? this.cvThemeDraft.sectionOrder : [...this.cvSectionCategories];
+    const original: CvThemeOriginalLayout = {
+      columns: fingerprint.columns, palette: structuredClone(fingerprint.palette), fontFamily: fingerprint.fontFamily, main, side,
+    };
+    return {
+      mode: 'original', template: this.cvThemeDraft.template, font: this.cvThemeDraft.font,
+      accentColor: this.nearestAtsAccent(fingerprint.palette.accent), spacing: this.cvThemeDraft.spacing, sectionOrder, original,
+    };
+  }
+
+  private nearestAtsAccent(hex: string): CvTheme['accentColor'] {
+    const options: Array<CvTheme['accentColor']> = ['#1f2937', '#1d4ed8', '#047857', '#7c3aed'];
+    const toRgb = (value: string) => [1, 3, 5].map((index) => parseInt(value.slice(index, index + 2), 16));
+    if (!/^#[0-9a-f]{6}$/i.test(hex)) return options[0];
+    const [r, g, b] = toRgb(hex);
+    let best = options[0]; let bestDistance = Number.POSITIVE_INFINITY;
+    for (const option of options) {
+      const [or, og, ob] = toRgb(option);
+      const distance = (r! - or!) ** 2 + (g! - og!) ** 2 + (b! - ob!) ** 2;
+      if (distance < bestDistance) { bestDistance = distance; best = option; }
+    }
+    return best;
+  }
+
+  refreshCvThemePreview(): void {
+    const current = this.cvImport;
+    if (!current || typeof URL === 'undefined' || typeof URL.createObjectURL !== 'function') return;
+    this.cvThemePreviewBusy = true;
+    this.api.previewCvTheme(current, structuredClone(this.cvThemeDraft)).subscribe({
+      next: (result) => {
+        try {
+          this.revokeThemePreview();
+          const url = URL.createObjectURL(new Blob([result.html], { type: 'text/html' }));
+          this.cvThemePreviewObjectUrl = url;
+          this.cvThemePreviewUrl = this.sanitizer.bypassSecurityTrustResourceUrl(url);
+          this.cvThemePreviewVariant = this.cvThemeVariant;
+        } catch { /* Object URLs are unavailable in some environments; the preview stays hidden. */ }
+        this.cvThemePreviewBusy = false; this.refreshView();
+      },
+      error: () => { this.cvThemePreviewBusy = false; this.refreshView(); }
+    });
+  }
+
+  private revokeThemePreview(): void {
+    if (this.cvThemePreviewObjectUrl && typeof URL !== 'undefined' && typeof URL.revokeObjectURL === 'function') {
+      URL.revokeObjectURL(this.cvThemePreviewObjectUrl);
+    }
+    this.cvThemePreviewObjectUrl = undefined;
+  }
+
+  runCvAtsCheck(source: 'theme-preview' | 'proposal' = this.cvAtsSource): void {
+    const current = this.cvImport;
+    if (!current) return;
+    this.cvAtsSource = source; this.cvAtsBusy = true; this.cvAtsError = '';
+    const mustHave = this.config?.searchProfile.mustHave ?? [];
+    const niceToHave = this.config?.searchProfile.niceToHave ?? [];
+    this.api.atsCheckCv(current, source, mustHave, niceToHave).subscribe({
+      next: (report) => { this.cvAtsReport = report; this.cvAtsBusy = false; this.refreshView(); },
+      error: (error) => { this.cvAtsError = this.message(error); this.cvAtsBusy = false; this.refreshView(); }
+    });
+  }
+  atsLintStatusLabel(status: 'pass' | 'warn' | 'fail'): string {
+    return { pass: 'OK', warn: 'Hinweis', fail: 'Problem' }[status];
   }
 
   cvSelectedApplicationCase(): ApplicationCase | undefined {
@@ -3494,6 +3712,9 @@ export class App implements OnInit, OnDestroy {
       category: fact.category, recordId: fact.recordId, field: fact.field, value: fact.value
     }]));
     if (record.theme) this.cvThemeDraft = structuredClone(record.theme);
+    this.cvThemeVariant = record.theme?.mode === 'original' ? 'original' : 'ats';
+    this.revokeThemePreview(); this.cvThemePreviewUrl = undefined; this.cvThemePreviewVariant = undefined;
+    this.cvAtsReport = undefined; this.cvAtsError = '';
     if (record.proposal?.applicationCaseId) this.cvSelectedApplicationCaseId = record.proposal.applicationCaseId;
     if (!preserveStep) this.cvStep = record.proposal ? 6 : record.adoption ? 3 : 2;
     this.cvAdoptionConfirmed = false; this.cvThemeConfirmed = false; this.cvDeleteConfirmation = '';

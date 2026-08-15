@@ -1,7 +1,7 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
-import type { AgentArtifactAdoptionResult, AgentArtifactContent, AgentArtifactRecord, AgentConfigProfile, AgentConfigProfileView, AgentOrchestrationConfirmationInput, AgentOrchestrationConflict, AgentOrchestrationConflictResolutionRequest, AgentOrchestrationCreateRequest, AgentOrchestrationRecord, AgentProvider, AgentQueueSnapshot, AgentRecoveryDecision, AgentRecoveryLease, AgentRecoveryResolution, AgentRecoverySnapshot, AgentRun, AgentRunEvent, AgentRunEventsPage, AgentRunPreflight, AgentRunRequest, AgentWorkflow, AppConfig, ApplicationCase, ApplicationDraft, ApplicationExportResult, ApplicationPipelineFinalizeResult, ApplicationProfileSetupStatus, ApplicationStyleProfileView, ArtifactRevision, CandidateMatchAnalysis, CandidateProfileSummary, CompanyCrm, CorrelatedMail, CvAiProviderSelection, CvAiStructuringOptions, CvAiStructuringPublicRun, CvAiStructuringSelection, CvFactOperation, CvImportRecord, CvImportSummary, CvRecognitionVersionList, CvTheme, DataInventory, EditableApplicationStyleProfile, IdentityProfile, JobDecision, JobMatch, JobSourceCapabilities, LanguageCheckResult, MailAccount, McpRuntimeStatus, ProfileImportPreview, SearchProfile, SearchSchedule, SourceStatus } from './models';
+import type { AtsCheckReport, AgentArtifactAdoptionResult, AgentArtifactContent, AgentArtifactRecord, AgentConfigProfile, AgentConfigProfileView, AgentOrchestrationConfirmationInput, AgentOrchestrationConflict, AgentOrchestrationConflictResolutionRequest, AgentOrchestrationCreateRequest, AgentOrchestrationRecord, AgentProvider, AgentQueueSnapshot, AgentRecoveryDecision, AgentRecoveryLease, AgentRecoveryResolution, AgentRecoverySnapshot, AgentRun, AgentRunEvent, AgentRunEventsPage, AgentRunPreflight, AgentRunRequest, AgentWorkflow, AppConfig, ApplicationCase, ApplicationDraft, ApplicationExportResult, ApplicationPipelineFinalizeResult, ApplicationProfileSetupStatus, ApplicationStyleProfileView, ArtifactRevision, CandidateMatchAnalysis, CandidateProfileSummary, CompanyCrm, CorrelatedMail, CvAiProviderSelection, CvAiStructuringOptions, CvAiStructuringPublicRun, CvAiStructuringSelection, CvFactOperation, CvImportRecord, CvImportSummary, CvRecognitionVersionList, CvTheme, DataInventory, EditableApplicationStyleProfile, IdentityProfile, JobDecision, JobInventoryCategory, JobInventoryView, JobMatch, JobSourceCapabilities, LanguageCheckResult, MailAccount, McpRuntimeStatus, ProfileImportPreview, SearchProfile, SearchRunSummary, SearchSchedule, SourceStatus } from './models';
 
 @Injectable({ providedIn: 'root' })
 export class ApiService {
@@ -18,7 +18,7 @@ export class ApiService {
   createIncognito(location: string): Observable<IdentityProfile> {
     return this.http.post<IdentityProfile>('/api/identities/incognito', { location });
   }
-  search(profile: SearchProfile): Observable<{ matches: JobMatch[]; partialFailures: Array<{ sourceId: string; category: string; retryable: boolean; detail: string }> }> {
+  search(profile: SearchProfile): Observable<{ matches: JobMatch[]; partialFailures: Array<{ sourceId: string; category: string; retryable: boolean; detail: string }>; newJobCount?: number }> {
     return this.http.post<{ matches: JobMatch[]; partialFailures: Array<{ sourceId: string; category: string; retryable: boolean; detail: string }> }>('/api/jobs/search', profile);
   }
   login(sourceId: string): Observable<{ status: string; note?: string }> {
@@ -28,6 +28,14 @@ export class ApiService {
   setJobDecision(jobId: string, state: JobDecision['state']): Observable<JobDecision> {
     return this.http.put<JobDecision>(`/api/job-decisions/${encodeURIComponent(jobId)}`, { state });
   }
+  jobInventory(): Observable<JobInventoryView[]> { return this.http.get<JobInventoryView[]>('/api/job-inventory'); }
+  setJobInventoryCategory(key: string, category: JobInventoryCategory): Observable<JobInventoryView> {
+    return this.http.put<JobInventoryView>(`/api/job-inventory/${encodeURIComponent(key)}/category`, { category });
+  }
+  markJobInventoryApplied(key: string, applied: boolean, note?: string): Observable<JobInventoryView> {
+    return this.http.post<JobInventoryView>(`/api/job-inventory/${encodeURIComponent(key)}/applied`, { applied, ...(note ? { note } : {}) });
+  }
+  searchRunsSummary(): Observable<SearchRunSummary[]> { return this.http.get<SearchRunSummary[]>('/api/search-runs-summary'); }
   compareJobs(matches: JobMatch[]): Observable<{ comparison: Array<{ jobId: string; title: string; company: string; total: number; factors: Record<string, number> }>; disclaimer: string }> {
     return this.http.post<{ comparison: Array<{ jobId: string; title: string; company: string; total: number; factors: Record<string, number> }>; disclaimer: string }>('/api/jobs/compare', {
       matches, coverage: matches.map((item) => ({ jobId: item.job.id, direct: 0, transferable: 0, partial: 0, gaps: item.missingMustHave.length })),
@@ -193,6 +201,16 @@ export class ApiService {
   saveCvTheme(current: CvImportRecord, theme: CvTheme | null): Observable<CvImportRecord> {
     return this.http.put<CvImportRecord>(`/api/cv-imports/${encodeURIComponent(current.id)}/theme`, {
       expectedRevision: current.revision, expectedSha256: current.sha256, confirmed: true, theme
+    });
+  }
+  previewCvTheme(current: CvImportRecord, theme: CvTheme): Observable<{ html: string; htmlSha256: string }> {
+    return this.http.post<{ html: string; htmlSha256: string }>(
+      `/api/cv-imports/${encodeURIComponent(current.id)}/theme/preview`, { theme }
+    );
+  }
+  atsCheckCv(current: CvImportRecord, source: 'theme-preview' | 'proposal', mustHave: string[] = [], niceToHave: string[] = []): Observable<AtsCheckReport> {
+    return this.http.post<AtsCheckReport>(`/api/cv-imports/${encodeURIComponent(current.id)}/ats-check`, {
+      source, ...(mustHave.length ? { mustHave } : {}), ...(niceToHave.length ? { niceToHave } : {})
     });
   }
   adoptCvFacts(current: CvImportRecord): Observable<CvImportRecord> {

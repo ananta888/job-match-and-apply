@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import JSZip from 'jszip';
-import type { CvFact, CvNormalizationEnvelope, CvNormalizationPort } from '../ports/cv-normalization.js';
+import type { CvFact, CvNormalizationEnvelope, CvNormalizationPort, CvTheme } from '../ports/cv-normalization.js';
 import {
   CvImportService, JsonCvImportRepository, MemoryCvImportRepository, pdfExtractionWarnings, type CvImportRecord,
   publicCvImportRecord, publicCvImportSummary,
@@ -355,5 +355,93 @@ describe('CV import service', () => {
       expect.objectContaining({ code: 'pdf_page_limit' }),
       expect.objectContaining({ code: 'low_pdf_text' }),
     ]));
+  });
+});
+
+const originalTheme: CvTheme = {
+  mode: 'original', template: 'classic', font: 'Arial', accentColor: '#1d4ed8', spacing: 'comfortable',
+  sectionOrder: ['profile', 'employment', 'project', 'education', 'skill', 'certification', 'language', 'additional'],
+  original: {
+    columns: 2, fontFamily: 'sans',
+    palette: { text: '#222222', heading: '#111111', accent: '#7c3aed', background: '#ffffff', sidebar: '#0f172a', sidebarText: '#f9fafb' },
+    main: ['employment', 'education'], side: ['profile', 'skill', 'language'],
+  },
+};
+
+async function importedWithLayout() {
+  const service = new CvImportService(new MemoryCvImportRepository(), new FakeNormalization());
+  const record = await service.import({
+    fileName: 'cv.html', mimeType: 'text/html',
+    data: Buffer.from(`<!doctype html><html><body>
+      <aside class="sidebar" style="width:30%"><h2>Profil</h2><p>x</p><h2>Kenntnisse</h2><p>TS</p></aside>
+      <main><h2>Berufserfahrung</h2><p>Rolle</p><h2>Ausbildung</h2><p>Studium</p></main>
+      <style>h2{color:#7c3aed}body{color:#222222}.sidebar{background:#0f172a}</style></body></html>`),
+  });
+  return { service, record };
+}
+
+describe('CV import layout fingerprint and format templates', () => {
+  it('captures a style-only layout fingerprint at import and exposes it publicly', async () => {
+    const { record } = await importedWithLayout();
+    expect(record.layoutFingerprint).toMatchObject({ contract: 'cv-layout-fingerprint', sourceFormat: 'html', columns: 2 });
+    expect(record.layoutFingerprint!.palette.accent).toBe('#7c3aed');
+    expect(publicCvImportRecord(record).layoutFingerprint).toMatchObject({ contract: 'cv-layout-fingerprint' });
+    expect(publicCvImportSummary(record)).toMatchObject({ hasLayoutFingerprint: true });
+    // The fingerprint must not leak any imported fact value.
+    expect(JSON.stringify(record.layoutFingerprint)).not.toMatch(/Engineer|Rolle|Studium/);
+  });
+
+  it('persists an original-layout theme and renders a two-column skeleton preview', async () => {
+    const { service, record } = await importedWithLayout();
+    const saved = await service.setTheme(record.id, record.revision, record.sha256, originalTheme);
+    expect(saved.theme).toMatchObject({ mode: 'original', original: { columns: 2 } });
+    const preview = await service.previewTheme(saved.id, saved.theme!);
+    expect(preview.htmlSha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(preview.html).toContain('data-mode="original"');
+    expect(preview.html).toContain('grid-template-columns');
+    expect(preview.html).toContain('#7c3aed');
+    expect(preview.html).toContain('#0f172a');
+    expect(preview.html).toContain("default-src 'none'");
+    expect(preview.html).not.toMatch(/<script|Engineer/i);
+  });
+
+  it('renders an ATS skeleton preview honouring the section order', async () => {
+    const { service, record } = await importedWithLayout();
+    const atsTheme: CvTheme = {
+      mode: 'ats', template: 'modern', font: 'Georgia', accentColor: '#047857', spacing: 'compact',
+      sectionOrder: ['skill', 'employment', 'profile', 'education', 'project', 'certification', 'language', 'additional'],
+    };
+    const preview = await service.previewTheme(record.id, atsTheme);
+    expect(preview.html).toContain('data-mode="ats"');
+    expect(preview.html).toContain('#047857');
+    expect(preview.html).not.toContain('grid-template-columns');
+    // skill section appears before employment because it is first in the order
+    expect(preview.html.indexOf('data-section="skill"')).toBeLessThan(preview.html.indexOf('data-section="employment"'));
+  });
+
+  it('rejects inconsistent or unsafe original layouts', async () => {
+    const { service, record } = await importedWithLayout();
+    const overlapping = { ...originalTheme, original: { ...originalTheme.original!, main: ['employment', 'skill'] as never, side: ['skill'] as never } };
+    await expect(service.setTheme(record.id, record.revision, record.sha256, overlapping)).rejects.toMatchObject({ statusCode: 400 });
+    const missingSidebar = { ...originalTheme, original: { ...originalTheme.original!, palette: { text: '#222222', heading: '#111111', accent: '#7c3aed', background: '#ffffff' } as never } };
+    await expect(service.setTheme(record.id, record.revision, record.sha256, missingSidebar)).rejects.toMatchObject({ statusCode: 400 });
+    const badHex = { ...originalTheme, original: { ...originalTheme.original!, palette: { ...originalTheme.original!.palette, accent: 'red' } as never } };
+    await expect(service.setTheme(record.id, record.revision, record.sha256, badHex)).rejects.toMatchObject({ statusCode: 400 });
+  });
+
+  it('clears the theme back to the server default', async () => {
+    const { service, record } = await importedWithLayout();
+    const saved = await service.setTheme(record.id, record.revision, record.sha256, originalTheme);
+    const cleared = await service.setTheme(saved.id, saved.revision, saved.sha256, undefined);
+    expect(cleared.theme).toBeUndefined();
+  });
+
+  it('runs a local ATS check on the theme preview and refuses a missing proposal', async () => {
+    const { service, record } = await importedWithLayout();
+    const report = await service.atsCheck(record.id, 'theme-preview', { mustHave: ['Angular', 'Kubernetes'] });
+    expect(report).toMatchObject({ contract: 'ats-check', engine: 'deterministic-local' });
+    expect(report.lint.some((rule) => rule.id === 'single-column')).toBe(true);
+    expect(report.coverage?.mustHave.total).toBe(2);
+    await expect(service.atsCheck(record.id, 'proposal', {})).rejects.toMatchObject({ statusCode: 409 });
   });
 });

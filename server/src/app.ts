@@ -18,6 +18,7 @@ import { JsonLinesAuditLogger, MemoryAuditLogger } from './services/audit-logger
 import type { WorkspaceStore } from './services/workspace-store.js';
 import { JsonWorkspaceStore, MemoryWorkspaceStore } from './services/workspace-store.js';
 import { deduplicateJobs } from './services/job-normalization.js';
+import { buildInventoryView } from './services/job-inventory.js';
 import { LocalCandidateProfileAdapter } from './adapters/local-candidate-profile.js';
 import { transitionApplicationCase } from './services/application-case.js';
 import { createApplicationPackage, createSubmissionDryRun } from './services/application-package.js';
@@ -183,11 +184,25 @@ const cvFactCategorySchema = z.enum([
 const cvCasSchema = z.object({
   expectedRevision: z.number().int().positive(), expectedSha256: z.string().regex(/^[a-f0-9]{64}$/), confirmed: z.literal(true),
 }).strict();
+const cvLayoutSectionSchema = z.enum(['profile', 'employment', 'project', 'education', 'skill', 'certification', 'language', 'additional']);
+const cvLayoutHexSchema = z.string().regex(/^#[0-9a-f]{6}$/);
+const cvThemeOriginalSchema = z.object({
+  columns: z.union([z.literal(1), z.literal(2)]),
+  palette: z.object({
+    text: cvLayoutHexSchema, heading: cvLayoutHexSchema, accent: cvLayoutHexSchema, background: cvLayoutHexSchema,
+    sidebar: cvLayoutHexSchema.optional(), sidebarText: cvLayoutHexSchema.optional(),
+  }).strict(),
+  fontFamily: z.enum(['sans', 'serif']),
+  main: z.array(cvLayoutSectionSchema).max(8).refine((items) => new Set(items).size === items.length, 'Hauptspalte enthält Duplikate.'),
+  side: z.array(cvLayoutSectionSchema).max(8).refine((items) => new Set(items).size === items.length, 'Seitenspalte enthält Duplikate.'),
+}).strict();
 const cvThemeSchema = z.object({
+  mode: z.enum(['ats', 'original']).optional(),
   template: z.enum(['classic', 'compact', 'modern']), font: z.enum(['Arial', 'Calibri', 'Georgia', 'Helvetica']),
   accentColor: z.enum(['#1f2937', '#1d4ed8', '#047857', '#7c3aed']), spacing: z.enum(['compact', 'comfortable', 'spacious']),
-  sectionOrder: z.array(z.enum(['profile', 'employment', 'project', 'education', 'skill', 'certification', 'language', 'additional'])).max(8)
+  sectionOrder: z.array(cvLayoutSectionSchema).max(8)
     .refine((items) => new Set(items).size === items.length, 'Abschnittsreihenfolge enthält Duplikate.'),
+  original: cvThemeOriginalSchema.optional(),
 }).strict();
 const cvFactOperationSchema = z.discriminatedUnion('action', [
   z.object({ factId: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/), action: z.enum(['confirm', 'reject']) }).strict(),
@@ -2426,13 +2441,27 @@ export function createApp(
       : config.searchProfile;
     const sourceResult = await sourceFor(config).searchDetailed(profile);
     const matches = deduplicateJobs(sourceResult.jobs).map((job) => matchJob(profile, job)).sort((a, b) => b.searchPreferenceScore - a.searchPreferenceScore);
-    const run = { id: randomUUID(), createdAt: new Date().toISOString(), profile, sourceIds: profile.sourceIds, matches, partialFailures: sourceResult.failures };
+    const now = new Date().toISOString();
+    const runId = randomUUID();
+    const { newKeys } = await workspace.foldJobsIntoInventory(matches.map((match) => match.job), runId, now);
+    const run = { id: runId, createdAt: now, profile, sourceIds: profile.sourceIds, matches, partialFailures: sourceResult.failures, newInventoryKeys: newKeys };
     await workspace.saveSearchRun(run);
-    response.json({ runId: run.id, matches, partialFailures: sourceResult.failures });
+    response.json({ runId, matches, partialFailures: sourceResult.failures, newJobCount: newKeys.length });
   }));
 
   app.get('/api/search-runs', asyncRoute(async (_request, response) => {
     response.json(await workspace.listSearchRuns());
+  }));
+
+  app.get('/api/search-runs-summary', asyncRoute(async (_request, response) => {
+    const runs = await workspace.listSearchRuns();
+    response.json(runs.map((run) => ({
+      id: run.id, createdAt: run.createdAt, sourceIds: run.sourceIds,
+      matchCount: run.matches.length,
+      acceptedCount: run.matches.filter((match) => match.accepted).length,
+      newJobCount: run.newInventoryKeys?.length ?? 0,
+      partialFailureCount: run.partialFailures?.length ?? 0,
+    })));
   }));
 
   app.get('/api/search-runs/:runId', asyncRoute(async (request, response) => {
@@ -2461,6 +2490,30 @@ export function createApp(
     const decision = { jobId, state, updatedAt: new Date().toISOString() };
     await workspace.saveJobDecision(decision);
     response.json(decision);
+  }));
+
+  app.get('/api/job-inventory', asyncRoute(async (_request, response) => {
+    const snapshot = await workspace.exportSnapshot();
+    response.json(snapshot.jobInventory.map((entry) =>
+      buildInventoryView(entry, snapshot.applicationCases, snapshot.artifactRevisions, snapshot.trackingEvents)));
+  }));
+
+  app.put('/api/job-inventory/:key/category', asyncRoute(async (request, response) => {
+    const key = z.string().min(1).max(400).parse(decodeURIComponent(z.string().min(1).max(600).parse(request.params.key)));
+    const category = z.object({ category: z.enum(['inbox', 'apply', 'watchlist', 'archive']) }).parse(request.body).category;
+    const entry = await workspace.setJobInventoryCategory(key, category, new Date().toISOString());
+    if (!entry) { response.status(404).json({ error: 'Job nicht in der zentralen Liste gefunden.' }); return; }
+    const snapshot = await workspace.exportSnapshot();
+    response.json(buildInventoryView(entry, snapshot.applicationCases, snapshot.artifactRevisions, snapshot.trackingEvents));
+  }));
+
+  app.post('/api/job-inventory/:key/applied', asyncRoute(async (request, response) => {
+    const key = z.string().min(1).max(400).parse(decodeURIComponent(z.string().min(1).max(600).parse(request.params.key)));
+    const payload = z.object({ applied: z.boolean(), note: z.string().trim().max(500).optional() }).parse(request.body);
+    const entry = await workspace.setJobInventoryApplied(key, payload.applied, payload.note, new Date().toISOString());
+    if (!entry) { response.status(404).json({ error: 'Job nicht in der zentralen Liste gefunden.' }); return; }
+    const snapshot = await workspace.exportSnapshot();
+    response.json(buildInventoryView(entry, snapshot.applicationCases, snapshot.artifactRevisions, snapshot.trackingEvents));
   }));
 
   app.get('/api/comparison-notes', asyncRoute(async (_request, response) => {
@@ -2517,7 +2570,10 @@ export function createApp(
       try {
         const jobs = deduplicateJobs((await sourceFor({ ...config, searchProfile: schedule.profile }).searchDetailed(schedule.profile)).jobs);
         const matches = jobs.map((job) => matchJob(schedule.profile, job)).sort((a, b) => b.searchPreferenceScore - a.searchPreferenceScore);
-        const run = { id: randomUUID(), createdAt: now.toISOString(), profile: schedule.profile, sourceIds: schedule.profile.sourceIds, matches };
+        const runId = randomUUID();
+        const nowIso = now.toISOString();
+        const { newKeys } = await workspace.foldJobsIntoInventory(jobs, runId, nowIso);
+        const run = { id: runId, createdAt: nowIso, profile: schedule.profile, sourceIds: schedule.profile.sourceIds, matches, newInventoryKeys: newKeys };
         await workspace.saveSearchRun(run);
         const completed = completeScheduleRun(schedule, now, jobs.map((job) => job.id));
         await workspace.saveSearchSchedule(completed.schedule);
@@ -2877,7 +2933,7 @@ export function createApp(
   }));
 
   app.delete('/api/data/:scope', asyncRoute(async (request, response) => {
-    const scope = z.enum(['search_runs', 'application_cases', 'search_schedules', 'reminders', 'job_decisions', 'comparison_notes', 'work_artifacts']).parse(request.params.scope);
+    const scope = z.enum(['search_runs', 'application_cases', 'search_schedules', 'reminders', 'job_decisions', 'comparison_notes', 'job_inventory', 'work_artifacts']).parse(request.params.scope);
     const confirmation = z.object({ confirmation: z.string() }).parse(request.body).confirmation;
     if (confirmation !== `DELETE ${scope}`) throw Object.assign(new Error(`Bestätigung muss exakt DELETE ${scope} lauten.`), { statusCode: 409 });
     if (scope === 'work_artifacts') {
@@ -3143,6 +3199,24 @@ export function createApp(
     response.json(publicCvImportRecord(await (await cvImports()).setTheme(
       id, payload.expectedRevision, payload.expectedSha256, payload.theme ?? undefined,
     )));
+  }));
+
+  app.post('/api/cv-imports/:importId/theme/preview', asyncRoute(async (request, response) => {
+    const id = z.string().uuid().parse(request.params.importId);
+    const payload = z.object({ theme: cvThemeSchema }).strict().parse(request.body);
+    response.setHeader('cache-control', 'no-store');
+    response.json(await (await cvImports()).previewTheme(id, payload.theme));
+  }));
+
+  app.post('/api/cv-imports/:importId/ats-check', asyncRoute(async (request, response) => {
+    const id = z.string().uuid().parse(request.params.importId);
+    const payload = z.object({
+      source: z.enum(['theme-preview', 'proposal']).default('theme-preview'),
+      mustHave: z.array(z.string().trim().min(1).max(120)).max(100).optional(),
+      niceToHave: z.array(z.string().trim().min(1).max(120)).max(100).optional(),
+    }).strict().parse(request.body);
+    response.setHeader('cache-control', 'no-store');
+    response.json(await (await cvImports()).atsCheck(id, payload.source, { mustHave: payload.mustHave, niceToHave: payload.niceToHave }));
   }));
 
   app.post('/api/cv-imports/:importId/adopt', asyncRoute(async (request, response) => {

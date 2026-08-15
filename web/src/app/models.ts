@@ -1,4 +1,4 @@
-export type Section = 'overview' | 'search' | 'identity' | 'cv' | 'sources' | 'applications' | 'crm' | 'agents' | 'operations';
+export type Section = 'overview' | 'search' | 'jobs' | 'identity' | 'cv' | 'sources' | 'applications' | 'crm' | 'agents' | 'operations';
 export type WorkModel = 'remote' | 'hybrid' | 'onsite' | 'unknown';
 export type EmploymentType = 'full_time' | 'part_time' | 'contract' | 'freelance' | 'internship' | 'unknown';
 
@@ -23,6 +23,36 @@ export interface JobMatch {
   job: JobPosting; searchPreferenceScore: number; accepted: boolean; matchedMustHave: string[]; missingMustHave: string[];
   matchedNiceToHave: string[]; exclusions: string[];
   scoreBreakdown: { mustHave: number; niceToHave: number; region: number; workModel: number; exclusions: number };
+}
+
+export type JobInventoryCategory = 'inbox' | 'apply' | 'watchlist' | 'archive';
+
+export interface JobInventoryView {
+  key: string;
+  job: JobPosting;
+  category: JobInventoryCategory;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  runCount: number;
+  sourceIds: string[];
+  status: {
+    applied: boolean;
+    manualApplied?: { at: string; note?: string };
+    cases: Array<{ id: string; documentType: 'cv' | 'cover_letter' | 'email'; state: string; identityMode: 'real' | 'incognito'; updatedAt: string }>;
+    documents: Array<{ revisionId: string; applicationCaseId: string; type: 'cv' | 'cover_letter' | 'application_email'; lifecycle: string; usedForApplicationCaseId?: string; usedAt?: string }>;
+    appliedWith: Array<{ revisionId: string; applicationCaseId: string; type: 'cv' | 'cover_letter' | 'application_email'; usedAt?: string }>;
+    tracking: Array<{ status: string; occurredAt: string }>;
+  };
+}
+
+export interface SearchRunSummary {
+  id: string;
+  createdAt: string;
+  sourceIds: string[];
+  matchCount: number;
+  acceptedCount: number;
+  newJobCount: number;
+  partialFailureCount: number;
 }
 
 export interface SourceCapability {
@@ -201,12 +231,68 @@ export interface CvFact {
   };
 }
 
+export type CvLayoutSection = Exclude<CvFactCategory, 'contact'>;
+
+export interface CvLayoutPalette {
+  text: string;
+  heading: string;
+  accent: string;
+  background: string;
+  sidebar?: string;
+  sidebarText?: string;
+}
+
+export interface CvThemeOriginalLayout {
+  columns: 1 | 2;
+  palette: CvLayoutPalette;
+  fontFamily: 'sans' | 'serif';
+  main: CvLayoutSection[];
+  side: CvLayoutSection[];
+}
+
 export interface CvTheme {
+  mode?: 'ats' | 'original';
   template: 'classic' | 'compact' | 'modern';
   font: 'Arial' | 'Calibri' | 'Georgia' | 'Helvetica';
   accentColor: '#1f2937' | '#1d4ed8' | '#047857' | '#7c3aed';
   spacing: 'compact' | 'comfortable' | 'spacious';
-  sectionOrder: Array<Exclude<CvFactCategory, 'contact'>>;
+  sectionOrder: CvLayoutSection[];
+  original?: CvThemeOriginalLayout;
+}
+
+export interface AtsCheckReport {
+  contract: 'ats-check';
+  contractVersion: '1.0';
+  engine: 'deterministic-local';
+  checkedAt: string;
+  htmlSha256: string;
+  summary: { pass: number; warn: number; fail: number; parseable: boolean };
+  lint: Array<{ id: string; label: string; status: 'pass' | 'warn' | 'fail'; detail: string }>;
+  parse: {
+    parser: string;
+    parserVersion: string;
+    detectedSections: Array<{ heading: string; canonical: string | null; itemCount: number }>;
+    recovered: { name?: string; email?: string; phone?: string; hasDateRanges: boolean };
+    counts: { sections: number; experienceItems: number; educationItems: number; skills: number; bullets: number };
+    warnings: string[];
+  };
+  coverage?: {
+    mustHave: { total: number; matched: number; terms: Array<{ term: string; present: boolean }> };
+    niceToHave: { total: number; matched: number; terms: Array<{ term: string; present: boolean }> };
+  };
+  disclaimer: string;
+}
+
+export interface CvLayoutFingerprint {
+  contract: 'cv-layout-fingerprint';
+  contractVersion: '1.0';
+  sourceFormat: 'html' | 'pdf' | 'docx' | 'odt';
+  columns: 1 | 2;
+  palette: CvLayoutPalette;
+  fontFamily: 'sans' | 'serif';
+  sections: Array<{ section: CvLayoutSection; label: string; column: 'main' | 'side' }>;
+  confidence: 'high' | 'medium' | 'low';
+  warnings: string[];
 }
 
 export interface CvImportRecord {
@@ -230,6 +316,7 @@ export interface CvImportRecord {
   facts: CvFact[];
   warnings: string[];
   activeRecognitionVersionId: string;
+  layoutFingerprint?: CvLayoutFingerprint;
   theme?: CvTheme;
   adoption?: {
     adoptedAt: string;
@@ -283,6 +370,7 @@ export interface CvImportSummary {
   warningCount: number;
   unresolvedConflictCount: number;
   hasTheme: boolean;
+  hasLayoutFingerprint: boolean;
   hasAdoption: boolean;
   hasProposal: boolean;
 }

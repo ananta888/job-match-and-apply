@@ -21,6 +21,14 @@ Die ursprünglichen Uploadbytes werden nach der Extraktion nicht gespeichert. De
 Import einschließlich Fakten, Provenienz und späterer HTML-Revision liegt AES-256-GCM-verschlüsselt
 unter `.local-data/cv-imports`; der separate Schlüssel wird mit restriktiven Dateirechten angelegt.
 
+Beim Import wird zusätzlich ein rein gestalterischer **Layout-Fingerprint** erfasst, bevor die
+Uploadbytes verworfen werden. Er enthält ausschließlich Stilmerkmale — eine Abschnittsreihenfolge mit
+ATS-Zuordnung, eine auf sichere `#rrggbb`-Hex-Werte begrenzte Farbpalette und eine grobe Spaltenaufteilung
+— und niemals Faktinhalte. Die Erfassung ist best-effort und fail-open: HTML liefert die höchste Treue,
+DOCX/ODT eine mittlere, PDF nur eine grobe Näherung; scheitert sie, entsteht ein sicherer Standard-Fingerprint.
+Ältere Importe ohne Fingerprint bieten weiterhin die ATS-Vorlage an; für eine originalgetreue Vorlage muss
+der Lebenslauf neu importiert werden.
+
 ## Optionale KI-Strukturierung
 
 Jeder Lebenslauf erhält beim lokalen Import zunächst einen deterministischen Erkennungsstand. Er
@@ -84,8 +92,22 @@ synthetische Fixtures und Fake-Provider. Sie senden keinen Lebenslauf an einen e
    KI-Erkennungsstand aus der ursprünglichen Extraktion erzeugen; den gewünschten Stand auswählen.
 3. **Faktenfreigabe:** Stationen übersichtlich prüfen, nötige Werte korrigieren oder verwerfen und
    den aktiven Stand einmal insgesamt bestätigen.
-4. **Darstellung:** das versionierte private Stilprofil und optional eine geschlossene ATS-Vorlage,
-   Schrift, Akzentfarbe, Abstand und Abschnittsreihenfolge wählen. Freies HTML/CSS ist kein Eingabefeld.
+4. **Darstellung:** das versionierte private Stilprofil und eine Formatvorlage wählen. Zwei Varianten
+   stehen zur Wahl: die geschlossene, einspaltige **ATS-Vorlage** (Vorlage, Schrift, Akzentfarbe, Abstand,
+   Abschnittsreihenfolge) oder die aus dem Layout-Fingerprint abgeleitete **originalgetreue Vorlage**
+   (Spalten, Platzierung und Farben des Originals). Beide zeigen eine Skelett-Vorschau mit Platzhaltern;
+   der Nutzer entscheidet den Kompromiss zwischen Maschinenlesbarkeit und optischer Treue. Freies
+   HTML/CSS ist kein Eingabefeld.
+   In Schritt 4 steht zusätzlich ein **lokaler ATS-Check** bereit: eine deterministische, erklärbare
+   Prüfung des aktuellen Layouts (Einspaltigkeit, Standard-Überschriften, keine Tabellen/Bilder/Kopf-
+   und Fußzeilen, auswählbarer Text) plus ein regelbasierter Parser-Round-Trip
+   (`local-rule-based-ats-parser`), der meldet, welche Abschnitte, Kontaktfelder und Anzahl an
+   Einträgen ein ATS wiederherstellen könnte. Optionale Keyword-Coverage wird als Zählung nach
+   Priorität ausgewiesen. Der Check läuft vollständig lokal, sendet nichts nach außen und vergibt
+   bewusst **keinen** erfundenen ATS-Score. Externe/Online-ATS-Prüfer sind ausschließlich als
+   ausdrücklich einzuwilligende, standardmäßig deaktivierte Opt-in-Adapter vorgesehen (eigener
+   API-Key, self-hosted OSS-Instanz oder Login in ein eigenes Anbieterkonto); Bot-Erkennung oder
+   Captchas Dritter werden nicht umgangen.
 5. **Zielstelle:** einen vorhandenen CV-Bewerbungsfall und damit exakt eine Stelle auswählen.
 6. **Prüfung/HTML:** den Workflow Evidence → Author → ATS + Recruiter/Style → Finalizer ausführen,
    sein Artefakt menschlich prüfen und übernehmen und erst dann die freigegebene Revision rendern.
@@ -115,9 +137,11 @@ erzeugt, wenn exakt dieselbe CV-Dokumentrevision
 - an denselben Bewerbungsfall und dieselbe Stelle gebunden ist und
 - mit Revisions-ID und SHA-256 im Fall freigegeben wurde.
 
-Die optionale Formatvorlage wird danach serverseitig auf die freigegebene Revision angewendet und
-ihr Hash im CV-Importnachweis gespeichert. Das Ergebnis ist eigenständiges, escaped HTML mit CSP,
-ohne Skripte oder externe Ressourcen. Die Angular-Vorschau läuft in einem sandboxed `iframe`.
+Die optionale Formatvorlage — ATS-Variante oder originalgetreue Variante — wird danach serverseitig auf
+die freigegebene Revision angewendet und ihr Hash im CV-Importnachweis gespeichert. Auch die
+originalgetreue Variante rendert ausschließlich aus serverseitig abgeleiteten, auf sichere Hex-Werte
+begrenzten Stildaten; freies HTML/CSS bleibt ausgeschlossen. Das Ergebnis ist eigenständiges, escaped
+HTML mit CSP, ohne Skripte oder externe Ressourcen. Die Angular-Vorschau läuft in einem sandboxed `iframe`.
 Inkognito-Agentenläufe bleiben als nicht verwendbare Vorschlagsartefakte im Agent Center prüfbar;
 sie können weder als fachliche Dokumentrevision übernommen noch als HTML erzeugt oder heruntergeladen
 werden. Damit wird eine Scheinidentität niemals versehentlich zu einer verwendbaren Bewerbung.

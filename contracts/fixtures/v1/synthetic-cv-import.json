@@ -20,5 +20,25 @@
     "field": "name", "value": "Synthetic Skill", "decision": "pending",
     "provenance": { "sourceSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "anchor": "line:1", "origin": "imported" }
   }],
-  "warnings": []
+  "warnings": [],
+  "layoutFingerprint": {
+    "contract": "cv-layout-fingerprint",
+    "contractVersion": "1.0",
+    "sourceFormat": "html",
+    "columns": 2,
+    "fontFamily": "sans",
+    "confidence": "high",
+    "palette": {
+      "text": "#1f2937", "heading": "#111827", "accent": "#1d4ed8", "background": "#ffffff",
+      "sidebar": "#0f172a", "sidebarText": "#f9fafb"
+    },
+    "sections": [
+      { "section": "profile", "label": "Profil", "column": "side" },
+      { "section": "skill", "label": "Kenntnisse", "column": "side" },
+      { "section": "language", "label": "Sprachen", "column": "side" },
+      { "section": "employment", "label": "Berufserfahrung", "column": "main" },
+      { "section": "education", "label": "Ausbildung", "column": "main" }
+    ],
+    "warnings": []
+  }
 }

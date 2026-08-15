@@ -6,10 +6,15 @@ import JSZip from 'jszip';
 import { Parser as HtmlParser } from 'htmlparser2';
 import { SaxesParser } from 'saxes';
 import {
-  CV_FACT_CATEGORIES, type CvFact, type CvFactCategory, type CvNormalizationEnvelope,
-  type CvNormalizationConflict, type CvNormalizationPort, type CvTheme,
+  CV_FACT_CATEGORIES, CV_LAYOUT_SECTIONS, type CvFact, type CvFactCategory, type CvNormalizationEnvelope,
+  type CvNormalizationConflict, type CvNormalizationPort, type CvTheme, type CvLayoutFingerprint,
+  type CvLayoutSection, type CvLayoutPalette, type CvThemeOriginalLayout,
 } from '../ports/cv-normalization.js';
+import { extractLayoutFingerprint, validateLayoutFingerprint } from './cv-layout-fingerprint.js';
+import { checkAtsHtml, type AtsCheckReport } from './ats-check.js';
 import type { CvAiStructuringImportPort } from './cv-ai-structuring.js';
+
+const LAYOUT_HEX = /^#[0-9a-f]{6}$/;
 
 export const CV_MIME_TYPES = {
   'text/html': ['.html', '.htm'],
@@ -122,6 +127,8 @@ export interface CvImportRecord {
    */
   recognitionVersions?: CvRecognitionVersion[];
   activeRecognitionVersionId?: string;
+  /** Style-only layout pattern captured from the original document at import time. Never carries fact content. */
+  layoutFingerprint?: CvLayoutFingerprint;
   theme?: CvTheme;
   adoption?: {
     adoptedAt: string; adoptedClaimIds: string[]; adoptedRecordIds: string[];
@@ -161,7 +168,8 @@ export function publicCvImportSummary(record: CvImportRecord) {
     createdAt: current.createdAt, updatedAt: current.updatedAt, source: structuredClone(current.source),
     factCounts: { total: current.facts.length, pending: count('pending'), confirmed: count('confirmed'), rejected: count('rejected') },
     warningCount: current.warnings.length, unresolvedConflictCount: current.unresolvedConflicts?.length ?? 0,
-    hasTheme: Boolean(current.theme), hasAdoption: Boolean(current.adoption), hasProposal: Boolean(current.proposal),
+    hasTheme: Boolean(current.theme), hasLayoutFingerprint: Boolean(current.layoutFingerprint),
+    hasAdoption: Boolean(current.adoption), hasProposal: Boolean(current.proposal),
   };
 }
 
@@ -331,6 +339,8 @@ export class CvImportService implements CvAiStructuringImportPort {
     };
     const normalized = await this.normalization.normalize(envelope);
     const facts = validateNormalizedFacts(normalized.facts, source.sha256);
+    // Capture a style-only layout fingerprint before the upload bytes are dropped. Best-effort and fail-open.
+    const layoutFingerprint = validateLayoutFingerprint(await extractLayoutFingerprint(source.mimeType, input.data));
     const now = new Date().toISOString();
     const id = randomUUID();
     const recognitionVersion: CvRecognitionVersion = {
@@ -349,6 +359,7 @@ export class CvImportService implements CvAiStructuringImportPort {
       unresolvedConflicts: structuredClone(recognitionVersion.unresolvedConflicts),
       normalizationArtifact: structuredClone(recognitionVersion.normalizationArtifact),
       recognitionVersions: [recognitionVersion], activeRecognitionVersionId: recognitionVersion.id,
+      ...(layoutFingerprint ? { layoutFingerprint } : {}),
     };
     const record: CvImportRecord = { ...draft, sha256: recordHash(draft) };
     await this.repository.create(record);
@@ -781,7 +792,32 @@ export class CvImportService implements CvAiStructuringImportPort {
   async setTheme(id: string, expectedRevision: number, expectedSha256: string, theme?: CvTheme) {
     const current = await this.require(id);
     assertCas(current, expectedRevision, expectedSha256);
-    return this.save(current, { ...current, theme: theme ? structuredClone(theme) : undefined, proposal: undefined });
+    const normalized = theme ? normalizeTheme(theme) : undefined;
+    return this.save(current, { ...current, theme: normalized, proposal: undefined });
+  }
+
+  /** Render a skeleton preview of the given theme so the user can compare ATS vs. original layout in step 4. */
+  async previewTheme(id: string, theme: CvTheme) {
+    const current = await this.require(id);
+    const normalized = normalizeTheme(theme);
+    const html = renderThemePreview(normalized, current.layoutFingerprint);
+    return { html, htmlSha256: createHash('sha256').update(html).digest('hex') };
+  }
+
+  /** Run the local deterministic ATS check against the theme preview or the released proposal HTML. */
+  async atsCheck(
+    id: string, source: 'theme-preview' | 'proposal', keywords: { mustHave?: string[]; niceToHave?: string[] } = {},
+  ): Promise<AtsCheckReport> {
+    const current = await this.require(id);
+    let html: string;
+    if (source === 'proposal') {
+      if (!current.proposal) conflict('Es liegt noch kein freigegebenes HTML vor. Bitte zuerst die Agentenkette und Freigabe abschließen.');
+      html = current.proposal.html;
+    } else {
+      const theme = current.theme ? normalizeTheme(current.theme) : DEFAULT_ATS_THEME;
+      html = renderThemePreview(theme, current.layoutFingerprint);
+    }
+    return checkAtsHtml(html, keywords);
   }
 
   async adopt(id: string, expectedRevision: number, expectedSha256: string) {
@@ -887,6 +923,10 @@ function newRecognitionVersionId() { return `recognition-${randomBytes(8).toStri
 
 function materializeRecognitionRecord(record: CvImportRecord): CvImportRecord {
   const current = structuredClone(record);
+  if (current.layoutFingerprint !== undefined) {
+    const fingerprint = validateLayoutFingerprint(current.layoutFingerprint);
+    if (fingerprint) current.layoutFingerprint = fingerprint; else delete current.layoutFingerprint;
+  }
   if (current.recognitionVersions === undefined && current.activeRecognitionVersionId === undefined) {
     const version: CvRecognitionVersion = {
       id: recognitionVersionId(current.id, current.source.sha256), ordinal: 1, kind: 'deterministic',
@@ -1433,9 +1473,34 @@ function sectionId(heading: string) {
   return 'additional';
 }
 
+const DEFAULT_ATS_THEME: CvTheme = {
+  mode: 'ats', template: 'classic', font: 'Arial', accentColor: '#1f2937', spacing: 'comfortable', sectionOrder: [],
+};
+const CV_THEME_TEMPLATES = ['classic', 'compact', 'modern'] as const;
+const CV_THEME_FONTS = ['Arial', 'Calibri', 'Georgia', 'Helvetica'] as const;
+const CV_THEME_ACCENTS = ['#1f2937', '#1d4ed8', '#047857', '#7c3aed'] as const;
+const CV_THEME_SPACINGS = ['compact', 'comfortable', 'spacious'] as const;
+const CSP_META = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:">`;
+
+function spacingGap(spacing: CvTheme['spacing']) {
+  return spacing === 'compact' ? '0.45rem' : spacing === 'spacious' ? '1.15rem' : '0.75rem';
+}
+function fontStack(family: 'sans' | 'serif') {
+  return family === 'serif' ? 'Georgia,"Times New Roman",serif' : 'Arial,Helvetica,sans-serif';
+}
+function sectionHtml(section: RenderSection) {
+  return `<section data-section="${escapeHtml(section.id)}"><h2>${escapeHtml(section.heading)}</h2><ul>${section.items.map((item) => `<li>${escapeHtml(item.text)}</li>`).join('')}</ul></section>`;
+}
+
 function renderHtml(document: RenderDocument, theme?: CvTheme) {
-  const selected = theme ?? { template: 'classic', font: 'Arial', accentColor: '#1f2937', spacing: 'comfortable', sectionOrder: [] };
-  const gap = selected.spacing === 'compact' ? '0.45rem' : selected.spacing === 'spacious' ? '1.15rem' : '0.75rem';
+  const selected = theme ?? DEFAULT_ATS_THEME;
+  return selected.mode === 'original' && selected.original
+    ? renderOriginalHtml(document, selected, selected.original)
+    : renderAtsHtml(document, selected);
+}
+
+function renderAtsHtml(document: RenderDocument, selected: CvTheme) {
+  const gap = spacingGap(selected.spacing);
   const priority = new Map(selected.sectionOrder.map((section, index) => [section, index]));
   const ordered = document.sections.map((section, index) => ({ section, index })).sort((left, right) => {
     const a = priority.get(left.section.id as CvTheme['sectionOrder'][number]);
@@ -1444,10 +1509,126 @@ function renderHtml(document: RenderDocument, theme?: CvTheme) {
   }).map(({ section }) => section);
   const documentTitle = document.title ?? 'Lebenslauf';
   const title = `<h1>${escapeHtml(documentTitle)}</h1>`;
-  const body = ordered.map((section) => `<section data-section="${escapeHtml(section.id)}"><h2>${escapeHtml(section.heading)}</h2><ul>${section.items.map((item) => `<li>${escapeHtml(item.text)}</li>`).join('')}</ul></section>`).join('');
+  const body = ordered.map(sectionHtml).join('');
   const templateRule = selected.template === 'compact' ? 'h2{font-size:1.05rem;border-bottom:1px solid currentColor}'
     : selected.template === 'modern' ? 'h2{border-left:.3rem solid currentColor;padding-left:.55rem}' : 'h2{border-bottom:2px solid currentColor}';
-  return `<!doctype html><html lang="de"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(documentTitle)}</title><style>body{font-family:${selected.font},sans-serif;color:#111827;max-width:52rem;margin:2rem auto;padding:0 1.5rem}h1,h2{color:${selected.accentColor}}${templateRule}section{margin-block:${gap}}li{margin-block:.25rem}</style></head><body data-template="${selected.template}"><main>${title}${body}</main></body></html>`;
+  return `<!doctype html><html lang="de"><head><meta charset="utf-8">${CSP_META}<meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(documentTitle)}</title><style>body{font-family:${selected.font},sans-serif;color:#111827;max-width:52rem;margin:2rem auto;padding:0 1.5rem}h1,h2{color:${selected.accentColor}}${templateRule}section{margin-block:${gap}}li{margin-block:.25rem}</style></head><body data-template="${selected.template}" data-mode="ats"><main>${title}${body}</main></body></html>`;
+}
+
+function columnSections(sections: RenderSection[], order: CvLayoutSection[]): RenderSection[] {
+  const priority = new Map(order.map((section, index) => [section, index]));
+  return sections.map((section, index) => ({ section, index }))
+    .sort((left, right) => (priority.get(left.section.id as CvLayoutSection) ?? Number.MAX_SAFE_INTEGER)
+      - (priority.get(right.section.id as CvLayoutSection) ?? Number.MAX_SAFE_INTEGER) || left.index - right.index)
+    .map(({ section }) => section);
+}
+
+function renderOriginalHtml(document: RenderDocument, selected: CvTheme, layout: CvThemeOriginalLayout) {
+  const gap = spacingGap(selected.spacing);
+  const palette = layout.palette;
+  const documentTitle = document.title ?? 'Lebenslauf';
+  const title = `<h1>${escapeHtml(documentTitle)}</h1>`;
+  const twoColumn = layout.columns === 2;
+  const sideIds = new Set<CvLayoutSection>(twoColumn ? layout.side : []);
+  const sideSections = twoColumn ? columnSections(document.sections.filter((section) => sideIds.has(section.id as CvLayoutSection)), layout.side) : [];
+  const mainSections = columnSections(document.sections.filter((section) => !sideIds.has(section.id as CvLayoutSection)), layout.main);
+  const mainHtml = `<div class="col-main">${title}${mainSections.map(sectionHtml).join('')}</div>`;
+  const sideHtml = twoColumn ? `<aside class="col-side">${sideSections.map(sectionHtml).join('')}</aside>` : '';
+  const layoutCss = twoColumn
+    ? 'main{display:grid;grid-template-columns:minmax(0,32%) minmax(0,1fr);gap:1.5rem;align-items:start}'
+      + `.col-side{background:${palette.sidebar};color:${palette.sidebarText};padding:1.25rem;border-radius:.4rem}`
+      + `.col-side h2{color:${palette.sidebarText}}`
+    : '';
+  const css = `body{font-family:${fontStack(layout.fontFamily)};color:${palette.text};background:${palette.background};max-width:${twoColumn ? '58rem' : '52rem'};margin:2rem auto;padding:0 1.5rem}`
+    + `h1{color:${palette.heading}}h2{color:${palette.accent};border-bottom:2px solid ${palette.accent};font-size:1.05rem}`
+    + `${layoutCss}section{margin-block:${gap}}li{margin-block:.25rem}`;
+  return `<!doctype html><html lang="de"><head><meta charset="utf-8">${CSP_META}<meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(documentTitle)}</title><style>${css}</style></head><body data-template="original" data-mode="original" data-columns="${layout.columns}"><main>${twoColumn ? `${sideHtml}${mainHtml}` : mainHtml}</main></body></html>`;
+}
+
+function layoutSectionLabel(section: CvLayoutSection): string {
+  return {
+    profile: 'Profil', employment: 'Berufserfahrung', project: 'Projekte', education: 'Ausbildung',
+    skill: 'Kenntnisse', certification: 'Zertifikate', language: 'Sprachen', additional: 'Weiteres',
+  }[section];
+}
+
+/** Build a skeleton document (placeholder content, no personal facts) that showcases layout and colours. */
+function renderThemePreview(theme: CvTheme, fingerprint?: CvLayoutFingerprint) {
+  const labels = new Map<CvLayoutSection, string>();
+  if (fingerprint) for (const entry of fingerprint.sections) labels.set(entry.section, entry.label);
+  const order = theme.mode === 'original' && theme.original
+    ? [...theme.original.main, ...(theme.original.columns === 2 ? theme.original.side : [])]
+    : theme.sectionOrder.length ? theme.sectionOrder : [...CV_LAYOUT_SECTIONS];
+  const placeholder = (lines: string[]) => lines.map((text) => ({ text }));
+  const sections: RenderSection[] = [...new Set(order)].map((section) => ({
+    id: section, heading: labels.get(section) ?? layoutSectionLabel(section),
+    items: section === 'skill' || section === 'language'
+      ? placeholder(['Platzhalter · Platzhalter · Platzhalter', 'Nur Struktur und Farben — kein Inhalt'])
+      : placeholder(['Platzhalterzeile — nur Layout- und Farbvorschau', 'Weitere Platzhalterzeile ohne echten Inhalt']),
+  }));
+  if (sections.length === 0) sections.push({ id: 'profile', heading: 'Profil', items: placeholder(['Layout- und Farbvorschau']) });
+  return renderHtml({ title: 'Layout-Vorschau', sections }, theme);
+}
+
+function assertLayoutHex(value: unknown, field: string): string {
+  if (typeof value !== 'string' || !LAYOUT_HEX.test(value)) badRequest(`Die Formatvorlage enthält eine ungültige Farbe (${field}).`);
+  return value;
+}
+function assertLayoutSectionList(value: unknown, field: string): CvLayoutSection[] {
+  if (!Array.isArray(value) || value.length > CV_LAYOUT_SECTIONS.length) badRequest(`Die Formatvorlage besitzt eine ungültige ${field}-Abschnittsliste.`);
+  const seen = new Set<string>();
+  for (const item of value) {
+    if (typeof item !== 'string' || !(CV_LAYOUT_SECTIONS as readonly string[]).includes(item) || seen.has(item)) {
+      badRequest(`Die Formatvorlage besitzt eine ungültige ${field}-Abschnittsliste.`);
+    }
+    seen.add(item);
+  }
+  return [...value] as CvLayoutSection[];
+}
+function normalizeOriginalLayout(value: unknown): CvThemeOriginalLayout {
+  if (!isRecord(value)) badRequest('Die Original-Formatvorlage ist ungültig.');
+  const columns: 1 | 2 = value.columns === 2 ? 2 : value.columns === 1 ? 1 : (badRequest('Die Original-Formatvorlage besitzt eine ungültige Spaltenzahl.') as never);
+  const rawPalette = isRecord(value.palette) ? value.palette : badRequest('Die Original-Formatvorlage besitzt keine gültige Farbpalette.');
+  const palette: CvLayoutPalette = {
+    text: assertLayoutHex(rawPalette.text, 'text'), heading: assertLayoutHex(rawPalette.heading, 'heading'),
+    accent: assertLayoutHex(rawPalette.accent, 'accent'), background: assertLayoutHex(rawPalette.background, 'background'),
+  };
+  if (columns === 2) {
+    palette.sidebar = assertLayoutHex(rawPalette.sidebar, 'sidebar');
+    palette.sidebarText = rawPalette.sidebarText === undefined
+      ? (luminanceHex(palette.sidebar) < 0.5 ? '#f9fafb' : '#111827')
+      : assertLayoutHex(rawPalette.sidebarText, 'sidebarText');
+  }
+  const fontFamily: 'sans' | 'serif' = value.fontFamily === 'serif' ? 'serif' : value.fontFamily === 'sans' ? 'sans'
+    : (badRequest('Die Original-Formatvorlage besitzt eine ungültige Schriftfamilie.') as never);
+  const main = assertLayoutSectionList(value.main, 'main');
+  const side = columns === 2 ? assertLayoutSectionList(value.side, 'side') : [];
+  if (main.some((section) => side.includes(section))) badRequest('Ein Abschnitt darf nicht gleichzeitig in Haupt- und Seitenspalte liegen.');
+  if (main.length + side.length < 1) badRequest('Die Original-Formatvorlage muss mindestens einen Abschnitt platzieren.');
+  return { columns, palette, fontFamily, main, side };
+}
+function luminanceHex(hex: string): number {
+  const r = parseInt(hex.slice(1, 3), 16); const g = parseInt(hex.slice(3, 5), 16); const b = parseInt(hex.slice(5, 7), 16);
+  return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+}
+
+/** Validate and canonicalize an incoming theme (closed ATS values plus the optional original layout clone). */
+function normalizeTheme(theme: CvTheme): CvTheme {
+  if (!isRecord(theme)) badRequest('Die Formatvorlage ist ungültig.');
+  const mode = theme.mode === 'original' ? 'original' : 'ats';
+  if (!(CV_THEME_TEMPLATES as readonly string[]).includes(theme.template)
+    || !(CV_THEME_FONTS as readonly string[]).includes(theme.font)
+    || !(CV_THEME_ACCENTS as readonly string[]).includes(theme.accentColor)
+    || !(CV_THEME_SPACINGS as readonly string[]).includes(theme.spacing)) {
+    badRequest('Die Formatvorlage enthält unzulässige geschlossene ATS-Werte.');
+  }
+  const sectionOrder = assertLayoutSectionList(theme.sectionOrder, 'sectionOrder');
+  const normalized: CvTheme = {
+    mode, template: theme.template, font: theme.font, accentColor: theme.accentColor,
+    spacing: theme.spacing, sectionOrder,
+  };
+  if (mode === 'original') normalized.original = normalizeOriginalLayout(theme.original);
+  return normalized;
 }
 
 function escapeHtml(value: string) { return cleanText(value, 20_000).replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]!); }

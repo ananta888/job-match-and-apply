@@ -35,6 +35,7 @@ export interface JobInventoryView {
   lastSeenAt: string;
   runCount: number;
   sourceIds: string[];
+  match?: { score: number; accepted: boolean; matchedMustHave: string[]; missingMustHave: string[]; matchedNiceToHave: string[] };
   status: {
     applied: boolean;
     manualApplied?: { at: string; note?: string };

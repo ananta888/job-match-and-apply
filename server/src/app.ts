@@ -19,6 +19,14 @@ import type { WorkspaceStore } from './services/workspace-store.js';
 import { JsonWorkspaceStore, MemoryWorkspaceStore } from './services/workspace-store.js';
 import { deduplicateJobs } from './services/job-normalization.js';
 import { buildInventoryView } from './services/job-inventory.js';
+
+function inventoryMatch(match: SearchPreferenceMatch) {
+  return {
+    score: match.searchPreferenceScore, accepted: match.accepted,
+    matchedMustHave: match.matchedMustHave, missingMustHave: match.missingMustHave,
+    matchedNiceToHave: match.matchedNiceToHave,
+  };
+}
 import { LocalCandidateProfileAdapter } from './adapters/local-candidate-profile.js';
 import { transitionApplicationCase } from './services/application-case.js';
 import { createApplicationPackage, createSubmissionDryRun } from './services/application-package.js';
@@ -2443,7 +2451,7 @@ export function createApp(
     const matches = deduplicateJobs(sourceResult.jobs).map((job) => matchJob(profile, job)).sort((a, b) => b.searchPreferenceScore - a.searchPreferenceScore);
     const now = new Date().toISOString();
     const runId = randomUUID();
-    const { newKeys } = await workspace.foldJobsIntoInventory(matches.map((match) => match.job), runId, now);
+    const { newKeys } = await workspace.foldJobsIntoInventory(matches.map((match) => ({ job: match.job, match: inventoryMatch(match) })), runId, now);
     const run = { id: runId, createdAt: now, profile, sourceIds: profile.sourceIds, matches, partialFailures: sourceResult.failures, newInventoryKeys: newKeys };
     await workspace.saveSearchRun(run);
     response.json({ runId, matches, partialFailures: sourceResult.failures, newJobCount: newKeys.length });
@@ -2572,7 +2580,7 @@ export function createApp(
         const matches = jobs.map((job) => matchJob(schedule.profile, job)).sort((a, b) => b.searchPreferenceScore - a.searchPreferenceScore);
         const runId = randomUUID();
         const nowIso = now.toISOString();
-        const { newKeys } = await workspace.foldJobsIntoInventory(jobs, runId, nowIso);
+        const { newKeys } = await workspace.foldJobsIntoInventory(matches.map((match) => ({ job: match.job, match: inventoryMatch(match) })), runId, nowIso);
         const run = { id: runId, createdAt: nowIso, profile: schedule.profile, sourceIds: schedule.profile.sourceIds, matches, newInventoryKeys: newKeys };
         await workspace.saveSearchRun(run);
         const completed = completeScheduleRun(schedule, now, jobs.map((job) => job.id));

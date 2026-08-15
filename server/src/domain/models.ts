@@ -110,6 +110,15 @@ export interface SearchRun {
 
 export type JobInventoryCategory = 'inbox' | 'apply' | 'watchlist' | 'archive';
 
+/** Latest search-match summary for an inventory entry, refreshed on every run that surfaces the job. */
+export interface JobInventoryMatch {
+  score: number;
+  accepted: boolean;
+  matchedMustHave: string[];
+  missingMustHave: string[];
+  matchedNiceToHave: string[];
+}
+
 /**
  * A durable, deduplicated central job record enriched by every search run. Unlike {@link SearchRun}
  * snapshots, inventory entries survive run retention and carry the user's manual categorization and
@@ -128,6 +137,8 @@ export interface JobInventoryEntry {
   /** All source `job.id`s ever merged into this entry (for joining cases/artifacts/tracking). */
   jobIds: string[];
   sourceIds: string[];
+  /** Most recent search-match summary (score, matched/missing requirements). */
+  match?: JobInventoryMatch;
   /** Explicit "applied outside the app" mark; the derived status also accounts for in-app cases. */
   manualApplied?: { at: string; note?: string };
 }

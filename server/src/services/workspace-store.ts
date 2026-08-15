@@ -1,8 +1,8 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { dirname, resolve } from 'node:path';
-import type { ApplicationArtifactRevision, ApplicationCase, ApplicationStatusEvent, ApplicationTrackingEvent, ComparisonNote, FollowUpReminder, JobDecision, JobInventoryCategory, JobInventoryEntry, JobPosting, SearchRun, SearchSchedule } from '../domain/models.js';
-import { foldInventory, setInventoryApplied, setInventoryCategory } from './job-inventory.js';
+import type { ApplicationArtifactRevision, ApplicationCase, ApplicationStatusEvent, ApplicationTrackingEvent, ComparisonNote, FollowUpReminder, JobDecision, JobInventoryCategory, JobInventoryEntry, SearchRun, SearchSchedule } from '../domain/models.js';
+import { foldInventory, setInventoryApplied, setInventoryCategory, type JobInventoryFoldItem } from './job-inventory.js';
 
 export interface WorkspaceEnvelope {
   schemaVersion: 1;
@@ -48,7 +48,7 @@ export interface WorkspaceStore {
   listArtifactRevisions(caseId?: string): Promise<ApplicationArtifactRevision[]>;
   listJobInventory(): Promise<JobInventoryEntry[]>;
   /** Atomically fold a run's jobs into the central inventory; returns the keys added for the first time. */
-  foldJobsIntoInventory(jobs: JobPosting[], runId: string, now: string): Promise<{ newKeys: string[] }>;
+  foldJobsIntoInventory(items: JobInventoryFoldItem[], runId: string, now: string): Promise<{ newKeys: string[] }>;
   setJobInventoryCategory(key: string, category: JobInventoryCategory, now: string): Promise<JobInventoryEntry | undefined>;
   setJobInventoryApplied(key: string, applied: boolean, note: string | undefined, now: string): Promise<JobInventoryEntry | undefined>;
   purgeBefore(cutoffIso: string): Promise<RetentionCounts>;
@@ -152,9 +152,9 @@ export class JsonWorkspaceStore implements WorkspaceStore {
   }
   async listArtifactRevisions(caseId?: string): Promise<ApplicationArtifactRevision[]> { const items = (await this.load()).artifactRevisions; return structuredClone(caseId ? items.filter((item) => item.applicationCaseId === caseId) : items); }
   async listJobInventory(): Promise<JobInventoryEntry[]> { return structuredClone((await this.load()).jobInventory); }
-  async foldJobsIntoInventory(jobs: JobPosting[], runId: string, now: string): Promise<{ newKeys: string[] }> {
+  async foldJobsIntoInventory(items: JobInventoryFoldItem[], runId: string, now: string): Promise<{ newKeys: string[] }> {
     let newKeys: string[] = [];
-    await this.mutate((data) => { const folded = foldInventory(data.jobInventory, jobs, runId, now); data.jobInventory = folded.entries; newKeys = folded.newKeys; });
+    await this.mutate((data) => { const folded = foldInventory(data.jobInventory, items, runId, now); data.jobInventory = folded.entries; newKeys = folded.newKeys; });
     return { newKeys };
   }
   async setJobInventoryCategory(key: string, category: JobInventoryCategory, now: string): Promise<JobInventoryEntry | undefined> {
@@ -286,8 +286,8 @@ export class MemoryWorkspaceStore implements WorkspaceStore {
   }
   async listArtifactRevisions(caseId?: string): Promise<ApplicationArtifactRevision[]> { return structuredClone(caseId ? this.artifacts.filter((item) => item.applicationCaseId === caseId) : this.artifacts); }
   async listJobInventory(): Promise<JobInventoryEntry[]> { return structuredClone(this.jobInventoryEntries); }
-  async foldJobsIntoInventory(jobs: JobPosting[], runId: string, now: string): Promise<{ newKeys: string[] }> {
-    const folded = foldInventory(this.jobInventoryEntries, jobs, runId, now); this.jobInventoryEntries = folded.entries; return { newKeys: folded.newKeys };
+  async foldJobsIntoInventory(items: JobInventoryFoldItem[], runId: string, now: string): Promise<{ newKeys: string[] }> {
+    const folded = foldInventory(this.jobInventoryEntries, items, runId, now); this.jobInventoryEntries = folded.entries; return { newKeys: folded.newKeys };
   }
   async setJobInventoryCategory(key: string, category: JobInventoryCategory, now: string): Promise<JobInventoryEntry | undefined> {
     const result = setInventoryCategory(this.jobInventoryEntries, key, category, now); this.jobInventoryEntries = result.entries; return result.entry ? structuredClone(result.entry) : undefined;

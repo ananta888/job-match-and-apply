@@ -169,10 +169,21 @@
                 @for (entry of jobsInCategory(category); track entry.key) {
                   <article class="job-inventory-card" [class.applied]="entry.status.applied">
                     <div class="job-inventory-head">
-                      <div><h4>{{ entry.job.title }}</h4><p>{{ entry.job.company }} · {{ entry.job.location }}</p></div>
+                      @if (entry.match; as match) { <span class="job-score" [attr.data-match]="jobMatchClass(match.score)" [attr.title]="'Suchpräferenz-Trefferwert' + (match.accepted ? ' · passend' : '')">{{ match.score }}<small>%</small></span> }
+                      <div class="job-inventory-title"><h4>{{ entry.job.title }}</h4><p>{{ entry.job.company }} · {{ entry.job.location }}</p></div>
                       @if (entry.status.applied) { <span class="badge applied" title="Bereits beworben">Beworben</span> }
                     </div>
-                    <div class="chips">@for (skill of entry.job.skills.slice(0, 4); track skill) { <span class="chip">{{ skill }}</span> }</div>
+                    <div class="job-facts">
+                      <span>{{ jobWorkModelLabel(entry.job.workModel) }}</span>
+                      <span>{{ jobEmploymentLabel(entry.job.employmentType) }}</span>
+                      @if (jobSalaryLabel(entry.job); as salary) { <span>{{ salary }}</span> }
+                      @if (entry.job.publishedAt) { <span>veröff. {{ entry.job.publishedAt | date:'dd.MM.yy' }}</span> }
+                    </div>
+                    @if (entry.match; as match) {
+                      <div class="chips job-match-chips">@for (skill of match.matchedMustHave; track skill) { <span class="chip match">✓ {{ skill }}</span> } @for (gap of match.missingMustHave; track gap) { <span class="chip gap">fehlt: {{ gap }}</span> } @for (skill of match.matchedNiceToHave; track skill) { <span class="chip">{{ skill }}</span> }</div>
+                    } @else {
+                      <div class="chips">@for (skill of entry.job.skills.slice(0, 4); track skill) { <span class="chip">{{ skill }}</span> }</div>
+                    }
                     <div class="job-inventory-meta"><span>Quellen: {{ entry.sourceIds.join(', ') }}</span><span>{{ entry.runCount }} Lauf(e) · zuletzt {{ entry.lastSeenAt | date:'dd.MM.yy' }}</span></div>
 
                     @if (jobGeneratedDocuments(entry).length) {

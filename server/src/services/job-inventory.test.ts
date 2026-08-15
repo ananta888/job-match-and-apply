@@ -12,18 +12,19 @@ function job(overrides: Partial<JobPosting> = {}): JobPosting {
 
 const T1 = '2026-08-15T10:00:00.000Z';
 const T2 = '2026-08-15T11:00:00.000Z';
+const items = (...jobs: JobPosting[]) => jobs.map((job) => ({ job }));
 
 describe('foldInventory', () => {
   it('adds new jobs on first sight and marks them as new', () => {
-    const { entries, newKeys } = foldInventory([], [job(), job({ id: 'job-2', title: 'React Dev', company: 'Acme', location: 'Köln' })], 'run-1', T1);
+    const { entries, newKeys } = foldInventory([], items(job(), job({ id: 'job-2', title: 'React Dev', company: 'Acme', location: 'Köln' })), 'run-1', T1);
     expect(entries).toHaveLength(2);
     expect(newKeys).toHaveLength(2);
     expect(entries.every((entry) => entry.category === 'inbox')).toBe(true);
   });
 
   it('deduplicates the same posting across runs and enriches instead of duplicating', () => {
-    const first = foldInventory([], [job({ skills: ['Angular'] })], 'run-1', T1);
-    const second = foldInventory(first.entries, [job({ id: 'job-1-b', sourceId: 'other', skills: ['RxJS'] })], 'run-2', T2);
+    const first = foldInventory([], items(job({ skills: ['Angular'] })), 'run-1', T1);
+    const second = foldInventory(first.entries, items(job({ id: 'job-1-b', sourceId: 'other', skills: ['RxJS'] })), 'run-2', T2);
     expect(second.entries).toHaveLength(1);
     expect(second.newKeys).toHaveLength(0);
     const entry = second.entries[0]!;
@@ -36,30 +37,37 @@ describe('foldInventory', () => {
   });
 
   it('treats a normalized URL as the identity even when title differs', () => {
-    const first = foldInventory([], [job({ url: 'https://jobs.example/x?utm=1' })], 'run-1', T1);
-    const second = foldInventory(first.entries, [job({ id: 'job-9', title: 'Anderer Titel', url: 'https://jobs.example/x?utm=2#frag' })], 'run-2', T2);
+    const first = foldInventory([], items(job({ url: 'https://jobs.example/x?utm=1' })), 'run-1', T1);
+    const second = foldInventory(first.entries, items(job({ id: 'job-9', title: 'Anderer Titel', url: 'https://jobs.example/x?utm=2#frag' })), 'run-2', T2);
     expect(second.entries).toHaveLength(1);
     expect(second.newKeys).toHaveLength(0);
   });
 
   it('preserves the user category across enrichment', () => {
-    const first = foldInventory([], [job()], 'run-1', T1);
+    const first = foldInventory([], items(job()), 'run-1', T1);
     const categorized = setInventoryCategory(first.entries, first.entries[0]!.key, 'apply', T1);
-    const second = foldInventory(categorized.entries, [job({ id: 'job-1-b' })], 'run-2', T2);
+    const second = foldInventory(categorized.entries, items(job({ id: 'job-1-b' })), 'run-2', T2);
     expect(second.entries[0]!.category).toBe('apply');
+  });
+
+  it('records the latest match summary and refreshes it on re-run', () => {
+    const first = foldInventory([], [{ job: job(), match: { score: 61, accepted: false, matchedMustHave: ['Angular'], missingMustHave: ['Kubernetes'], matchedNiceToHave: [] } }], 'run-1', T1);
+    expect(first.entries[0]!.match).toMatchObject({ score: 61, matchedMustHave: ['Angular'] });
+    const second = foldInventory(first.entries, [{ job: job({ id: 'job-1-b' }), match: { score: 88, accepted: true, matchedMustHave: ['Angular', 'Kubernetes'], missingMustHave: [], matchedNiceToHave: ['RxJS'] } }], 'run-2', T2);
+    expect(second.entries[0]!.match).toMatchObject({ score: 88, accepted: true });
   });
 });
 
 describe('setInventoryCategory / setInventoryApplied', () => {
   it('updates category and returns the entry', () => {
-    const base = foldInventory([], [job()], 'run-1', T1).entries;
+    const base = foldInventory([], items(job()), 'run-1', T1).entries;
     const result = setInventoryCategory(base, base[0]!.key, 'archive', T2);
     expect(result.entry?.category).toBe('archive');
     expect(setInventoryCategory(base, 'missing-key', 'archive', T2).entry).toBeUndefined();
   });
 
   it('sets and clears a manual applied mark', () => {
-    const base = foldInventory([], [job()], 'run-1', T1).entries;
+    const base = foldInventory([], items(job()), 'run-1', T1).entries;
     const applied = setInventoryApplied(base, base[0]!.key, true, 'Direkt über die Firmenseite beworben', T2);
     expect(applied.entry?.manualApplied).toMatchObject({ at: T2, note: 'Direkt über die Firmenseite beworben' });
     const cleared = setInventoryApplied(applied.entries, base[0]!.key, false, undefined, T2);

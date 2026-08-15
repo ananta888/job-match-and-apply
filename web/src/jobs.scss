@@ -29,9 +29,20 @@
 
 .job-inventory-card { margin-bottom: 10px; padding: 12px; border: 1px solid #e0e4eb; border-radius: 11px; background: #fff; }
 .job-inventory-card.applied { border-color: #b6e2c8; box-shadow: inset 3px 0 0 #22a05c; }
-.job-inventory-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.job-inventory-head { display: flex; align-items: flex-start; gap: 9px; }
+.job-inventory-title { min-width: 0; flex: 1; }
 .job-inventory-head h4 { margin: 0; font-size: 10px; overflow-wrap: anywhere; }
 .job-inventory-head p { margin: 3px 0 0; color: #657084; font-size: 8px; overflow-wrap: anywhere; }
+.job-score { flex-shrink: 0; display: inline-flex; align-items: baseline; justify-content: center; min-width: 34px; padding: 5px 7px; border-radius: 9px; font-size: 13px; font-weight: 900; line-height: 1; }
+.job-score small { font-size: 7px; font-weight: 800; margin-left: 1px; }
+.job-score[data-match="good"] { color: #0f7a43; background: #dcf5e7; }
+.job-score[data-match="mid"] { color: #8a6d1a; background: #fdf2d6; }
+.job-score[data-match="low"] { color: #8a93a5; background: #eef1f5; }
+.job-facts { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+.job-facts span { padding: 2px 7px; border-radius: 6px; background: #f1f3f7; color: #4a5568; font-size: 7px; font-weight: 700; }
+.job-match-chips { margin-top: 8px; }
+.job-match-chips .chip.match { background: #dcf5e7; color: #0f7a43; }
+.job-match-chips .chip.gap { background: #fbe0da; color: #b3402f; }
 .job-inventory-card .chips { margin: 8px 0 0; }
 .job-inventory-meta { display: grid; gap: 2px; margin-top: 8px; color: #8a93a5; font-size: 7px; }
 .job-inventory-meta span { overflow-wrap: anywhere; }

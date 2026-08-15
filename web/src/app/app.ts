@@ -1983,6 +1983,22 @@ export class App implements OnInit, OnDestroy {
   jobGeneratedDocuments(entry: JobInventoryView): JobInventoryView['status']['documents'] {
     return entry.status.documents.filter((document) => document.lifecycle !== 'rejected');
   }
+  jobWorkModelLabel(model: string): string {
+    return { remote: 'Remote', hybrid: 'Hybrid', onsite: 'Vor Ort', unknown: 'k. A.' }[model] ?? model;
+  }
+  jobEmploymentLabel(type: string): string {
+    return { full_time: 'Vollzeit', part_time: 'Teilzeit', contract: 'Vertrag', freelance: 'Freelance', internship: 'Praktikum', unknown: 'k. A.' }[type] ?? type;
+  }
+  jobSalaryLabel(job: JobInventoryView['job']): string | undefined {
+    if (job.salaryMin == null && job.salaryMax == null) return undefined;
+    const currency = 'EUR';
+    const format = (value: number) => `${Math.round(value).toLocaleString('de-DE')} ${currency}`;
+    if (job.salaryMin != null && job.salaryMax != null) return `${format(job.salaryMin)} – ${format(job.salaryMax)}`;
+    return format((job.salaryMin ?? job.salaryMax)!);
+  }
+  jobMatchClass(score: number): 'good' | 'mid' | 'low' {
+    return score >= 70 ? 'good' : score >= 45 ? 'mid' : 'low';
+  }
 
   chooseMatch(match: JobMatch): void { this.selectedMatch = match; }
   jobDecision(jobId: string): JobDecision['state'] { return this.jobDecisions.find((item) => item.jobId === jobId)?.state ?? 'neutral'; }

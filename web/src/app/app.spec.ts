@@ -1832,6 +1832,7 @@ describe('App', () => {
       key: 'angular engineer|beispiel gmbh|berlin',
       job: { id: 'job-1', sourceId: 'demo', title: 'Angular Engineer', company: 'Beispiel GmbH', location: 'Berlin', workModel: 'hybrid', employmentType: 'full_time', description: 'x', skills: ['Angular', 'RxJS'] },
       category: 'inbox', firstSeenAt: '2026-08-15T09:00:00Z', lastSeenAt: '2026-08-15T10:00:00Z', runCount: 2, sourceIds: ['demo'],
+      match: { score: 82, accepted: true, matchedMustHave: ['Angular'], missingMustHave: ['Kubernetes'], matchedNiceToHave: ['RxJS'] },
       status: { applied: false, cases: [], documents: [], appliedWith: [], tracking: [] }
     };
     apiMock['jobInventory'].mockReturnValue(of([entry]));
@@ -1858,8 +1859,12 @@ describe('App', () => {
     expect(component.jobInventory[0].status.applied).toBe(true);
     expect(component.appliedJobCount()).toBe(1);
 
+    fixture.detectChanges();
     const element = fixture.nativeElement as HTMLElement;
-    expect(element.querySelector('[data-testid="jobs-board"]')).toBeTruthy();
+    const board = element.querySelector('[data-testid="jobs-board"]')!;
+    expect(board).toBeTruthy();
+    expect(board.querySelector('.job-score')?.textContent).toContain('82');
+    expect(board.textContent).toContain('fehlt: Kubernetes');
     fixture.destroy();
   });
 

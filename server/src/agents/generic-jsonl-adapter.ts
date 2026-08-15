@@ -18,6 +18,7 @@ import { assertTrustedHostJobMcpNotNestedInAgentSandbox, WslBubblewrapSandboxBou
 import { AgentRuntimeDiscovery, type ProviderDiscoveryDefinition } from './runtime-discovery.js';
 import {
   CODEX_OFFLINE_NETWORK_CONTRACT,
+  CODEX_SANDBOX_ENFORCEMENT_ID,
   hasFixedCodexOfflineConfig,
   isConformedCodexVersion,
 } from './codex-offline-policy.js';
@@ -133,6 +134,21 @@ export function applyServerOwnedProviderToolMode(
   if (provider === 'claude-cli') {
     replaceValue('--tools', 'Read', '');
     replaceValue('--disallowedTools', 'mcp__*', '*');
+    return result;
+  }
+  if (provider === 'codex-exec') {
+    // Codex offers no tool-removal flag. Its zero-tools contract for the
+    // private CV workflow is the containment already encoded in the argv:
+    // a read-only sandbox (no writes), the fixed offline config (no user
+    // tools/MCP, network off), attested at process start, backed by
+    // server-side quarantine of any observed tool activity. Assert that
+    // containment is present and leave the argv unchanged (fail closed).
+    const sandboxIndex = result.indexOf('--sandbox');
+    if (sandboxIndex < 0 || result[sandboxIndex + 1] !== 'read-only'
+      || !result.includes('--ignore-user-config')
+      || !hasFixedCodexOfflineConfig(result)) {
+      throw new Error('provider_zero_tools_argv_contract_invalid');
+    }
     return result;
   }
   throw new Error('provider_zero_tools_not_supported');
@@ -296,7 +312,7 @@ export class GenericJsonlAgentAdapter implements AgentRunnerPort {
       args = ['-d', installation.distribution!, '--', installation.runtimeExecutable!, ...args];
     }
     if (this.provider === 'codex-exec') {
-      sandboxEnforcement = 'codex-cli-sandbox-policy-0.147.0';
+      sandboxEnforcement = CODEX_SANDBOX_ENFORCEMENT_ID;
       networkEnforcement = CODEX_OFFLINE_NETWORK_CONTRACT.networkEnforcement;
       networkMechanism = CODEX_OFFLINE_NETWORK_CONTRACT.networkMechanism;
       networkAccessClaim = CODEX_OFFLINE_NETWORK_CONTRACT.networkAccessClaim;

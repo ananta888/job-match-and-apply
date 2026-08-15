@@ -748,6 +748,44 @@ describe('CvAiStructuringService', () => {
     }])).toBe(false);
   });
 
+  it('attests Codex through its own read-only sandbox identifier without a Claude-style init heartbeat', async () => {
+    const value = fixture();
+    const started = await value.service.start({
+      cvImportId: importId, expectedCvImportRevision: 3, expectedCvImportSha256: 'a'.repeat(64),
+      provider: selection, disclosure, actor,
+    });
+    const stored = (await value.store.get(started.id))!;
+    const checker = value.service as unknown as {
+      processAttestationMatches(record: typeof stored, capabilities: AgentCapabilities, events: AgentEvent[]): boolean;
+    };
+    const codexRecord = { ...stored, provider: {
+      id: 'codex-exec', runtimeTarget: 'windows' as const, wslDistribution: undefined,
+      version: 'codex-cli 0.147.0', adapterVersion: '1.0.0',
+    } };
+    // Codex has tools:true (no removal flag) but the server-owned no-tools mode
+    // plus its own sandbox identifier stands in for the wsl-bubblewrap boundary.
+    const codexCapabilities: AgentCapabilities = {
+      ...capabilities(), provider: 'codex-exec', providerVersion: 'codex-cli 0.147.0', adapterVersion: '1.0.0',
+      tools: true, supportedRuntimeTargets: ['windows', 'wsl', 'linux', 'darwin'], extensions: {
+        externalSandbox: 'codex-cli-sandbox-policy-0.147.0', networkAccessClaim: 'provider-control-plane-only',
+        serverOwnedNoToolsMode: 'cv-ai-structuring-v1',
+      },
+    };
+    const processEvent: AgentEvent = {
+      schemaVersion: '1.0', runId: stored.agentRunId, sequence: 1, timestamp: stored.createdAt,
+      provider: 'codex-exec', correlationId: 'synthetic', kind: 'process_started', data: {
+        runtimeTarget: 'windows', sandboxEnforcement: 'codex-cli-sandbox-policy-0.147.0',
+        networkAccessClaim: 'provider-control-plane-only',
+      },
+    };
+    // No init heartbeat required for a non-Claude provider.
+    expect(checker.processAttestationMatches(codexRecord, codexCapabilities, [processEvent])).toBe(true);
+    // A mismatched or absent sandbox identifier fails closed.
+    expect(checker.processAttestationMatches(codexRecord, codexCapabilities, [{
+      ...processEvent, data: { ...processEvent.data, sandboxEnforcement: 'wsl-bubblewrap-v1' },
+    }])).toBe(false);
+  });
+
   it('cancels expired active agent runs before the store may prune them', async () => {
     let current = new Date('2026-08-14T10:00:00.000Z');
     const { service, agentRuns, store } = fixture({ now: () => current });

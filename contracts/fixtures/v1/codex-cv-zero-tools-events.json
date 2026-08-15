@@ -1,0 +1,52 @@
+{
+  "provider": "codex-exec",
+  "providerVersion": "codex-cli 0.147.0",
+  "versionOutput": "codex-cli 0.147.0",
+  "activation": "supported_exact_version_offline_server_owned_no_tools",
+  "fixtureKind": "synthetic-exact-contract-corpus",
+  "capturedAt": "2026-08-15",
+  "serverOwnedNoToolsMode": "cv-ai-structuring-v1",
+  "conformance": {
+    "runtimeTarget": "windows",
+    "argumentTemplate": [
+      "exec", "--ignore-user-config", "--strict-config",
+      "-c", "sandbox_workspace_write.network_access=false",
+      "-c", "web_search=\"disabled\"",
+      "--json", "--color", "never", "--sandbox", "read-only", "--cd", "{workspace}", "-"
+    ],
+    "promptTransport": "stdin",
+    "promptTransportEvidence": "codex exec reads the final '-' positional prompt from stdin; adapter process-boundary test proves argv exclusion",
+    "structuredTransport": "codex exec --json agent_message item.completed",
+    "sandboxBackend": "codex-cli-sandbox-policy-0.147.0",
+    "networkIsolation": "codex-cli-0.147.0-fixed-offline-config-v1",
+    "networkMechanism": "server-owned-config-plus-codex-sandbox-policy",
+    "networkAccessClaim": "provider-control-plane-only",
+    "approvalMode": "deny",
+    "providerApprovalBehavior": "no tool-removal flag exists; the read-only network-off sandbox contains the run and any tool activity quarantines the accepted result",
+    "toolRemoval": "not-available-contained-by-sandbox-and-post-hoc-quarantine",
+    "resume": false,
+    "pause": false
+  },
+  "events": [
+    {
+      "type": "thread.started",
+      "thread_id": "thr_synthetic"
+    },
+    {
+      "type": "turn.started"
+    },
+    {
+      "type": "item.completed",
+      "item": {
+        "id": "item_0",
+        "type": "agent_message",
+        "text": "{\"role\":\"Softwareentwickler\",\"company\":\"Beispiel GmbH\"}"
+      }
+    },
+    {
+      "type": "turn.completed",
+      "usage": { "input_tokens": 12, "output_tokens": 9 }
+    },
+    { "type": "future.additive", "must-not-be-copied": "must-not-be-copied" }
+  ]
+}

@@ -4,6 +4,7 @@ import {
   CODEX_CONFORMED_VERSION_PATTERN,
   CODEX_OFFLINE_CONFIG_ARGS,
   CODEX_OFFLINE_NETWORK_CONTRACT,
+  CODEX_SANDBOX_ENFORCEMENT_ID,
 } from './codex-offline-policy.js';
 import { GenericJsonlAgentAdapter, type AgentAdapterManifest, type ProviderEventMapper } from './generic-jsonl-adapter.js';
 import { ProcessSupervisor } from './process-supervisor.js';
@@ -42,7 +43,16 @@ export const CODEX_EXEC_MANIFEST: AgentAdapterManifest = {
       ...CODEX_OFFLINE_NETWORK_CONTRACT,
       offlineConfigOverrides: CODEX_OFFLINE_CONFIG_ARGS,
       officialSemantics: 'codex exec --ignore-user-config --strict-config --config --json',
-      maturity: 'stable'
+      maturity: 'stable',
+      // Codex cannot strip model-callable tools, so the private CV zero-tools
+      // guarantee is met differently than for opencode/claude-cli: its own
+      // read-only, network-off sandbox contains the run (attested via
+      // externalSandbox === the emitted sandboxEnforcement), the fixed offline
+      // config removes user tools/MCP, and any tool activity quarantines the
+      // accepted result server-side (provider_tool_activity_forbidden).
+      externalSandbox: CODEX_SANDBOX_ENFORCEMENT_ID,
+      serverOwnedNoToolsMode: 'cv-ai-structuring-v1',
+      serverOwnedNoToolsFixture: 'contracts/fixtures/v1/codex-cv-zero-tools-events.json',
     }
   }
 };

@@ -23,6 +23,7 @@ import {
   CODEX_CONFORMED_VERSION_PATTERN,
   CODEX_OFFLINE_CONFIG_ARGS,
   CODEX_OFFLINE_NETWORK_CONTRACT,
+  CODEX_SANDBOX_ENFORCEMENT_ID,
   hasFixedCodexOfflineConfig,
   isConformedCodexVersion,
 } from './codex-offline-policy.js';
@@ -581,6 +582,7 @@ export class CodexAppServerAgentAdapter implements AgentRunnerPort {
       }, {
         onStart: (pid) => this.queue(run, { kind: 'process_started', data: {
           pid, runtimeTarget: context.installation.runtimeTarget, transport: 'stdio',
+          sandboxEnforcement: CODEX_SANDBOX_ENFORCEMENT_ID,
           ...CODEX_OFFLINE_NETWORK_CONTRACT,
         } }),
         onStdout: (chunk) => {

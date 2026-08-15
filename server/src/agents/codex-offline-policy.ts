@@ -10,6 +10,19 @@ export const CODEX_CONFORMED_VERSION = '0.147.0' as const;
 export const CODEX_CONFORMED_VERSION_PATTERN =
   '^(?:codex-cli|codex)\\s+0\\.147\\.0$' as const;
 
+/**
+ * Single source of truth for the Codex sandbox attestation identifier.
+ *
+ * Codex has no tool-removal flag; the private CV zero-tools contract is met by
+ * Codex' own read-only, network-off sandbox instead. This identifier is both
+ * declared as the manifest `externalSandbox` and emitted as the runtime
+ * `sandboxEnforcement`, so the CV attestation check requires the two to match.
+ * It is version-pinned because the enforced sandbox semantics are tied to the
+ * exact conformed Codex release.
+ */
+export const CODEX_SANDBOX_ENFORCEMENT_ID =
+  `codex-cli-sandbox-policy-${CODEX_CONFORMED_VERSION}` as const;
+
 export const CODEX_OFFLINE_CONFIG_OVERRIDES = Object.freeze([
   'sandbox_workspace_write.network_access=false',
   'web_search="disabled"',

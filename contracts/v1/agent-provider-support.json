@@ -34,7 +34,11 @@
       ],
       "networkEnforcement": "codex-cli-0.147.0-fixed-offline-config-v1",
       "networkMechanism": "server-owned-config-plus-codex-sandbox-policy",
-      "networkAccessClaim": "provider-control-plane-only"
+      "networkAccessClaim": "provider-control-plane-only",
+      "sandboxBoundary": "codex-cli-sandbox-policy-0.147.0",
+      "serverOwnedNoTools": "cv-ai-structuring-v1",
+      "serverOwnedNoToolsFixture": "contracts/fixtures/v1/codex-cv-zero-tools-events.json",
+      "serverOwnedNoToolsMechanism": "no-tool-removal-flag-contained-by-read-only-network-off-sandbox-plus-post-hoc-tool-activity-quarantine"
     },
     {
       "id": "codex-app-server",

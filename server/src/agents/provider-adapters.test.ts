@@ -90,6 +90,12 @@ describe('provider manifests', () => {
     expect(CLAUDE_CLI_MANIFEST.capabilities.extensions?.serverOwnedNoToolsMode).toBe('cv-ai-structuring-v1');
     expect(CLAUDE_CLI_MANIFEST.capabilities.extensions?.serverOwnedNoToolsFixture)
       .toBe('contracts/fixtures/v1/claude-cli-cv-zero-tools-events.json');
+    expect(CODEX_EXEC_MANIFEST.capabilities.extensions?.serverOwnedNoToolsMode).toBe('cv-ai-structuring-v1');
+    expect(CODEX_EXEC_MANIFEST.capabilities.extensions?.serverOwnedNoToolsFixture)
+      .toBe('contracts/fixtures/v1/codex-cv-zero-tools-events.json');
+    // Codex attestation identifier must equal the emitted sandboxEnforcement.
+    expect(CODEX_EXEC_MANIFEST.capabilities.extensions?.externalSandbox).toBe('codex-cli-sandbox-policy-0.147.0');
+    expect(CODEX_EXEC_MANIFEST.capabilities.extensions?.networkAccessClaim).toBe('provider-control-plane-only');
   });
 
   it('derives an exact server-owned zero-tool argv only for the private CV workflow', () => {
@@ -104,8 +110,21 @@ describe('provider manifests', () => {
     expect(claude.slice(claude.indexOf('--tools'), claude.indexOf('--tools') + 2)).toEqual(['--tools', '']);
     expect(claude.slice(claude.indexOf('--disallowedTools'), claude.indexOf('--disallowedTools') + 2))
       .toEqual(['--disallowedTools', '*']);
+    // Codex has no tool-removal flag: the transform validates the contained
+    // read-only offline argv and returns it unchanged (fail closed otherwise).
+    const codexResolved = CODEX_EXEC_MANIFEST.command.args.map((argument) => (argument === '{sandbox}' ? 'read-only' : argument));
+    expect(applyServerOwnedProviderToolMode('codex-exec', codexResolved, request)).toEqual(codexResolved);
+    // The unresolved manifest args ({sandbox} placeholder) must not pass.
     expect(() => applyServerOwnedProviderToolMode('codex-exec', CODEX_EXEC_MANIFEST.command.args, request))
-      .toThrow('provider_zero_tools_not_supported');
+      .toThrow('provider_zero_tools_argv_contract_invalid');
+    // A writable sandbox must fail closed even for the CV workflow.
+    expect(() => applyServerOwnedProviderToolMode('codex-exec',
+      codexResolved.map((argument) => (argument === 'read-only' ? 'workspace-write' : argument)), request))
+      .toThrow('provider_zero_tools_argv_contract_invalid');
+    // Stripping the fixed offline config must fail closed.
+    expect(() => applyServerOwnedProviderToolMode('codex-exec',
+      codexResolved.filter((argument) => argument !== '--strict-config'), request))
+      .toThrow('provider_zero_tools_argv_contract_invalid');
     expect(() => applyServerOwnedProviderToolMode('claude-cli', CLAUDE_CLI_MANIFEST.command.args, {
       ...request, metadata: { ...request.metadata, workflowId: 'guided-job-analysis' },
     })).toThrow('server_owned_provider_tool_mode_invalid');
@@ -181,6 +200,28 @@ describe('provider event mapping', () => {
     const mapped = fixture.events.flatMap((event) => mapOpenCodeJsonEvent(event));
     expect(mapped.some((event) => event.kind === 'agent_message_completed')).toBe(true);
     expect(mapped.some((event) => event.kind.startsWith('tool_'))).toBe(false);
+    expect(JSON.stringify(mapped)).not.toContain('must-not-be-copied');
+  });
+
+  it('binds the Codex server-owned no-tools corpus to the contained read-only argv without any tool call', async () => {
+    const request = {
+      approvalMode: 'deny' as const,
+      metadata: { workflowId: 'cv-ai-structuring', providerToolMode: 'none', requiredRootMcpTools: [] },
+    };
+    const fixture = JSON.parse(await readFile(resolve(
+      process.cwd(), '..', 'contracts', 'fixtures', 'v1', 'codex-cv-zero-tools-events.json',
+    ), 'utf8')) as { conformance: { argumentTemplate: string[]; sandboxBackend: string }; events: unknown[] };
+    // The corpus argv is the exact contained CV argv the transform accepts.
+    expect(fixture.conformance.argumentTemplate)
+      .toEqual(applyServerOwnedProviderToolMode('codex-exec', fixture.conformance.argumentTemplate, request));
+    expect(fixture.conformance.argumentTemplate).toContain('--sandbox');
+    expect(fixture.conformance.argumentTemplate[fixture.conformance.argumentTemplate.indexOf('--sandbox') + 1]).toBe('read-only');
+    // The sandbox attestation identifier is the single source of truth.
+    expect(fixture.conformance.sandboxBackend).toBe(CODEX_EXEC_MANIFEST.capabilities.extensions?.externalSandbox);
+    const mapped = fixture.events.flatMap((event) => mapCodexJsonlEvent(event));
+    expect(mapped.some((event) => event.kind === 'agent_message_completed')).toBe(true);
+    expect(mapped.some((event) => event.kind.startsWith('tool_'))).toBe(false);
+    expect(mapped.some((event) => event.kind.startsWith('approval'))).toBe(false);
     expect(JSON.stringify(mapped)).not.toContain('must-not-be-copied');
   });
 

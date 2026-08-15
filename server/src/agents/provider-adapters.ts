@@ -65,6 +65,8 @@ export const OPENCODE_MANIFEST: AgentAdapterManifest = {
       pause: false, pauseSemantics: 'unsupported_cancel_only',
       externalSandbox: 'wsl-bubblewrap-v1', networkEnforcement: 'provider-tool-capability-policy',
       networkMechanism: 'server-owned-read-only-tool-allowlist', networkAccessClaim: 'provider-control-plane-only',
+      serverOwnedNoToolsMode: 'cv-ai-structuring-v1',
+      serverOwnedNoToolsFixture: 'contracts/fixtures/v1/opencode-cv-zero-tools-events.json',
     }
   }
 };

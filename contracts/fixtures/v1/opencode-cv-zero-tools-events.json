@@ -1,0 +1,65 @@
+{
+  "provider": "opencode",
+  "providerVersion": "1.14.41",
+  "versionOutput": "1.14.41",
+  "activation": "supported_exact_version_offline_server_owned_no_tools",
+  "fixtureKind": "synthetic-exact-contract-corpus",
+  "capturedAt": "2026-08-15",
+  "serverOwnedNoToolsMode": "cv-ai-structuring-v1",
+  "conformance": {
+    "runtimeTarget": "wsl",
+    "argumentTemplate": ["run", "--pure", "--agent", "job-match-no-tools", "--format", "json", "--dir", "{workspace}"],
+    "promptTransport": "stdin",
+    "promptTransportEvidence": "OpenCode v1.14.41 run.ts reads Bun.stdin when stdin is non-TTY; adapter process-boundary test proves argv exclusion",
+    "structuredTransport": "opencode run --format json",
+    "sandboxBackend": "wsl-bubblewrap-v1",
+    "networkIsolation": "provider-tool-capability-policy",
+    "networkMechanism": "server-owned-no-tools-agent-permission-deny-all",
+    "networkAccessClaim": "provider-control-plane-only",
+    "approvalMode": "deny",
+    "providerApprovalBehavior": "every model-callable tool is denied by the job-match-no-tools agent permission",
+    "resume": false,
+    "pause": false
+  },
+  "events": [
+    {
+      "type": "step_start",
+      "timestamp": 1786827600000,
+      "sessionID": "ses_synthetic",
+      "part": {
+        "id": "prt_step_start",
+        "messageID": "msg_synthetic",
+        "sessionID": "ses_synthetic",
+        "type": "step-start"
+      }
+    },
+    {
+      "type": "text",
+      "timestamp": 1786827600100,
+      "sessionID": "ses_synthetic",
+      "part": {
+        "id": "prt_text",
+        "messageID": "msg_synthetic",
+        "sessionID": "ses_synthetic",
+        "type": "text",
+        "text": "{\"role\":\"Softwareentwickler\",\"company\":\"Beispiel GmbH\"}",
+        "time": { "start": 1786827600050, "end": 1786827600100 }
+      }
+    },
+    {
+      "type": "step_finish",
+      "timestamp": 1786827600200,
+      "sessionID": "ses_synthetic",
+      "part": {
+        "id": "prt_step_finish",
+        "messageID": "msg_synthetic",
+        "sessionID": "ses_synthetic",
+        "type": "step-finish",
+        "reason": "stop",
+        "cost": 0,
+        "tokens": { "input": 12, "output": 9, "reasoning": 0, "cache": { "read": 0, "write": 0 } }
+      }
+    },
+    { "type": "future.additive", "must-not-be-copied": "must-not-be-copied" }
+  ]
+}

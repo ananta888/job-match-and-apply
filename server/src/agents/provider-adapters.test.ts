@@ -84,7 +84,9 @@ describe('provider manifests', () => {
     expect(CLAUDE_CLI_MANIFEST.command.promptTransport).toBe('stdin');
     expect(CLAUDE_CLI_MANIFEST.command.args.join(' ')).not.toContain('bypassPermissions');
     expect(CLAUDE_CLI_MANIFEST.command.args).not.toContain('--dangerously-skip-permissions');
-    expect(OPENCODE_MANIFEST.capabilities.extensions?.serverOwnedNoToolsMode).toBeUndefined();
+    expect(OPENCODE_MANIFEST.capabilities.extensions?.serverOwnedNoToolsMode).toBe('cv-ai-structuring-v1');
+    expect(OPENCODE_MANIFEST.capabilities.extensions?.serverOwnedNoToolsFixture)
+      .toBe('contracts/fixtures/v1/opencode-cv-zero-tools-events.json');
     expect(CLAUDE_CLI_MANIFEST.capabilities.extensions?.serverOwnedNoToolsMode).toBe('cv-ai-structuring-v1');
     expect(CLAUDE_CLI_MANIFEST.capabilities.extensions?.serverOwnedNoToolsFixture)
       .toBe('contracts/fixtures/v1/claude-cli-cv-zero-tools-events.json');
@@ -164,6 +166,22 @@ describe('provider event mapping', () => {
       kind: 'heartbeat', data: expect.objectContaining({ phase: 'initialized', tools: [] }),
     }));
     expect(mapped.some((event) => event.kind.startsWith('tool_'))).toBe(false);
+  });
+
+  it('binds the OpenCode server-owned no-tools corpus to the deny-all agent argv without any tool call', async () => {
+    const request = {
+      approvalMode: 'deny' as const,
+      metadata: { workflowId: 'cv-ai-structuring', providerToolMode: 'none', requiredRootMcpTools: [] },
+    };
+    const fixture = JSON.parse(await readFile(resolve(
+      process.cwd(), '..', 'contracts', 'fixtures', 'v1', 'opencode-cv-zero-tools-events.json',
+    ), 'utf8')) as { conformance: { argumentTemplate: string[] }; events: unknown[] };
+    expect(fixture.conformance.argumentTemplate)
+      .toEqual(applyServerOwnedProviderToolMode('opencode', OPENCODE_MANIFEST.command.args, request));
+    const mapped = fixture.events.flatMap((event) => mapOpenCodeJsonEvent(event));
+    expect(mapped.some((event) => event.kind === 'agent_message_completed')).toBe(true);
+    expect(mapped.some((event) => event.kind.startsWith('tool_'))).toBe(false);
+    expect(JSON.stringify(mapped)).not.toContain('must-not-be-copied');
   });
 
   it('replays every versioned provider corpus without losing unknown additive types', async () => {

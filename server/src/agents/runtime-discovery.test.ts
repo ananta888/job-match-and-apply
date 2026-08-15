@@ -47,6 +47,24 @@ describe('AgentRuntimeDiscovery', () => {
     expect(calls[1]?.args).toEqual(['-d', 'Ubuntu', '--', 'bash', '-lc', 'command -v -- synthetic-agent']);
   });
 
+  it('gives the CLI version/auth probes a long timeout while enumeration stays quick', async () => {
+    const calls: Array<{ args: readonly string[]; timeoutMs?: number }> = [];
+    const withAuth: ProviderDiscoveryDefinition = { ...definition, authStatusArgs: ['login', 'status'] };
+    const executor: DiscoveryCommandExecutor = {
+      async run(_executable, args, timeoutMs) {
+        calls.push({ args: [...args], timeoutMs });
+        if (args[0] === '--list') return { exitCode: 0, stdout: 'Ubuntu\n', stderr: '' };
+        if (args.includes('bash')) return { exitCode: 0, stdout: '/usr/local/bin/synthetic-agent\n', stderr: '' };
+        return { exitCode: 0, stdout: 'synthetic 1.0.0\n', stderr: '' };
+      }
+    };
+    await new AgentRuntimeDiscovery(executor).discoverWsl(withAuth);
+    expect(calls.find((call) => call.args.includes('--version'))?.timeoutMs).toBeGreaterThanOrEqual(30_000);
+    expect(calls.find((call) => call.args.includes('status'))?.timeoutMs).toBeGreaterThanOrEqual(30_000);
+    expect(calls.find((call) => call.args[0] === '--list')?.timeoutMs).toBeUndefined();
+    expect(calls.find((call) => call.args.includes('bash'))?.timeoutMs).toBeUndefined();
+  });
+
   it('never interpolates an unsafe manifest executable name into the WSL login shell', async () => {
     const calls: string[][] = [];
     const executor: DiscoveryCommandExecutor = { async run(_executable, args) {

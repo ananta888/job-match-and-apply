@@ -25,6 +25,15 @@ export interface DiscoveryCommandExecutor {
   run(executable: string, args: readonly string[], timeoutMs?: number): Promise<DiscoveryCommandResult>;
 }
 
+/**
+ * Version and auth probes run the actual provider CLI. Node-based CLIs (e.g. opencode, claude) can
+ * take far longer to print `--version` than the fast enumeration calls (`--list`, `command -v`) —
+ * observed up to ~30s for opencode through WSL. A short timeout silently killed those probes, so the
+ * providers were reported without a version and downgraded to `untested`. Enumeration stays quick;
+ * only the CLI-execution probes get the longer budget.
+ */
+const PROBE_TIMEOUT_MS = 45_000;
+
 export class SpawnDiscoveryCommandExecutor implements DiscoveryCommandExecutor {
   async run(executable: string, args: readonly string[], timeoutMs = 5_000): Promise<DiscoveryCommandResult> {
     return new Promise((resolveResult) => {
@@ -118,10 +127,10 @@ export class AgentRuntimeDiscovery {
         installations.push({ provider: definition.provider, runtimeTarget: 'windows', executable, support: 'unsupported', reason: 'Shell-Wrapper ist für den sicheren Runner nicht zulässig.' });
         continue;
       }
-      const result = await this.executor.run(executable, definition.versionArgs);
+      const result = await this.executor.run(executable, definition.versionArgs, PROBE_TIMEOUT_MS);
       const version = result.exitCode === 0 ? (result.stdout || result.stderr).trim().split(/\r?\n/, 1)[0] : undefined;
       const support = supportFor(version, definition);
-      const auth = definition.authStatusArgs ? await this.executor.run(executable, definition.authStatusArgs) : undefined;
+      const auth = definition.authStatusArgs ? await this.executor.run(executable, definition.authStatusArgs, PROBE_TIMEOUT_MS) : undefined;
       const authStatus = auth ? auth.exitCode === 0 ? 'authenticated' as const : 'unauthenticated' as const : 'unknown' as const;
       installations.push({
         provider: definition.provider, runtimeTarget: platformTarget(platform), executable, version,
@@ -149,9 +158,9 @@ export class AgentRuntimeDiscovery {
         ]);
         const runtimeExecutable = which.exitCode === 0 ? which.stdout.trim().split(/\r?\n/, 1)[0] : undefined;
         if (!runtimeExecutable?.startsWith('/')) continue;
-        const versionResult = await this.executor.run(wslExecutable, ['-d', distribution, '--', runtimeExecutable, ...definition.versionArgs]);
+        const versionResult = await this.executor.run(wslExecutable, ['-d', distribution, '--', runtimeExecutable, ...definition.versionArgs], PROBE_TIMEOUT_MS);
         const version = versionResult.exitCode === 0 ? (versionResult.stdout || versionResult.stderr).trim().split(/\r?\n/, 1)[0] : undefined;
-        const auth = definition.authStatusArgs ? await this.executor.run(wslExecutable, ['-d', distribution, '--', runtimeExecutable, ...definition.authStatusArgs]) : undefined;
+        const auth = definition.authStatusArgs ? await this.executor.run(wslExecutable, ['-d', distribution, '--', runtimeExecutable, ...definition.authStatusArgs], PROBE_TIMEOUT_MS) : undefined;
         const authStatus = auth ? auth.exitCode === 0 ? 'authenticated' as const : 'unauthenticated' as const : 'unknown' as const;
         installations.push({
           provider: definition.provider, runtimeTarget: 'wsl', executable: wslExecutable,

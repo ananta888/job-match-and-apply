@@ -577,6 +577,22 @@ export async function adoptApprovedAgentArtifact(
   return agentApi.artifacts.adopt(artifactId, expectedRevision, agentApi.artifactAdoption);
 }
 
+/**
+ * Identifies a failure without disclosing its content. Only the constructor
+ * name and a closed error code are used; messages, paths and payloads of an
+ * unknown error are never safe to record.
+ */
+function errorClassName(error: unknown): string {
+  if (!(error instanceof Error)) return 'unknown_error';
+  const rawCode = (error as NodeJS.ErrnoException).code;
+  const name = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(error.name) ? error.name.toLowerCase() : 'error';
+  const code = typeof rawCode === 'string' && /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(rawCode)
+    ? rawCode.toLowerCase() : undefined;
+  // Must satisfy the observability sink's closed code shape, or the record is
+  // rejected and the failure disappears again.
+  return (code ? `${name}:${code}` : name).slice(0, 128);
+}
+
 function agentEventMessage(event: AgentEvent): string | undefined {
   const data = event.data as Record<string, unknown>;
   for (const key of ['text', 'message', 'code', 'phase']) if (typeof data[key] === 'string') return data[key];
@@ -956,18 +972,27 @@ export function createApp(
         ? response.locals.safeErrorCode : undefined;
       const safeErrorStage = typeof response.locals.safeErrorStage === 'string'
         ? response.locals.safeErrorStage : undefined;
+      // A failure after the headers were sent cannot change the transmitted
+      // status, so it would otherwise vanish from both logs. Record it as an
+      // error against the honest status, identified by error class alone.
+      const streamErrorClass = typeof response.locals.streamErrorClass === 'string'
+        ? response.locals.streamErrorClass : undefined;
       void audit.write({
         correlationId, operation: `${request.method} ${request.route?.path ?? request.path}`,
         status: response.statusCode, occurredAt: new Date().toISOString(),
-        ...(safeErrorStage ? { category: safeErrorStage } : {}),
+        ...(safeErrorStage ? { category: safeErrorStage } : streamErrorClass ? { category: 'stream_aborted' } : {}),
       }).catch(() => undefined);
       void agentApi.observability?.record({
-        level: response.statusCode >= 500 ? 'error' : response.statusCode >= 400 ? 'warn' : 'info',
-        component: 'http', operation: 'request', code: safeErrorCode ?? `status_${response.statusCode}`,
+        level: response.statusCode >= 500 || streamErrorClass
+          ? 'error' : response.statusCode >= 400 ? 'warn' : 'info',
+        component: 'http', operation: 'request',
+        code: safeErrorCode ?? (streamErrorClass ? 'stream_aborted' : `status_${response.statusCode}`),
         correlationId, durationMs: Math.max(0, Date.now() - requestStartedAt),
-        ...(safeErrorStage
-          ? { errorClass: safeErrorStage }
-          : response.statusCode >= 500 ? { errorClass: 'server_error' } : {}),
+        ...(streamErrorClass
+          ? { errorClass: streamErrorClass }
+          : safeErrorStage
+            ? { errorClass: safeErrorStage }
+            : response.statusCode >= 500 ? { errorClass: 'server_error' } : {}),
       }).catch(() => undefined);
     });
     next();
@@ -2232,7 +2257,9 @@ export function createApp(
           const current = await agentApi.center.get(runId);
           if (current && ['cancelled', 'succeeded', 'failed', 'timed_out'].includes(current.state) && cursor >= current.currentSequence) { response.end(); close(); return; }
           if (Date.now() - lastWrite >= 15_000) { response.write(': heartbeat\n\n'); lastWrite = Date.now(); }
-        } catch (error) { response.end(); close(); next(error); }
+        // The error handler ends the response. Ending it here first would let
+        // the finish listener run before the error class is recorded.
+        } catch (error) { close(); next(error); }
         finally { polling = false; }
       };
       const timer = setInterval(() => { void poll(); }, 500);
@@ -3532,6 +3559,17 @@ export function createApp(
 
   app.use((error: unknown, request: Request, response: Response, _next: NextFunction) => {
     const correlationId = String(response.locals.correlationId ?? randomUUID());
+    // A streaming response (SSE) has already sent its status and content type.
+    // Overwriting them here cannot reach the client, but it does mutate
+    // response.statusCode before the finish listener reads it, which logged a
+    // 500 for a request the client received as a healthy 200, and it would push
+    // a JSON body into an event-stream. Close the connection instead and keep
+    // the transmitted status truthful.
+    if (response.headersSent) {
+      response.locals.streamErrorClass = errorClassName(error);
+      response.end();
+      return;
+    }
     if (error instanceof z.ZodError) {
       response.status(400).json({
         type: 'urn:job-match-and-apply:error:validation', title: 'Ungültige Eingabe', status: 400,

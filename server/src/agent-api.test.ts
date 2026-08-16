@@ -1,6 +1,10 @@
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import request from 'supertest';
 import { describe, expect, it } from 'vitest';
 import { createApp, createDefaultAgentApiDependencies } from './app.js';
+import { AgentLocalObservability } from './agents/local-observability.js';
 import { AGENT_CONTRACT_VERSION, type RuntimeTarget } from './ports/agent-runner.js';
 import { MemoryConfigStore } from './services/config-store.js';
 import { MemoryAuditLogger } from './services/audit-logger.js';
@@ -32,6 +36,61 @@ async function waitForState(app: ReturnType<typeof createApp>, runId: string, st
 }
 
 describe('agent control API', () => {
+  it('keeps a streaming response truthful when it fails after its headers were sent', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'stream-observability-'));
+    const dependencies = createDefaultAgentApiDependencies(true);
+    dependencies.observability = new AgentLocalObservability(join(root, 'events.jsonl'), root);
+    const audit = new MemoryAuditLogger();
+    const app = createApp(new MemoryConfigStore(), audit, new MemoryWorkspaceStore(), undefined, dependencies);
+    const created = await request(app).post('/api/agent-runs')
+      .send({ providerId: 'fake', prompt: 'synthetic', workspaceMode: 'read_only', network: false });
+    const runId = created.body.id as string;
+    await waitForTerminal(app, runId);
+
+    // The stream sends its 200 headers before it polls, so this fails mid-body.
+    const events = dependencies.center.events.bind(dependencies.center);
+    dependencies.center.events = async () => {
+      throw Object.assign(new Error('PRIVATE-STREAM-FAILURE-CANARY'), { code: 'ERR_SYNTHETIC_POLL' });
+    };
+    let stream;
+    try {
+      stream = await request(app).get(`/api/agent-runs/${runId}/stream`).set('Last-Event-ID', '0');
+    } finally {
+      dependencies.center.events = events;
+    }
+
+    // The client already received a 200; reporting 500 afterwards is a lie.
+    expect(stream.status).toBe(200);
+    expect(stream.headers['content-type']).toContain('text/event-stream');
+    expect(stream.text).not.toContain('PRIVATE-STREAM-FAILURE-CANARY');
+    expect(stream.text).not.toContain('urn:job-match-and-apply:error');
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const streamAudit = audit.events.filter((event) => event.operation.includes('/stream'));
+    expect(streamAudit).toEqual([expect.objectContaining({ status: 200, category: 'stream_aborted' })]);
+
+    // The failure stays visible by class, without its message.
+    const recorded = await dependencies.observability.readLocal();
+    const aborted = recorded.filter((entry) => entry.code === 'stream_aborted');
+    expect(aborted).toEqual([expect.objectContaining({
+      level: 'error', component: 'http', errorClass: 'error:err_synthetic_poll',
+    })]);
+    expect(JSON.stringify(recorded)).not.toContain('PRIVATE-STREAM-FAILURE-CANARY');
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it('still reports a normal failure with its real status and body', async () => {
+    const { app, audit } = fixture();
+    // Fails before any headers are sent, so the JSON contract must be intact.
+    const rejected = await request(app).post('/api/agent-runs').send({ providerId: 'fake' });
+    expect(rejected.status).toBe(400);
+    expect(rejected.body).toMatchObject({ category: 'validation', status: 400 });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(audit.events.some((event) => event.status === 400)).toBe(true);
+    expect(audit.events.every((event) => event.category !== 'stream_aborted')).toBe(true);
+  });
+
+
   it('preflights exact data, tools, network and limits without starting the trusted-host MCP or an agent', async () => {
     const dependencies = createDefaultAgentApiDependencies(true);
     const workspace = new MemoryWorkspaceStore();

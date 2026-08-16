@@ -562,6 +562,9 @@ function cvContractPublicDetail(code: string): string {
     'ai_materialization_too_large'].includes(code)) {
     return 'Der KI-Strukturvorschlag ist nicht exakt an die importierte CV-Quelle und den versionierten Vertrag gebunden.';
   }
+  if (code === 'claim_collision') {
+    return 'Diese bestätigten Fakten sind bereits als Claims im Kandidatenprofil vorhanden; eine erneute Übernahme würde Dubletten erzeugen. Entferne die betroffenen Claims im Kandidatenprofil, wenn du sie aus diesem Import neu übernehmen willst.';
+  }
   if (CV_CONTRACT_CONFLICT_CODES.has(code)) {
     return 'Der CV-Zustand hat sich geändert oder steht mit bereits bestätigten Fakten in Konflikt. Lade den aktuellen Stand neu.';
   }

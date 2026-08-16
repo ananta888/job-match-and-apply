@@ -651,7 +651,8 @@
               } @else {
                 <div class="cv-adoption-bar">
                   <label class="explicit-confirmation"><input data-testid="cv-adopt-confirmation" type="checkbox" [(ngModel)]="cvAdoptionConfirmed" [disabled]="cvFactCount('pending') > 0 || cvFactCount('confirmed') < 1"><span>Ich habe jeden Fakt geprüft. Nur die {{ cvFactCount('confirmed') }} bestätigten Fakten dürfen als <code>user_confirmed</code> in mein Kandidatenprofil übernommen werden; verworfene Fakten bleiben ausgeschlossen.</span></label>
-                  <button class="primary" data-testid="cv-adopt" type="button" (click)="adoptCvFacts()" [disabled]="cvBusy || !cvAdoptionConfirmed || cvFactCount('pending') > 0 || cvFactCount('confirmed') < 1">Bestätigte Fakten ausdrücklich übernehmen</button>
+                  <button class="primary" data-testid="cv-adopt" type="button" (click)="adoptCvFacts()" [disabled]="cvBusy || !cvAdoptionConfirmed || cvFactCount('pending') > 0 || cvFactCount('confirmed') < 1">{{ cvBusy ? 'Übernahme läuft …' : 'Bestätigte Fakten ausdrücklich übernehmen' }}</button>
+                  @if (cvError) { <p class="warning-box cv-adoption-error" role="alert" data-testid="cv-adopt-error">{{ cvError }}</p> }
                 </div>
               }
             }

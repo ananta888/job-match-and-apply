@@ -82,10 +82,10 @@
 .cv-ai-provider-state[data-ready='true'] { border-color: #bfe4d2; color: #176947; background: #f4fcf8; }
 .cv-ai-provider-state strong { font-size: 9px; }
 .cv-ai-provider-state ul { margin: 6px 0 0; padding-left: 17px; font-size: 8px; line-height: 1.5; }
-.cv-ai-disclosure, .cv-ai-run-meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 1px; margin: 12px 0; overflow: hidden; border: 1px solid #e1ddef; border-radius: 9px; background: #e1ddef; }
-.cv-ai-disclosure > div, .cv-ai-run-meta > div { min-width: 0; padding: 10px 11px; background: white; }
-.cv-ai-disclosure dt, .cv-ai-run-meta dt { color: #687084; font-size: 7px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; }
-.cv-ai-disclosure dd, .cv-ai-run-meta dd { margin: 4px 0 0; color: #323c53; font-size: 8px; line-height: 1.45; overflow-wrap: anywhere; }
+.cv-ai-disclosure, .cv-ai-run-meta { display: grid; grid-template-columns: 1fr; gap: 1px; margin: 12px 0; overflow: hidden; border: 1px solid #e1ddef; border-radius: 9px; background: #e1ddef; }
+.cv-ai-disclosure > div, .cv-ai-run-meta > div { display: grid; grid-template-columns: minmax(80px, 24%) 1fr; gap: 10px; align-items: baseline; min-width: 0; padding: 9px 11px; background: white; }
+.cv-ai-disclosure dt, .cv-ai-run-meta dt { color: #687084; font-size: 7px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; overflow-wrap: anywhere; }
+.cv-ai-disclosure dd, .cv-ai-run-meta dd { margin: 0; min-width: 0; color: #323c53; font-size: 8px; line-height: 1.45; overflow-wrap: anywhere; }
 .cv-ai-disclosure code, .cv-ai-run-meta code { font-size: 7px; overflow-wrap: anywhere; }
 .cv-ai-provider .explicit-confirmation { margin-top: 10px; }
 .cv-ai-actions { display: flex; align-items: center; justify-content: flex-end; gap: 7px; flex-wrap: wrap; margin-top: 13px; }

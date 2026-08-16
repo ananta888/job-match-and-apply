@@ -6,6 +6,7 @@ import type { JobSourcePort, LoginResult } from '../ports/job-source.js';
 import { launchFromMcpSettings, validateJobSearchMcpRuntime } from '../services/job-search-mcp-launch.mjs';
 
 type McpSettings = AppConfig['mcp'];
+type SourceSearchFailure = { sourceId: string; category: string; retryable: boolean; detail: string };
 
 const JOB_MCP_BASE_ENVIRONMENT_KEYS = [
   'SystemRoot', 'WINDIR', 'TEMP', 'TMP', 'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA',
@@ -191,21 +192,61 @@ export class McpJobSourceAdapter implements JobSourcePort {
     return (await this.searchDetailed(profile)).jobs;
   }
 
-  async searchDetailed(profile: SearchProfile): Promise<{ jobs: JobPosting[]; failures: Array<{ sourceId: string; category: string; retryable: boolean; detail: string }> }> {
-    const result = await this.call('mehrportal_suche', {
-      portal_ids: profile.sourceIds.filter((id) => id !== 'linkedin-profile'),
-      query: profile.query,
-      ort: profile.regions[0] ?? null
-    }) as Record<string, unknown>;
-    const jobs = Array.isArray(result.angebote) ? result.angebote as Record<string, unknown>[] : [];
-    const errors = Array.isArray(result.errors) ? result.errors as Record<string, unknown>[] : [];
-    return {
-      jobs: jobs.map(normalizeMcpJob),
-      failures: errors.map((item) => ({
-        sourceId: String(item.portal_id ?? item.source_id ?? 'unknown'), category: String(item.category ?? 'internal'),
-        retryable: Boolean(item.retryable), detail: String(item.detail ?? item.message ?? 'Quelle fehlgeschlagen.').slice(0, 500)
-      }))
-    };
+  async searchDetailed(profile: SearchProfile): Promise<{ jobs: JobPosting[]; failures: SourceSearchFailure[] }> {
+    const searchableIds = profile.sourceIds.filter((id) => id !== 'linkedin-profile');
+    if (!searchableIds.length) return { jobs: [], failures: [] };
+    const ort = profile.regions[0] ?? null;
+
+    // Browser-login portals (e.g. StepStone) deadlock the shared mehrportal_suche
+    // call when batched with others, hanging the whole search until the MCP
+    // request times out. Isolate each login portal into its own bounded call so
+    // one stuck browser portal can never block the fast HTTP portals; a failure
+    // or timeout is reported per source instead of failing the entire search.
+    let loginIds = new Set<string>();
+    try { loginIds = new Set((await this.capabilities()).sources.filter((source) => source.supportsLogin).map((source) => source.id)); }
+    catch { /* capabilities probe unavailable; fall back to a single batched call below */ }
+
+    const nonLogin = searchableIds.filter((id) => !loginIds.has(id));
+    const groups: string[][] = loginIds.size === 0
+      ? [searchableIds]
+      : [...(nonLogin.length ? [nonLogin] : []), ...searchableIds.filter((id) => loginIds.has(id)).map((id) => [id])];
+
+    // Sequential, not concurrent: two MCP processes contend on the shared
+    // browser driver, which reintroduces the StepStone stall. Running one group
+    // at a time keeps each browser portal isolated so it fails fast on its own.
+    const jobs: JobPosting[] = [];
+    const failures: SourceSearchFailure[] = [];
+    for (const ids of groups) {
+      const result = await this.searchGroup(ids, profile.query, ort);
+      jobs.push(...result.jobs);
+      failures.push(...result.failures);
+    }
+    return { jobs, failures };
+  }
+
+  private async searchGroup(portalIds: string[], query: string, ort: string | null): Promise<{ jobs: JobPosting[]; failures: SourceSearchFailure[] }> {
+    const timeoutMs = portalIds.length === 1 ? 30_000 : 45_000;
+    try {
+      const result = await this.call('mehrportal_suche', { portal_ids: portalIds, query, ort }, timeoutMs) as Record<string, unknown>;
+      const jobs = Array.isArray(result.angebote) ? result.angebote as Record<string, unknown>[] : [];
+      const errors = Array.isArray(result.errors) ? result.errors as Record<string, unknown>[] : [];
+      return {
+        jobs: jobs.map(normalizeMcpJob),
+        failures: errors.map((item) => ({
+          sourceId: String(item.portal_id ?? item.source_id ?? 'unknown'), category: String(item.category ?? 'internal'),
+          retryable: Boolean(item.retryable), detail: String(item.detail ?? item.message ?? 'Quelle fehlgeschlagen.').slice(0, 500)
+        }))
+      };
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      return {
+        jobs: [],
+        failures: portalIds.map((sourceId) => ({
+          sourceId, category: 'retryable_dependency', retryable: true,
+          detail: `Quelle war nicht rechtzeitig erreichbar: ${detail}`.slice(0, 500)
+        }))
+      };
+    }
   }
 
   async login(portalId: string): Promise<LoginResult> {

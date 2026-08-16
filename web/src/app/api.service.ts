@@ -107,12 +107,11 @@ export class ApiService {
     return this.http.get<CvImportSummary[]>(`/api/cv-imports?limit=${boundedLimit}`);
   }
   deleteCvImport(current: CvImportRecord): Observable<{ removed: number }> {
-    return this.http.delete<{ removed: number }>(`/api/cv-imports/${encodeURIComponent(current.id)}`, {
-      body: {
-        confirmation: `DELETE cv-import ${current.id}`,
-        expectedRevision: current.revision,
-        expectedSha256: current.sha256
-      }
+    return this.deleteCvImportById(current.id, current.revision, current.sha256);
+  }
+  deleteCvImportById(id: string, revision: number, sha256: string): Observable<{ removed: number }> {
+    return this.http.delete<{ removed: number }>(`/api/cv-imports/${encodeURIComponent(id)}`, {
+      body: { confirmation: `DELETE cv-import ${id}`, expectedRevision: revision, expectedSha256: sha256 }
     });
   }
   cvRecognitionVersions(current: CvImportRecord): Observable<CvRecognitionVersionList> {

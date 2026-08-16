@@ -393,9 +393,18 @@
             @if (cvImportInventory.length) {
               <section class="cv-import-inventory" aria-labelledby="cv-import-inventory-heading">
                 <div><h3 id="cv-import-inventory-heading">Gespeicherte Imports</h3><p>Verschlüsselt lokal gespeicherte, öffentliche Vertragsansichten. Öffnen lädt immer die aktuelle Serverrevision.</p></div>
+                <div class="list-bulk-actions">
+                  <label><input type="checkbox" [checked]="cvImportAllSelected()" (change)="toggleAllCvImportSelection($any($event.target).checked)" [disabled]="cvInventoryBusy">Alle auswählen</label>
+                  <button class="danger-button compact" type="button" (click)="deleteSelectedCvImports()" [disabled]="cvBusy || cvInventoryBusy || !selectedCvImportCount()">Ausgewählte löschen ({{ selectedCvImportCount() }})</button>
+                </div>
                 <ol>
                   @for (record of cvImportInventory; track record.id) {
-                    <li><div><strong>{{ record.source.fileName }}</strong><small>{{ record.status }} · Revision {{ record.revision }} · {{ record.factCounts.total }} Fakten ({{ record.factCounts.pending }} offen) · {{ record.warningCount }} Hinweis(e) · {{ record.updatedAt | date:'short' }}</small></div><button class="secondary compact" type="button" (click)="openCvImport(record.id)" [disabled]="cvBusy">Öffnen</button></li>
+                    <li>
+                      <input type="checkbox" [attr.aria-label]="'Auswählen: ' + record.source.fileName" [checked]="!!cvImportSelection[record.id]" (change)="toggleCvImportSelection(record.id, $any($event.target).checked)" [disabled]="cvInventoryBusy">
+                      <div><strong>{{ record.source.fileName }}</strong><small>{{ record.status }} · Revision {{ record.revision }} · {{ record.factCounts.total }} Fakten ({{ record.factCounts.pending }} offen) · {{ record.warningCount }} Hinweis(e) · {{ record.updatedAt | date:'short' }}</small></div>
+                      <button class="secondary compact" type="button" (click)="openCvImport(record.id)" [disabled]="cvBusy || cvInventoryBusy">Öffnen</button>
+                      <button class="danger-button compact" type="button" (click)="deleteCvImportRow(record)" [disabled]="cvBusy || cvInventoryBusy">Löschen</button>
+                    </li>
                   }
                 </ol>
               </section>

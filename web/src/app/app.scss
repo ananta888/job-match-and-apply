@@ -79,3 +79,6 @@ code { font-family: 'SFMono-Regular', Consolas, monospace; }
 .agent-config-model-input input{flex:1 1 auto;min-width:0}
 .agent-config-model-hint{font-size:.8rem;opacity:.75}
 .agent-config-model-hint.error{opacity:1;color:#b00020}
+.list-bulk-actions{display:flex;gap:.75rem;align-items:center;flex-wrap:wrap;margin:.5rem 0}
+.cv-import-inventory li{display:flex;gap:.5rem;align-items:center}
+.cv-import-inventory li>div{flex:1 1 auto;min-width:0}

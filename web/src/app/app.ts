@@ -135,6 +135,8 @@ export class App implements OnInit, OnDestroy {
   importPreview?: ProfileImportPreview;
   cvImport?: CvImportRecord;
   cvImportInventory: CvImportSummary[] = [];
+  cvImportSelection: Record<string, boolean> = {};
+  cvInventoryBusy = false;
   cvRecognitionVersions?: CvRecognitionVersionList;
   cvRecognitionVersionBusy = false;
   cvRecognitionVersionError = '';
@@ -3445,6 +3447,71 @@ export class App implements OnInit, OnDestroy {
       },
       error: (error) => this.failCv(error)
     });
+  }
+
+  toggleCvImportSelection(id: string, selected: boolean): void {
+    if (selected) this.cvImportSelection[id] = true; else delete this.cvImportSelection[id];
+  }
+
+  cvImportAllSelected(): boolean {
+    return this.cvImportInventory.length > 0 && this.cvImportInventory.every((item) => this.cvImportSelection[item.id]);
+  }
+
+  toggleAllCvImportSelection(selected: boolean): void {
+    this.cvImportSelection = {};
+    if (selected) for (const item of this.cvImportInventory) this.cvImportSelection[item.id] = true;
+  }
+
+  selectedCvImportCount(): number {
+    return this.cvImportInventory.filter((item) => this.cvImportSelection[item.id]).length;
+  }
+
+  private removeCvImportFromState(id: string): void {
+    this.cvImportInventory = this.cvImportInventory.filter((item) => item.id !== id);
+    delete this.cvImportSelection[id];
+    if (this.cvImport?.id === id) {
+      this.cvImport = undefined; this.cvFactDrafts = {}; this.cvProposalHtmlUrl = undefined; this.cvStep = 1;
+      this.resetCvAiStructuringState(); this.resetCvRecognitionVersions();
+    }
+  }
+
+  deleteCvImportRow(record: CvImportSummary): void {
+    if (this.cvBusy || this.cvInventoryBusy) return;
+    if (!confirm(`Lebenslaufimport „${record.source.fileName}" endgültig löschen? Fakten, Theme und gerenderte Revision werden entfernt.`)) return;
+    this.cvInventoryBusy = true; this.cvError = ''; this.cvNotice = '';
+    this.api.deleteCvImportById(record.id, record.revision, record.sha256).subscribe({
+      next: ({ removed }) => {
+        this.cvInventoryBusy = false;
+        this.removeCvImportFromState(record.id);
+        this.cvNotice = removed === 1 ? `„${record.source.fileName}" wurde gelöscht.` : 'Der Import war bereits nicht mehr vorhanden.';
+        this.refreshView();
+      },
+      error: (error) => { this.cvInventoryBusy = false; this.cvError = this.message(error); this.refreshView(); }
+    });
+  }
+
+  deleteSelectedCvImports(): void {
+    if (this.cvBusy || this.cvInventoryBusy) return;
+    const targets = this.cvImportInventory.filter((item) => this.cvImportSelection[item.id]);
+    if (!targets.length) return;
+    if (!confirm(`${targets.length} Lebenslaufimport(e) endgültig löschen?`)) return;
+    this.cvInventoryBusy = true; this.cvError = ''; this.cvNotice = '';
+    let removed = 0; const failures: string[] = [];
+    const runNext = (index: number): void => {
+      if (index >= targets.length) {
+        this.cvInventoryBusy = false;
+        this.cvNotice = `${removed} Import(e) gelöscht.${failures.length ? ` ${failures.length} fehlgeschlagen.` : ''}`;
+        if (failures.length) this.cvError = `Nicht gelöscht: ${failures.join(', ')}`;
+        this.refreshView();
+        return;
+      }
+      const target = targets[index]!;
+      this.api.deleteCvImportById(target.id, target.revision, target.sha256).subscribe({
+        next: () => { removed += 1; this.removeCvImportFromState(target.id); runNext(index + 1); },
+        error: () => { failures.push(target.source.fileName); runNext(index + 1); }
+      });
+    };
+    runNext(0);
   }
 
   reloadCvImport(): void {

@@ -121,6 +121,14 @@ export interface ApplicationOrchestrationServiceOptions {
    * Production wiring uses `encrypted`; tests may use a process-local store.
    */
   runPersistenceProtection: 'encrypted' | 'ephemeral';
+  /**
+   * Reports whether the discovered provider installation can actually serve
+   * root domain tools. Without it the service would demand tools from a
+   * provider that cannot supply them, which fails the run instead of falling
+   * back to the prompt-context path every other provider already takes.
+   * Omitted means "cannot confirm", which is treated as unavailable.
+   */
+  rootDomainToolsAvailable?: (providerId: string, runtimeTarget: RuntimeTarget) => Promise<boolean>;
   now?: () => Date;
   id?: () => string;
   delay?: (milliseconds: number, signal: AbortSignal) => Promise<void>;
@@ -373,6 +381,8 @@ export class ApplicationAgentOrchestrationService {
   private readonly pollIntervalMs: number;
   private readonly maxResolvedInputBytes: number;
   private readonly maxNodeTaskBytes: number;
+  private readonly rootDomainToolsAvailable?: (providerId: string, runtimeTarget: RuntimeTarget) => Promise<boolean>;
+  private readonly rootToolsProbe = new Map<string, Promise<boolean>>();
   private initialization?: Promise<string[]>;
 
   constructor(
@@ -400,6 +410,7 @@ export class ApplicationAgentOrchestrationService {
     this.now = options.now ?? (() => new Date());
     this.id = options.id ?? newApplicationOrchestrationId;
     this.delay = options.delay ?? defaultDelay;
+    this.rootDomainToolsAvailable = options.rootDomainToolsAvailable;
   }
 
   /** Marks unfinished records orphaned once per service lifetime; no PID/session adoption exists. */
@@ -856,7 +867,8 @@ export class ApplicationAgentOrchestrationService {
         failureCategory: undefined,
       })));
       const task = this.buildNodeTask(workflow, request, input.prompt, [...materialized.sections, ...resolutionInputs]);
-      const runRequest = this.agentRunRequest(orchestrationId, input, workflow, request, inputDigests, task);
+      const rootToolsSupported = await this.rootToolsAvailable(request.node.providerId, input.runtimeTarget);
+      const runRequest = this.agentRunRequest(orchestrationId, input, workflow, request, inputDigests, task, rootToolsSupported);
       let queued: AgentRun;
       try { queued = await this.center.enqueue(runRequest); }
       catch (error) {
@@ -1073,6 +1085,27 @@ export class ApplicationAgentOrchestrationService {
     return task;
   }
 
+  /**
+   * Root domain tools require both a provider whose bridge is verified and an
+   * installation that actually offers them. Checking only the first demanded
+   * tools that a provider could not supply, which failed the run outright while
+   * every provider without the bridge quietly took the prompt-context path.
+   * Memoized per provider and runtime so one orchestration probes once.
+   */
+  private rootToolsAvailable(providerId: string, runtimeTarget: RuntimeTarget): Promise<boolean> {
+    if (!providerSupportsRootDomainTools(providerId, runtimeTarget)) return Promise.resolve(false);
+    const resolver = this.rootDomainToolsAvailable;
+    if (!resolver) return Promise.resolve(false);
+    const key = `${providerId} ${runtimeTarget}`;
+    let pending = this.rootToolsProbe.get(key);
+    if (!pending) {
+      // A probe failure must not fail the run; it means "not confirmed".
+      pending = resolver(providerId, runtimeTarget).catch(() => false);
+      this.rootToolsProbe.set(key, pending);
+    }
+    return pending;
+  }
+
   private agentRunRequest(
     orchestrationId: string,
     input: CreateApplicationOrchestrationInput,
@@ -1080,8 +1113,8 @@ export class ApplicationAgentOrchestrationService {
     request: OrchestrationNodeExecutionRequest,
     inputDigests: Readonly<Record<string, string>>,
     task: string,
+    rootToolsSupported: boolean,
   ): AgentRunRequest {
-    const rootToolsSupported = providerSupportsRootDomainTools(request.node.providerId, input.runtimeTarget);
     const metadataBase = {
       workflowId: workflow.id,
       identityMode: input.scope.identityMode,

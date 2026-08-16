@@ -901,7 +901,19 @@ export function createApp(
     : new JsonApplicationOrchestrationStore(resolve(process.cwd(), '..', '.local-data', 'agent-orchestrations'));
   const orchestrationService = new ApplicationAgentOrchestrationService(
     agentApi.center, agentApi.artifacts, orchestrationStore, orchestrationDomain, orchestrationDomain,
-    { runPersistenceProtection: store instanceof MemoryConfigStore ? 'ephemeral' : 'encrypted', maxParallelNodes: 2 },
+    {
+      runPersistenceProtection: store instanceof MemoryConfigStore ? 'ephemeral' : 'encrypted', maxParallelNodes: 2,
+      // Same source and same condition the single-run path uses, so a provider
+      // that cannot serve root domain tools falls back to prompt context here
+      // too instead of failing the node.
+      rootDomainToolsAvailable: async (providerId, runtimeTarget) => {
+        const status = (await discoverAgentProviders()).find((provider) => provider.id === providerId);
+        const capabilities = status?.capabilities;
+        return providerSupportsRootDomainTools(providerId, runtimeTarget)
+          && Boolean(capabilities && typeof capabilities === 'object'
+            && (capabilities as Record<string, unknown>).rootDomainTools === true);
+      },
+    },
   );
   let styleProfileService: ApplicationStyleProfileStore | undefined;
   const styleProfiles = async (): Promise<ApplicationStyleProfileStore> => {

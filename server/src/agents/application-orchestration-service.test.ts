@@ -3,7 +3,7 @@ import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { AgentRunHandle, ProviderRunContext } from '../ports/agent-runner.js';
+import type { AgentRunHandle, AgentRunRequest, ProviderRunContext } from '../ports/agent-runner.js';
 import { AgentControlCenter } from './agent-control-center.js';
 import {
   ApplicationAgentOrchestrationService,
@@ -160,6 +160,63 @@ async function waitForStatus(
   }
   throw new Error('orchestration_did_not_settle');
 }
+
+describe('ApplicationAgentOrchestrationService root domain tools', () => {
+  async function runWithCodexProvider(rootDomainToolsAvailable?: () => Promise<boolean>) {
+    const root = await temporaryRoot();
+    const requests: AgentRunRequest[] = [];
+    // Only codex-exec reaches the root-tool path at all.
+    const provider = new FakeAgentProvider({
+      steps: [{ kind: 'agent_message_completed', data: { text: pipelinePackage } }],
+      outcome: { state: 'succeeded' },
+    }, 'codex-exec');
+    const center = new AgentControlCenter(new MemoryAgentRunStore(), [provider], {
+      maxParallel: 2, maxParallelPerProvider: 2, allowedWorkspaceRoots: [root],
+    });
+    const observed = {
+      enqueue: center.enqueue.bind(center),
+      get: center.get.bind(center),
+      events: center.events.bind(center),
+      cancel: center.cancel.bind(center),
+    };
+    const service = new ApplicationAgentOrchestrationService(
+      { ...observed, enqueue: async (request) => { requests.push(structuredClone(request)); return observed.enqueue(request); } },
+      new AgentArtifactStore(join(root, 'artifacts')), new MemoryApplicationOrchestrationStore(),
+      gateAuthority, inputResolver,
+      {
+        runPersistenceProtection: 'ephemeral', maxParallelNodes: 2, pollIntervalMs: 2,
+        ...(rootDomainToolsAvailable ? { rootDomainToolsAvailable } : {}),
+      },
+    );
+    const created = await service.create({ ...applicationInput(root), providerId: 'codex-exec' });
+    const settled = await waitForStatus(service, created.id);
+    return { settled, requests };
+  }
+
+  it('falls back to prompt context when the installation cannot serve root tools', async () => {
+    // Previously this demanded tools the provider could not supply, so the node
+    // failed with required_root_domain_tools_unavailable while every provider
+    // without the bridge quietly succeeded on prompt context alone.
+    const { settled, requests } = await runWithCodexProvider(async () => false);
+    expect(requests[0]?.metadata?.requiredRootMcpTools).toEqual([]);
+    expect(settled.nodes[0]?.status).not.toBe('failed');
+  });
+
+  it('requests the workflow tools when the installation does serve them', async () => {
+    const { requests } = await runWithCodexProvider(async () => true);
+    expect(requests[0]?.metadata?.requiredRootMcpTools).toEqual(expect.arrayContaining([
+      'applications.get', 'companies.get', 'application.analyze',
+    ]));
+  });
+
+  it('treats an unconfigured or failing probe as unavailable rather than failing the run', async () => {
+    const unconfigured = await runWithCodexProvider();
+    expect(unconfigured.requests[0]?.metadata?.requiredRootMcpTools).toEqual([]);
+    const failing = await runWithCodexProvider(async () => { throw new Error('discovery_unavailable'); });
+    expect(failing.requests[0]?.metadata?.requiredRootMcpTools).toEqual([]);
+    expect(failing.settled.nodes[0]?.status).not.toBe('failed');
+  });
+});
 
 describe('ApplicationAgentOrchestrationService', () => {
   it('executes the Evidence/Author/ATS/Style/Finalizer DAG as separate, bounded AgentControlCenter runs', async () => {

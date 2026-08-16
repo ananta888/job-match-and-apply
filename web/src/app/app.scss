@@ -90,3 +90,7 @@ code { font-family: 'SFMono-Regular', Consolas, monospace; }
 .job-discovery-grid{display:grid;grid-template-columns:1fr 1fr;gap:.2rem .6rem;margin:.4rem 0 0}
 .job-discovery-grid dt{opacity:.6;font-size:.72rem}
 .job-discovery-grid dd{margin:0 0 .2rem}
+.cv-ai-disclosure{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:.5rem;margin:.6rem 0}
+.cv-ai-disclosure>div{padding:.45rem .6rem;border-radius:8px;background:#f4f6fa;min-width:0}
+.cv-ai-disclosure dt{margin:0;font-size:.68rem;font-weight:700;color:#525d70;text-transform:uppercase;letter-spacing:.3px}
+.cv-ai-disclosure dd{margin:.25rem 0 0;font-size:.82rem;color:#243047;line-height:1.4;overflow-wrap:anywhere}

@@ -29,8 +29,11 @@ export class ApiService {
   createIncognito(location: string): Observable<IdentityProfile> {
     return this.http.post<IdentityProfile>('/api/identities/incognito', { location });
   }
-  search(profile: SearchProfile): Observable<{ matches: JobMatch[]; partialFailures: Array<{ sourceId: string; category: string; retryable: boolean; detail: string }>; newJobCount?: number }> {
-    return this.http.post<{ matches: JobMatch[]; partialFailures: Array<{ sourceId: string; category: string; retryable: boolean; detail: string }> }>('/api/jobs/search', profile);
+  search(profile: SearchProfile, fold = true): Observable<{ runId: string; matches: JobMatch[]; partialFailures: Array<{ sourceId: string; category: string; retryable: boolean; detail: string }>; newJobCount?: number; folded?: boolean }> {
+    return this.http.post<{ runId: string; matches: JobMatch[]; partialFailures: Array<{ sourceId: string; category: string; retryable: boolean; detail: string }>; newJobCount?: number; folded?: boolean }>(`/api/jobs/search${fold ? '' : '?fold=false'}`, profile);
+  }
+  adoptSearchRun(runId: string): Observable<{ runId: string; total: number; added: number; duplicates: number }> {
+    return this.http.post<{ runId: string; total: number; added: number; duplicates: number }>(`/api/search-runs/${encodeURIComponent(runId)}/adopt`, {});
   }
   login(sourceId: string): Observable<{ status: string; note?: string }> {
     return this.http.post<{ status: string; note?: string }>(`/api/sources/${sourceId}/login`, {});

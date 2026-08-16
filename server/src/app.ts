@@ -2491,6 +2491,10 @@ export function createApp(
   }));
 
   app.post('/api/jobs/search', asyncRoute(async (request, response) => {
+    // fold=false previews results without adding them to the central list, so the
+    // Jobsuche page can offer an explicit, deduplicated "In Meine Jobs übernehmen"
+    // button. Default stays true for backward compatibility.
+    const fold = request.query.fold !== 'false';
     const config = await store.load();
     const profile = request.body && Object.keys(request.body).length > 0
       ? searchProfileSchema.parse(request.body)
@@ -2499,10 +2503,24 @@ export function createApp(
     const matches = deduplicateJobs(sourceResult.jobs).map((job) => matchJob(profile, job)).sort((a, b) => b.searchPreferenceScore - a.searchPreferenceScore);
     const now = new Date().toISOString();
     const runId = randomUUID();
-    const { newKeys } = await workspace.foldJobsIntoInventory(matches.map((match) => ({ job: match.job, match: inventoryMatch(match) })), runId, now);
+    const newKeys = fold
+      ? (await workspace.foldJobsIntoInventory(matches.map((match) => ({ job: match.job, match: inventoryMatch(match) })), runId, now)).newKeys
+      : [];
     const run = { id: runId, createdAt: now, profile, sourceIds: profile.sourceIds, matches, partialFailures: sourceResult.failures, newInventoryKeys: newKeys };
     await workspace.saveSearchRun(run);
-    response.json({ runId, matches, partialFailures: sourceResult.failures, newJobCount: newKeys.length });
+    response.json({ runId, matches, partialFailures: sourceResult.failures, newJobCount: newKeys.length, folded: fold });
+  }));
+
+  app.post('/api/search-runs/:runId/adopt', asyncRoute(async (request, response) => {
+    const runId = z.string().uuid().parse(request.params.runId);
+    const run = await workspace.getSearchRun(runId);
+    if (!run) { response.status(404).json({ error: 'Suchlauf nicht gefunden.' }); return; }
+    const now = new Date().toISOString();
+    const { newKeys } = await workspace.foldJobsIntoInventory(
+      run.matches.map((match) => ({ job: match.job, match: inventoryMatch(match) })), runId, now,
+    );
+    await workspace.saveSearchRun({ ...run, newInventoryKeys: [...new Set([...(run.newInventoryKeys ?? []), ...newKeys])] });
+    response.json({ runId, total: run.matches.length, added: newKeys.length, duplicates: run.matches.length - newKeys.length });
   }));
 
   app.get('/api/search-runs', asyncRoute(async (_request, response) => {

@@ -89,6 +89,8 @@ export class App implements OnInit, OnDestroy {
   mcpRuntimeCandidates: JobSearchMcpRuntimeCandidate[] = [];
   mcpRuntimeBusy = false;
   matches: JobMatch[] = [];
+  lastSearchRunId?: string;
+  lastSearchAdopted = false;
   searchFailures: Array<{ sourceId: string; category: string; retryable: boolean; detail: string }> = [];
   jobDecisions: JobDecision[] = [];
   jobInventory: JobInventoryView[] = [];
@@ -1985,12 +1987,27 @@ export class App implements OnInit, OnDestroy {
   runSearch(): void {
     if (!this.config) return;
     this.busy = true; this.error = ''; this.notice = '';
-    this.api.search(this.config.searchProfile).subscribe({
-      next: ({ matches, partialFailures }) => {
+    // Preview only (fold=false): results are adopted into "Meine Jobs" via the
+    // explicit deduplicated button below, not silently on every search.
+    this.api.search(this.config.searchProfile, false).subscribe({
+      next: ({ runId, matches, partialFailures }) => {
         this.matches = matches; this.selectedMatch = matches[0]; this.busy = false; this.section = 'search';
-        this.searchFailures = partialFailures;
-        this.notice = `${matches.length} Stellen bewertet${partialFailures.length ? `; ${partialFailures.length} Quelle(n) mit Teilausfall` : ''}.`;
+        this.searchFailures = partialFailures; this.lastSearchRunId = runId; this.lastSearchAdopted = false;
+        this.notice = `${matches.length} Stellen bewertet${partialFailures.length ? `; ${partialFailures.length} Quelle(n) mit Teilausfall` : ''}. Mit „In ‚Meine Jobs' übernehmen" dubletten-frei speichern.`;
         this.refreshView();
+      },
+      error: (error) => this.fail(error)
+    });
+  }
+
+  adoptSearchResults(): void {
+    if (!this.lastSearchRunId || this.busy || !this.matches.length) return;
+    this.busy = true; this.error = ''; this.notice = '';
+    this.api.adoptSearchRun(this.lastSearchRunId).subscribe({
+      next: ({ added, duplicates, total }) => {
+        this.busy = false; this.lastSearchAdopted = true;
+        this.notice = `${added} neue Stelle(n) in „Meine Jobs" übernommen${duplicates ? `, ${duplicates} bereits vorhanden` : ''} (von ${total}).`;
+        this.loadJobs(); this.refreshView();
       },
       error: (error) => this.fail(error)
     });

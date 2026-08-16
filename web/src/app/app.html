@@ -359,6 +359,19 @@
               @if (styleProfileError) { <p class="approval-block-reason" role="alert">{{ styleProfileError }}</p> }
             </section>
           }
+        } @else {
+          <section class="panel style-profile-editor" data-testid="style-profile-unavailable" aria-labelledby="style-profile-unavailable-heading">
+            <div class="panel-head">
+              <div><span class="kicker">VERSIONIERTES STILPROFIL</span><h3 id="style-profile-unavailable-heading">Schreibstil derzeit nicht bearbeitbar</h3><p>Das lokale Stilprofil konnte nicht gelesen werden, deshalb ist der Editor ausgeblendet. Der Server nennt den Grund:</p></div>
+              <button class="secondary compact" type="button" (click)="loadApplicationStyleProfile()" [disabled]="styleProfileBusy">{{ styleProfileBusy ? 'Wird geladen …' : 'Erneut laden' }}</button>
+            </div>
+            @if (styleProfileError) {
+              <p class="approval-block-reason" role="alert" data-testid="style-profile-unavailable-reason">{{ styleProfileError }}</p>
+            } @else {
+              <p role="status">Das Stilprofil ist noch nicht eingerichtet. Lege <code>.local-data/profiles/style-profile.yaml</code> auf Basis von <code>style-profile.example.yaml</code> an.</p>
+            }
+            <p class="field-help">Fehlt in <code>document_styles</code> bei einem der vier Dokumenttypen (<code>cv</code>, <code>cover_letter</code>, <code>email</code>, <code>linkedin</code>) ein Pflichtfeld wie <code>technical_density</code>, lehnt die Validierung das gesamte Profil ab.</p>
+          </section>
         }
         <section class="panel" style="margin-top: 18px">
           <div class="panel-head"><div><span class="kicker">EVIDENCE-PROFIL</span><h3>Belegte Kandidatenclaims</h3></div><button class="secondary" (click)="loadCandidateProfile()">Profil prüfen</button></div>
@@ -709,8 +722,14 @@
                 <div class="wide"><small>SHA-256</small><code>{{ style.sha256 }}</code></div>
               </div>
               <div class="info-box"><strong>Lebenslauf-Regel</strong><p>{{ style.profile.documentStyles.cv.perspective }} · {{ style.profile.documentStyles.cv.technicalDensity }} · maximal {{ style.profile.documentStyles.cv.maxSentenceWords }} Wörter pro Satz.</p></div>
-            } @else { <p role="status">Das lokale Schreibstilprofil ist noch nicht verfügbar.</p> }
-            <div class="cv-step-actions"><button class="secondary" type="button" (click)="select('identity')">Schreibstil im Profil bearbeiten</button><button class="primary" type="button" (click)="selectCvStep(4)" [disabled]="!applicationStyleProfile">Formatvorlage wählen →</button></div>
+            } @else {
+              <div class="warning-box" role="alert" data-testid="cv-style-profile-unavailable">
+                <strong>Das lokale Schreibstilprofil ist nicht verfügbar</strong>
+                @if (styleProfileError) { <p>{{ styleProfileError }}</p> }
+                <p>Ohne lesbares Stilprofil kann die Formatvorlage nicht gewählt werden. Der Grund und die Reparatur stehen unter „Profil &amp; Identität“.</p>
+              </div>
+            }
+            <div class="cv-step-actions"><button class="secondary" type="button" (click)="select('identity')">{{ applicationStyleProfile ? 'Schreibstil im Profil bearbeiten' : 'Stilprofil im Profil reparieren' }}</button><button class="primary" type="button" (click)="selectCvStep(4)" [disabled]="!applicationStyleProfile">Formatvorlage wählen →</button></div>
           </section>
         }
 

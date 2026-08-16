@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import YAML from 'yaml';
 import { ApplicationStyleProfileStore } from './style-profile.js';
@@ -47,6 +47,33 @@ async function fixture() {
 }
 
 describe('ApplicationStyleProfileStore', () => {
+  it('accepts the style profile template the setup instructions tell users to copy', async () => {
+    // The fixture above builds a complete document by hand, so it never noticed
+    // that the shipped example was missing a required field. A user copying the
+    // example got a 409 on every read and an editor that silently disappeared.
+    const root = await mkdtemp(join(tmpdir(), 'application-style-profile-example-'));
+    roots.push(root);
+    const profileRoot = join(root, '.local-data', 'profiles');
+    await mkdir(join(root, 'integrations', 'assistant'), { recursive: true });
+    await mkdir(profileRoot, { recursive: true });
+    await writeFile(join(profileRoot, 'candidate-profile.yaml'), 'schema_version: 2\nclaims: []\n', 'utf8');
+    const example = resolve(
+      process.cwd(), '..', 'integrations', 'bewerbungs-schreib-assistent', 'style-profile.example.yaml',
+    );
+    await writeFile(join(profileRoot, 'style-profile.yaml'), await readFile(example, 'utf8'), 'utf8');
+
+    const view = await new ApplicationStyleProfileStore(settings, root).get();
+    expect(view).toMatchObject({ contract: 'application-style-profile', initialized: true });
+    // Every document type must carry the fields the editable view requires.
+    for (const kind of ['cv', 'cover_letter', 'email', 'linkedin'] as const) {
+      expect(view.profile.documentStyles[kind]).toMatchObject({
+        perspective: expect.any(String),
+        technicalDensity: expect.any(String),
+        maxSentenceWords: expect.any(Number),
+      });
+    }
+  });
+
   it('round-trips only the closed editable view and publishes an atomic revision after authoritative validation', async () => {
     const { root, path } = await fixture();
     const validator = vi.fn(async (candidate: string) => { expect(candidate).toContain('.style-profile-'); });

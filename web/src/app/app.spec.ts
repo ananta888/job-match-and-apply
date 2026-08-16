@@ -1357,6 +1357,52 @@ describe('App', () => {
     fixture.destroy();
   });
 
+  it('explains an unreadable style profile instead of hiding the editor', async () => {
+    // A rejected style profile used to leave the identity section blank: the
+    // editor is gated on the loaded profile and there was no else branch.
+    apiMock['applicationStyleProfile'].mockReturnValue(throwError(() => ({
+      error: { error: 'style_profile_linkedin_technical_density_invalid', category: 'policy' }
+    })));
+    const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
+    const component = fixture.componentInstance;
+    component.select('identity');
+    await vi.waitFor(() => expect(component.styleProfileError).toContain('technical_density'));
+    fixture.detectChanges();
+
+    const element = fixture.nativeElement as HTMLElement;
+    expect(element.querySelector('[data-testid="style-profile-editor"]')).toBeNull();
+    const panel = element.querySelector('[data-testid="style-profile-unavailable"]')!;
+    expect(panel).not.toBeNull();
+    expect(panel.querySelector('[data-testid="style-profile-unavailable-reason"]')?.textContent)
+      .toContain('style_profile_linkedin_technical_density_invalid');
+    // The four document types and the offending field are named, so the fix is findable.
+    expect(panel.textContent).toContain('technical_density');
+    expect(panel.textContent).toContain('linkedin');
+    fixture.destroy();
+  });
+
+  it('blocks the CV template step and says why when the style profile is unreadable', async () => {
+    apiMock['applicationStyleProfile'].mockReturnValue(throwError(() => ({
+      error: { error: 'style_profile_linkedin_technical_density_invalid', category: 'policy' }
+    })));
+    const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
+    const component = fixture.componentInstance;
+    component.select('cv');
+    await vi.waitFor(() => expect(component.styleProfileError).toBeTruthy());
+    component.cvImport = cvImportFixture(); component.cvStep = 3;
+    component.loadApplicationStyleProfile();
+    await vi.waitFor(() => expect(component.styleProfileBusy).toBe(false));
+    fixture.detectChanges();
+
+    const element = fixture.nativeElement as HTMLElement;
+    const notice = element.querySelector('[data-testid="cv-style-profile-unavailable"]');
+    expect(notice?.textContent).toContain('style_profile_linkedin_technical_density_invalid');
+    const buttons = [...element.querySelectorAll('[data-testid="cv-writing-style-step"] .cv-step-actions button')];
+    expect(buttons.map((button) => button.textContent?.trim())).toContain('Stilprofil im Profil reparieren');
+    expect(buttons.find((button) => button.textContent?.includes('Formatvorlage'))?.hasAttribute('disabled')).toBe(true);
+    fixture.destroy();
+  });
+
   it('offers claim management only when the profile still holds a revocable adoption', async () => {
     const current = cvImportFixture();
     const confirmed = { ...current, facts: current.facts.map((fact) => ({ ...fact, decision: 'confirmed' as const })) };

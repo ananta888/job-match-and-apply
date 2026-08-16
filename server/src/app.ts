@@ -2572,6 +2572,15 @@ export function createApp(
     response.json(buildInventoryView(entry, snapshot.applicationCases, snapshot.artifactRevisions, snapshot.trackingEvents));
   }));
 
+  app.delete('/api/job-inventory/:key', asyncRoute(async (request, response) => {
+    const key = z.string().min(1).max(400).parse(decodeURIComponent(z.string().min(1).max(600).parse(request.params.key)));
+    const confirmation = z.object({ confirmation: z.string() }).strict().parse(request.body).confirmation;
+    if (confirmation !== `DELETE job-inventory ${key}`) throw Object.assign(new Error('Bestätigung muss exakt DELETE job-inventory <key> lauten.'), { statusCode: 409 });
+    const removed = await workspace.deleteJobInventoryEntry(key);
+    if (!removed) { response.status(404).json({ error: 'Job nicht in der zentralen Liste gefunden.' }); return; }
+    response.json({ removed: 1, key });
+  }));
+
   app.get('/api/comparison-notes', asyncRoute(async (_request, response) => {
     response.json(await workspace.listComparisonNotes());
   }));
@@ -2614,6 +2623,15 @@ export function createApp(
     const schedule = { ...payload, id: randomUUID(), nextRunAt: new Date(now.getTime() + payload.intervalMinutes * 60_000).toISOString(), lastSeenJobIds: [], updatedAt: now.toISOString() };
     await workspace.saveSearchSchedule(schedule);
     response.status(201).json(schedule);
+  }));
+
+  app.delete('/api/search-schedules/:scheduleId', asyncRoute(async (request, response) => {
+    const scheduleId = z.string().uuid().parse(request.params.scheduleId);
+    const confirmation = z.object({ confirmation: z.string() }).strict().parse(request.body).confirmation;
+    if (confirmation !== `DELETE search-schedule ${scheduleId}`) throw Object.assign(new Error(`Bestätigung muss exakt DELETE search-schedule ${scheduleId} lauten.`), { statusCode: 409 });
+    const removed = await workspace.deleteSearchSchedule(scheduleId);
+    if (!removed) { response.status(404).json({ error: 'Suchplan nicht gefunden.' }); return; }
+    response.json({ removed: 1, id: scheduleId });
   }));
 
   app.post('/api/search-schedules/run-due', asyncRoute(async (_request, response) => {
@@ -2792,6 +2810,15 @@ export function createApp(
     await workspace.saveApplicationCase(application);
     await workspace.appendApplicationEvent({ id: randomUUID(), applicationCaseId: application.id, from: null, to: 'selected', occurredAt: now, source: 'user' });
     response.status(201).json(application);
+  }));
+
+  app.delete('/api/application-cases/:caseId', asyncRoute(async (request, response) => {
+    const caseId = z.string().uuid().parse(request.params.caseId);
+    const confirmation = z.object({ confirmation: z.string() }).strict().parse(request.body).confirmation;
+    if (confirmation !== `DELETE application-case ${caseId}`) throw Object.assign(new Error(`Bestätigung muss exakt DELETE application-case ${caseId} lauten.`), { statusCode: 409 });
+    const cascade = await workspace.deleteApplicationCase(caseId);
+    if (!cascade.removed) { response.status(404).json({ error: 'Bewerbungsfall nicht gefunden.' }); return; }
+    response.json({ removed: 1, id: caseId, cascade: { events: cascade.events, trackingEvents: cascade.trackingEvents, artifacts: cascade.artifacts } });
   }));
 
   app.post('/api/application-cases/:caseId/transition', asyncRoute(async (request, response) => {
@@ -3167,6 +3194,16 @@ export function createApp(
     const runId = z.string().uuid().parse(request.params.runId);
     const service = await cvAiStructuring(); await service.expireAndPrune();
     response.setHeader('cache-control', 'no-store'); response.json(await service.get(cvImportId, runId));
+  }));
+
+  app.delete('/api/cv-imports/:importId/ai-structuring/runs/:runId', asyncRoute(async (request, response) => {
+    const cvImportId = z.string().uuid().parse(request.params.importId);
+    const runId = z.string().uuid().parse(request.params.runId);
+    const payload = cvAiRunCasSchema.extend({ confirmed: z.literal(true) }).strict().parse(request.body);
+    const service = await cvAiStructuring(); await service.expireAndPrune();
+    response.setHeader('cache-control', 'no-store'); response.json(await service.deleteRun({
+      cvImportId, runId, ...payload, actor: { id: 'local-user', type: 'local' },
+    }));
   }));
 
   app.post('/api/cv-imports/:importId/ai-structuring/runs/:runId/cancel', asyncRoute(async (request, response) => {

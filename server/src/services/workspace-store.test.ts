@@ -62,4 +62,64 @@ describe('JsonWorkspaceStore', () => {
     expect(await store.getApplicationCase(application.id)).toBeUndefined();
     expect(await store.listArtifactRevisions(application.id)).toEqual([used]);
   });
+
+  it('deletes a single search schedule and reports idempotently', async () => {
+    directory = await mkdtemp(resolve(tmpdir(), 'workspace-schedule-delete-'));
+    const store = new JsonWorkspaceStore(resolve(directory, 'workspace.json'));
+    await store.saveSearchSchedule({
+      id: '30000000-0000-4000-8000-000000000001', name: 'Daily', enabled: true,
+      profile: structuredClone(defaultConfig.searchProfile), intervalMinutes: 60,
+      quietHours: { start: 22, end: 6, timeZone: 'Europe/Berlin' },
+      nextRunAt: '2026-01-01T00:00:00.000Z', lastSeenJobIds: [], updatedAt: '2026-01-01T00:00:00.000Z',
+    });
+    expect(await store.deleteSearchSchedule('30000000-0000-4000-8000-000000000001')).toBe(true);
+    expect(await store.listSearchSchedules()).toEqual([]);
+    expect(await store.deleteSearchSchedule('30000000-0000-4000-8000-000000000001')).toBe(false);
+  });
+
+  it('deletes a folded job inventory entry by key', async () => {
+    directory = await mkdtemp(resolve(tmpdir(), 'workspace-inventory-delete-'));
+    const store = new JsonWorkspaceStore(resolve(directory, 'workspace.json'));
+    const job = {
+      id: 'job-1', sourceId: 'synthetic', title: 'Engineer', company: 'Example GmbH', location: 'Berlin',
+      workModel: 'hybrid' as const, employmentType: 'full_time' as const, description: 'Synthetic', skills: [],
+    };
+    await store.foldJobsIntoInventory([{ job }], 'run-1', '2026-01-01T00:00:00.000Z');
+    const [entry] = await store.listJobInventory();
+    expect(entry).toBeDefined();
+    expect(await store.deleteJobInventoryEntry(entry!.key)).toBe(true);
+    expect(await store.listJobInventory()).toEqual([]);
+    expect(await store.deleteJobInventoryEntry(entry!.key)).toBe(false);
+  });
+
+  it('cascades an application case delete across events, tracking and artifacts', async () => {
+    directory = await mkdtemp(resolve(tmpdir(), 'workspace-case-delete-'));
+    const store = new JsonWorkspaceStore(resolve(directory, 'workspace.json'));
+    const caseId = '10000000-0000-4000-8000-0000000000aa';
+    await store.saveApplicationCase({
+      id: caseId,
+      job: {
+        id: 'job-x', sourceId: 'synthetic', title: 'Engineer', company: 'Example GmbH', location: 'Berlin',
+        workModel: 'hybrid', employmentType: 'full_time', description: 'Synthetic', skills: [],
+      },
+      identityId: 'identity-real', identityMode: 'real', documentType: 'cover_letter', state: 'draft',
+      createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
+      artifactNames: [], warnings: [], revision: 1,
+    });
+    await store.appendApplicationEvent({ id: '40000000-0000-4000-8000-000000000001', applicationCaseId: caseId, from: null, to: 'selected', occurredAt: '2026-01-01T00:00:00.000Z', source: 'user' });
+    await store.appendTrackingEvent({ id: '50000000-0000-4000-8000-000000000001', applicationCaseId: caseId, status: 'submitted', occurredAt: '2026-01-01T00:00:00.000Z', source: 'user' });
+    await store.saveArtifactRevision({
+      id: '60000000-0000-4000-8000-000000000001', applicationCaseId: caseId, companyKey: 'example', jobId: 'job-x',
+      type: 'cover_letter', lifecycle: 'proposed', sha256: 'b'.repeat(64), bytes: 10, artifactPath: 'x/y.md',
+      pipelineContractVersion: '2.0', createdAt: '2026-01-01T00:00:00.000Z',
+    });
+
+    const result = await store.deleteApplicationCase(caseId);
+    expect(result).toEqual({ removed: true, events: 1, trackingEvents: 1, artifacts: 1 });
+    expect(await store.getApplicationCase(caseId)).toBeUndefined();
+    expect(await store.listApplicationEvents(caseId)).toEqual([]);
+    expect(await store.listTrackingEvents(caseId)).toEqual([]);
+    expect(await store.listArtifactRevisions(caseId)).toEqual([]);
+    expect((await store.deleteApplicationCase(caseId)).removed).toBe(false);
+  });
 });

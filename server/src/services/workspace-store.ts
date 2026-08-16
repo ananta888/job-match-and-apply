@@ -42,6 +42,10 @@ export interface WorkspaceStore {
   saveComparisonNote(note: ComparisonNote): Promise<void>;
   listComparisonNotes(): Promise<ComparisonNote[]>;
   deleteComparisonNote(id: string): Promise<boolean>;
+  deleteSearchSchedule(id: string): Promise<boolean>;
+  deleteJobInventoryEntry(key: string): Promise<boolean>;
+  /** Deletes a case and cascades its events, tracking and artifact revisions. */
+  deleteApplicationCase(id: string): Promise<{ removed: boolean; events: number; trackingEvents: number; artifacts: number }>;
   appendTrackingEvent(event: ApplicationTrackingEvent): Promise<void>;
   listTrackingEvents(caseId: string): Promise<ApplicationTrackingEvent[]>;
   saveArtifactRevision(revision: ApplicationArtifactRevision): Promise<void>;
@@ -134,6 +138,29 @@ export class JsonWorkspaceStore implements WorkspaceStore {
     let deleted = false;
     await this.mutate((data) => { const before = data.comparisonNotes.length; data.comparisonNotes = data.comparisonNotes.filter((item) => item.id !== id); deleted = before !== data.comparisonNotes.length; });
     return deleted;
+  }
+  async deleteSearchSchedule(id: string): Promise<boolean> {
+    let deleted = false;
+    await this.mutate((data) => { const before = data.searchSchedules.length; data.searchSchedules = data.searchSchedules.filter((item) => item.id !== id); deleted = before !== data.searchSchedules.length; });
+    return deleted;
+  }
+  async deleteJobInventoryEntry(key: string): Promise<boolean> {
+    let deleted = false;
+    await this.mutate((data) => { const before = data.jobInventory.length; data.jobInventory = data.jobInventory.filter((item) => item.key !== key); deleted = before !== data.jobInventory.length; });
+    return deleted;
+  }
+  async deleteApplicationCase(id: string): Promise<{ removed: boolean; events: number; trackingEvents: number; artifacts: number }> {
+    const result = { removed: false, events: 0, trackingEvents: 0, artifacts: 0 };
+    await this.mutate((data) => {
+      const before = data.applicationCases.length;
+      data.applicationCases = data.applicationCases.filter((item) => item.id !== id);
+      result.removed = before !== data.applicationCases.length;
+      if (!result.removed) return;
+      const e = data.applicationEvents.length; data.applicationEvents = data.applicationEvents.filter((item) => item.applicationCaseId !== id); result.events = e - data.applicationEvents.length;
+      const t = data.trackingEvents.length; data.trackingEvents = data.trackingEvents.filter((item) => item.applicationCaseId !== id); result.trackingEvents = t - data.trackingEvents.length;
+      const a = data.artifactRevisions.length; data.artifactRevisions = data.artifactRevisions.filter((item) => item.applicationCaseId !== id); result.artifacts = a - data.artifactRevisions.length;
+    });
+    return result;
   }
   async appendTrackingEvent(event: ApplicationTrackingEvent): Promise<void> {
     await this.mutate((data) => {
@@ -272,6 +299,22 @@ export class MemoryWorkspaceStore implements WorkspaceStore {
   async listComparisonNotes(): Promise<ComparisonNote[]> { return structuredClone(this.comparisonNotes); }
   async deleteComparisonNote(id: string): Promise<boolean> {
     const index = this.comparisonNotes.findIndex((item) => item.id === id); if (index < 0) return false; this.comparisonNotes.splice(index, 1); return true;
+  }
+  async deleteSearchSchedule(id: string): Promise<boolean> {
+    const index = this.schedules.findIndex((item) => item.id === id); if (index < 0) return false; this.schedules.splice(index, 1); return true;
+  }
+  async deleteJobInventoryEntry(key: string): Promise<boolean> {
+    const before = this.jobInventoryEntries.length; this.jobInventoryEntries = this.jobInventoryEntries.filter((item) => item.key !== key); return before !== this.jobInventoryEntries.length;
+  }
+  async deleteApplicationCase(id: string): Promise<{ removed: boolean; events: number; trackingEvents: number; artifacts: number }> {
+    const index = this.cases.findIndex((item) => item.id === id);
+    if (index < 0) return { removed: false, events: 0, trackingEvents: 0, artifacts: 0 };
+    this.cases.splice(index, 1);
+    let events = 0; let trackingEvents = 0; let artifacts = 0;
+    for (let i = this.events.length - 1; i >= 0; i--) if (this.events[i]!.applicationCaseId === id) { this.events.splice(i, 1); events++; }
+    for (let i = this.trackingEvents.length - 1; i >= 0; i--) if (this.trackingEvents[i]!.applicationCaseId === id) { this.trackingEvents.splice(i, 1); trackingEvents++; }
+    for (let i = this.artifacts.length - 1; i >= 0; i--) if (this.artifacts[i]!.applicationCaseId === id) { this.artifacts.splice(i, 1); artifacts++; }
+    return { removed: true, events, trackingEvents, artifacts };
   }
   async appendTrackingEvent(event: ApplicationTrackingEvent): Promise<void> {
     const existing = this.trackingEvents.find((item) => item.id === event.id);

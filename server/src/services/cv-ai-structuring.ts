@@ -398,6 +398,27 @@ export class CvAiStructuringService {
     return publicCvAiStructuringRun(record);
   }
 
+  async deleteRun(input: {
+    cvImportId: string;
+    runId: string;
+    expectedRunRevision: number;
+    expectedRunSha256: string;
+    confirmed: true;
+    actor: CvAiActor;
+  }): Promise<{ removed: number; id: string }> {
+    if (input.confirmed !== true) error('cv_ai_delete_confirmation_required', 409, 'preflight');
+    assertActor(input.actor);
+    const record = await this.required(input.cvImportId, input.runId);
+    assertRunCas(record, input.expectedRunRevision, input.expectedRunSha256);
+    // Cancel a still-active agent run first so no orphaned raw run remains.
+    if (['queued', 'starting', 'running', 'validating', 'cancel_requested'].includes(record.status)) {
+      await this.dependencies.agentRuns.cancel(record.agentRunId, 'CV-AI-Lauf durch Nutzer gelöscht.').catch(() => undefined);
+    }
+    try { await this.purgeRawRun(record.agentRunId); } catch { /* raw run may already be purged */ }
+    await this.dependencies.store.compareAndDelete(record.id, record.revision, record.sha256);
+    return { removed: 1, id: record.id };
+  }
+
   async retry(input: {
     cvImportId: string;
     runId: string;

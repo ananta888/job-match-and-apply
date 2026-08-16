@@ -184,7 +184,22 @@
                     } @else {
                       <div class="chips">@for (skill of entry.job.skills.slice(0, 4); track skill) { <span class="chip">{{ skill }}</span> }</div>
                     }
-                    <div class="job-inventory-meta"><span>Quellen: {{ entry.sourceIds.join(', ') }}</span><span>{{ entry.runCount }} Lauf(e) · zuletzt {{ entry.lastSeenAt | date:'dd.MM.yy' }}</span></div>
+                    <div class="job-inventory-meta"><span>Quellen: {{ entry.sourceIds.join(', ') }}</span><span>hinzugefügt {{ entry.firstSeenAt | date:'dd.MM.yy HH:mm' }} · {{ entry.runCount }} Lauf(e) · zuletzt {{ entry.lastSeenAt | date:'dd.MM.yy' }}</span></div>
+                    @if (entry.discoveredWith; as found) {
+                      <details class="job-discovery"><summary>Sucheinstellungen bei Aufnahme</summary>
+                        <dl class="job-discovery-grid">
+                          <div><dt>Erfasst</dt><dd>{{ found.capturedAt | date:'dd.MM.yy HH:mm' }}</dd></div>
+                          <div><dt>Suchbegriff</dt><dd>{{ found.query || '—' }}</dd></div>
+                          <div><dt>Regionen</dt><dd>{{ found.regions.length ? found.regions.join(', ') : '—' }}</dd></div>
+                          <div><dt>Arbeitsmodelle</dt><dd>{{ found.workModels.length ? found.workModels.join(', ') : '—' }}</dd></div>
+                          <div><dt>Anstellung</dt><dd>{{ found.employmentTypes.length ? found.employmentTypes.join(', ') : '—' }}</dd></div>
+                          @if (found.mustHave.length) { <div><dt>Muss</dt><dd>{{ found.mustHave.join(', ') }}</dd></div> }
+                          @if (found.niceToHave.length) { <div><dt>Kann</dt><dd>{{ found.niceToHave.join(', ') }}</dd></div> }
+                          @if (found.minSalary) { <div><dt>Mindestgehalt</dt><dd>{{ found.minSalary | number }}</dd></div> }
+                          <div><dt>Quellen</dt><dd>{{ found.sourceIds.join(', ') }}</dd></div>
+                        </dl>
+                      </details>
+                    }
 
                     @if (jobGeneratedDocuments(entry).length) {
                       <div class="job-docs">

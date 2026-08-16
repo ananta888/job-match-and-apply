@@ -85,3 +85,8 @@ code { font-family: 'SFMono-Regular', Consolas, monospace; }
 .cv-ai-history-row{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}
 .cv-ai-history-row select{flex:1 1 auto;min-width:0}
 .form-footer-actions{display:flex;gap:.5rem;flex-wrap:wrap;align-items:center}
+.job-discovery{margin-top:.4rem;font-size:.8rem}
+.job-discovery summary{cursor:pointer;opacity:.75}
+.job-discovery-grid{display:grid;grid-template-columns:1fr 1fr;gap:.2rem .6rem;margin:.4rem 0 0}
+.job-discovery-grid dt{opacity:.6;font-size:.72rem}
+.job-discovery-grid dd{margin:0 0 .2rem}

@@ -125,6 +125,20 @@ export interface JobInventoryMatch {
  * a manual applied mark. Application status (documents generated, applied-with) is derived at read
  * time by joining application cases, artifact revisions and tracking events over {@link jobIds}.
  */
+/** Durable snapshot of the search settings that first surfaced a job. */
+export interface JobDiscoverySettings {
+  runId: string;
+  capturedAt: string;
+  query: string;
+  regions: string[];
+  workModels: string[];
+  employmentTypes: string[];
+  mustHave: string[];
+  niceToHave: string[];
+  minSalary?: number;
+  sourceIds: string[];
+}
+
 export interface JobInventoryEntry {
   key: string;
   job: JobPosting;
@@ -132,6 +146,8 @@ export interface JobInventoryEntry {
   firstSeenAt: string;
   lastSeenAt: string;
   updatedAt: string;
+  /** Search settings that first surfaced this job (captured at add time). */
+  discoveredWith?: JobDiscoverySettings;
   /** Search-run ids that surfaced this job, most-recent first (bounded). */
   runIds: string[];
   /** All source `job.id`s ever merged into this entry (for joining cases/artifacts/tracking). */

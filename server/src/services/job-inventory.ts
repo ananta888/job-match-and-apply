@@ -1,6 +1,6 @@
 import type {
   ApplicationArtifactRevision, ApplicationCase, ApplicationCaseState, ApplicationTrackingEvent,
-  ApplicationTrackingStatus, JobInventoryCategory, JobInventoryEntry, JobInventoryMatch, JobPosting,
+  ApplicationTrackingStatus, JobDiscoverySettings, JobInventoryCategory, JobInventoryEntry, JobInventoryMatch, JobPosting,
 } from '../domain/models.js';
 import { jobIdentityKey, mergeJob } from './job-normalization.js';
 
@@ -26,12 +26,19 @@ function collectSourceIds(job: JobPosting): string[] {
   return [...new Set([job.sourceId, ...(job.sourceReferences ?? []).map((reference) => reference.sourceId)].filter(Boolean))];
 }
 
+/** Search settings snapshot (without run/time) captured on newly added jobs. */
+export type DiscoverySettingsInput = Omit<JobDiscoverySettings, 'runId' | 'capturedAt'>;
+
 /** Merge a run's matches into the inventory. Returns the updated list and the keys that were newly added. */
 export function foldInventory(
   entries: JobInventoryEntry[], items: JobInventoryFoldItem[], runId: string, now: string,
+  discoverySettings?: DiscoverySettingsInput,
 ): { entries: JobInventoryEntry[]; newKeys: string[] } {
   const byKey = new Map(entries.map((entry) => [entry.key, structuredClone(entry)]));
   const newKeys: string[] = [];
+  const discoveredWith: JobDiscoverySettings | undefined = discoverySettings
+    ? { runId, capturedAt: now, ...structuredClone(discoverySettings) }
+    : undefined;
   for (const { job, match } of items) {
     const key = jobIdentityKey(job);
     const existing = byKey.get(key);
@@ -43,12 +50,15 @@ export function foldInventory(
       existing.jobIds = [...new Set([job.id, ...existing.jobIds])].slice(0, MAX_JOB_IDS);
       existing.sourceIds = [...new Set([...existing.sourceIds, ...collectSourceIds(job)])];
       if (match) existing.match = structuredClone(match);
+      // Backfill discovery settings for entries added before this field existed.
+      if (!existing.discoveredWith && discoveredWith) existing.discoveredWith = structuredClone(discoveredWith);
     } else {
       newKeys.push(key);
       byKey.set(key, {
         key, job: structuredClone(job), category: 'inbox',
         firstSeenAt: now, lastSeenAt: now, updatedAt: now,
         runIds: [runId], jobIds: [job.id], sourceIds: collectSourceIds(job),
+        ...(discoveredWith ? { discoveredWith: structuredClone(discoveredWith) } : {}),
         ...(match ? { match: structuredClone(match) } : {}),
       });
     }
@@ -95,6 +105,7 @@ export interface JobInventoryView {
   lastSeenAt: string;
   runCount: number;
   sourceIds: string[];
+  discoveredWith?: JobDiscoverySettings;
   match?: JobInventoryMatch;
   status: {
     applied: boolean;
@@ -129,6 +140,7 @@ export function buildInventoryView(
     key: entry.key, job: structuredClone(entry.job), category: entry.category,
     firstSeenAt: entry.firstSeenAt, lastSeenAt: entry.lastSeenAt, runCount: entry.runIds.length,
     sourceIds: [...entry.sourceIds],
+    ...(entry.discoveredWith ? { discoveredWith: structuredClone(entry.discoveredWith) } : {}),
     ...(entry.match ? { match: structuredClone(entry.match) } : {}),
     status: {
       applied,

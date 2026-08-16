@@ -22,6 +22,24 @@ describe('foldInventory', () => {
     expect(entries.every((entry) => entry.category === 'inbox')).toBe(true);
   });
 
+  it('captures the discovery date and search settings on new jobs and backfills existing ones', () => {
+    const settings = {
+      query: 'Angular', regions: ['Berlin'], workModels: ['hybrid'], employmentTypes: ['full_time'],
+      mustHave: ['Angular'], niceToHave: ['RxJS'], minSalary: 60000, sourceIds: ['demo'],
+    };
+    const first = foldInventory([], items(job()), 'run-1', T1, settings);
+    const entry = first.entries[0]!;
+    expect(entry.firstSeenAt).toBe(T1);
+    expect(entry.discoveredWith).toEqual({ runId: 'run-1', capturedAt: T1, ...settings });
+
+    // An entry added without settings gets them backfilled on the next fold.
+    const legacy = foldInventory([], items(job({ id: 'job-legacy' })), 'run-0', T1);
+    expect(legacy.entries[0]!.discoveredWith).toBeUndefined();
+    const backfilled = foldInventory(legacy.entries, items(job({ id: 'job-legacy-b' })), 'run-2', T2, settings);
+    expect(backfilled.entries[0]!.discoveredWith).toMatchObject({ runId: 'run-2', capturedAt: T2, query: 'Angular' });
+    expect(backfilled.entries[0]!.firstSeenAt).toBe(T1);
+  });
+
   it('deduplicates the same posting across runs and enriches instead of duplicating', () => {
     const first = foldInventory([], items(job({ skills: ['Angular'] })), 'run-1', T1);
     const second = foldInventory(first.entries, items(job({ id: 'job-1-b', sourceId: 'other', skills: ['RxJS'] })), 'run-2', T2);

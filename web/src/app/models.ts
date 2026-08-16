@@ -35,6 +35,10 @@ export interface JobInventoryView {
   lastSeenAt: string;
   runCount: number;
   sourceIds: string[];
+  discoveredWith?: {
+    runId: string; capturedAt: string; query: string; regions: string[]; workModels: string[];
+    employmentTypes: string[]; mustHave: string[]; niceToHave: string[]; minSalary?: number; sourceIds: string[];
+  };
   match?: { score: number; accepted: boolean; matchedMustHave: string[]; missingMustHave: string[]; matchedNiceToHave: string[] };
   status: {
     applied: boolean;

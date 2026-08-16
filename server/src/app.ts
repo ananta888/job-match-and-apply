@@ -7,7 +7,7 @@ import { z } from 'zod';
 import { DemoJobSourceAdapter } from './adapters/demo-job-source.js';
 import { LocalApplicationAssistantAdapter } from './adapters/local-application-assistant.js';
 import { assertTrustedHostMcpLaunch, inspectTrustedHostMcpRuntime, McpJobSourceAdapter } from './adapters/mcp-job-source.js';
-import type { AppConfig, ApplicationCaseState, SearchPreferenceMatch } from './domain/models.js';
+import type { AppConfig, ApplicationCaseState, SearchPreferenceMatch, SearchProfile } from './domain/models.js';
 import type { JobSourcePort } from './ports/job-source.js';
 import type { ConfigStore } from './services/config-store.js';
 import { JsonConfigStore, MemoryConfigStore } from './services/config-store.js';
@@ -26,6 +26,16 @@ function inventoryMatch(match: SearchPreferenceMatch) {
     score: match.searchPreferenceScore, accepted: match.accepted,
     matchedMustHave: match.matchedMustHave, missingMustHave: match.missingMustHave,
     matchedNiceToHave: match.matchedNiceToHave,
+  };
+}
+
+/** Durable snapshot of the search settings a job was discovered with. */
+function discoverySettingsFrom(profile: SearchProfile) {
+  return {
+    query: profile.query, regions: [...profile.regions], workModels: [...profile.workModels],
+    employmentTypes: [...profile.employmentTypes], mustHave: [...profile.mustHave],
+    niceToHave: [...profile.niceToHave], sourceIds: [...profile.sourceIds],
+    ...(profile.minSalary !== undefined ? { minSalary: profile.minSalary } : {}),
   };
 }
 import { LocalCandidateProfileAdapter } from './adapters/local-candidate-profile.js';
@@ -2504,7 +2514,7 @@ export function createApp(
     const now = new Date().toISOString();
     const runId = randomUUID();
     const newKeys = fold
-      ? (await workspace.foldJobsIntoInventory(matches.map((match) => ({ job: match.job, match: inventoryMatch(match) })), runId, now)).newKeys
+      ? (await workspace.foldJobsIntoInventory(matches.map((match) => ({ job: match.job, match: inventoryMatch(match) })), runId, now, discoverySettingsFrom(profile))).newKeys
       : [];
     const run = { id: runId, createdAt: now, profile, sourceIds: profile.sourceIds, matches, partialFailures: sourceResult.failures, newInventoryKeys: newKeys };
     await workspace.saveSearchRun(run);
@@ -2517,7 +2527,7 @@ export function createApp(
     if (!run) { response.status(404).json({ error: 'Suchlauf nicht gefunden.' }); return; }
     const now = new Date().toISOString();
     const { newKeys } = await workspace.foldJobsIntoInventory(
-      run.matches.map((match) => ({ job: match.job, match: inventoryMatch(match) })), runId, now,
+      run.matches.map((match) => ({ job: match.job, match: inventoryMatch(match) })), runId, now, discoverySettingsFrom(run.profile),
     );
     await workspace.saveSearchRun({ ...run, newInventoryKeys: [...new Set([...(run.newInventoryKeys ?? []), ...newKeys])] });
     response.json({ runId, total: run.matches.length, added: newKeys.length, duplicates: run.matches.length - newKeys.length });

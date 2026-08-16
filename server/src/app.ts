@@ -593,6 +593,21 @@ function errorClassName(error: unknown): string {
   return (code ? `${name}:${code}` : name).slice(0, 128);
 }
 
+/**
+ * Leaves a trace for a failure the error contract does not describe. The one
+ * line is content-free, because an unexpected error's message can embed private
+ * values. Set JOB_MATCH_ERROR_STACKS=1 to add the full stack on stderr while
+ * reproducing a defect; it never reaches the audit or observability logs.
+ */
+function reportUnexpectedError(route: string, correlationId: string, errorClass: string, error: unknown): void {
+  console.error(`[unexpected-error] ${route} class=${errorClass} correlationId=${correlationId}`);
+  if (process.env.JOB_MATCH_ERROR_STACKS !== '1') return;
+  console.error(error instanceof Error ? error.stack ?? `${error.name}: ${error.message}` : String(error));
+  if (error instanceof Error && error.cause !== undefined) {
+    console.error('caused by:', error.cause instanceof Error ? error.cause.stack ?? error.cause.message : error.cause);
+  }
+}
+
 function agentEventMessage(event: AgentEvent): string | undefined {
   const data = event.data as Record<string, unknown>;
   for (const key of ['text', 'message', 'code', 'phase']) if (typeof data[key] === 'string') return data[key];
@@ -977,10 +992,19 @@ export function createApp(
       // error against the honest status, identified by error class alone.
       const streamErrorClass = typeof response.locals.streamErrorClass === 'string'
         ? response.locals.streamErrorClass : undefined;
+      // Concrete class of a failure the error contract does not model. Without
+      // it every unexpected 500 logged the same constant and told us nothing.
+      const unexpectedErrorClass = typeof response.locals.unexpectedErrorClass === 'string'
+        ? response.locals.unexpectedErrorClass : undefined;
+      const category = safeErrorStage
+        ?? (streamErrorClass ? 'stream_aborted' : undefined)
+        ?? unexpectedErrorClass;
+      const errorClass = streamErrorClass ?? safeErrorStage ?? unexpectedErrorClass
+        ?? (response.statusCode >= 500 ? 'server_error' : undefined);
       void audit.write({
         correlationId, operation: `${request.method} ${request.route?.path ?? request.path}`,
         status: response.statusCode, occurredAt: new Date().toISOString(),
-        ...(safeErrorStage ? { category: safeErrorStage } : streamErrorClass ? { category: 'stream_aborted' } : {}),
+        ...(category ? { category } : {}),
       }).catch(() => undefined);
       void agentApi.observability?.record({
         level: response.statusCode >= 500 || streamErrorClass
@@ -988,11 +1012,7 @@ export function createApp(
         component: 'http', operation: 'request',
         code: safeErrorCode ?? (streamErrorClass ? 'stream_aborted' : `status_${response.statusCode}`),
         correlationId, durationMs: Math.max(0, Date.now() - requestStartedAt),
-        ...(streamErrorClass
-          ? { errorClass: streamErrorClass }
-          : safeErrorStage
-            ? { errorClass: safeErrorStage }
-            : response.statusCode >= 500 ? { errorClass: 'server_error' } : {}),
+        ...(errorClass ? { errorClass } : {}),
       }).catch(() => undefined);
     });
     next();
@@ -3600,6 +3620,14 @@ export function createApp(
     if (safeError || cvAiError) {
       response.locals.safeErrorCode = safeError?.errorCode ?? cvAiError!.code;
       response.locals.safeErrorStage = safeError?.stage ?? `cv_ai_${cvAiError!.stage}`;
+    }
+    // An unmodeled 5xx is a defect: no closed contract describes it, and its
+    // only trace used to be the constant `server_error`, which is the same for
+    // every cause. Keep the concrete error class and leave a diagnostic behind.
+    if (statusCode >= 500 && !safeError && !cvAiError) {
+      const unexpectedClass = errorClassName(error);
+      response.locals.unexpectedErrorClass = unexpectedClass;
+      reportUnexpectedError(`${request.method} ${request.route?.path ?? request.path}`, correlationId, unexpectedClass, error);
     }
     response.status(statusCode).json({
       type: `urn:job-match-and-apply:error:${category}`, title: 'Operation fehlgeschlagen', status: statusCode,

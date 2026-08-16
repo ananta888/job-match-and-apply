@@ -2,7 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import request from 'supertest';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createApp, createDefaultAgentApiDependencies } from './app.js';
 import { AgentLocalObservability } from './agents/local-observability.js';
 import { AGENT_CONTRACT_VERSION, type RuntimeTarget } from './ports/agent-runner.js';
@@ -36,6 +36,71 @@ async function waitForState(app: ReturnType<typeof createApp>, runId: string, st
 }
 
 describe('agent control API', () => {
+  it('identifies an unexpected failure by class without leaking its message', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'unexpected-observability-'));
+    const dependencies = createDefaultAgentApiDependencies(true);
+    dependencies.observability = new AgentLocalObservability(join(root, 'events.jsonl'), root);
+    const audit = new MemoryAuditLogger();
+    const app = createApp(new MemoryConfigStore(), audit, new MemoryWorkspaceStore(), undefined, dependencies);
+
+    const original = dependencies.center.get.bind(dependencies.center);
+    dependencies.center.get = async () => {
+      throw new TypeError("Cannot read properties of undefined (reading 'PRIVATE-VALUE-CANARY')");
+    };
+    const printedLines: string[] = [];
+    const stderr = vi.spyOn(console, 'error')
+      .mockImplementation((...parts: unknown[]) => { printedLines.push(parts.join(' ')); });
+    let failed;
+    try {
+      failed = await request(app).get('/api/agent-runs/11111111-1111-4111-8111-111111111111');
+    } finally {
+      dependencies.center.get = original;
+      stderr.mockRestore();
+    }
+
+    expect(failed.status).toBe(500);
+    expect(failed.text).not.toContain('PRIVATE-VALUE-CANARY');
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    // The concrete class replaces the constant that every 500 used to share.
+    const recorded = await dependencies.observability.readLocal();
+    expect(recorded.at(-1)).toMatchObject({ level: 'error', errorClass: 'typeerror' });
+    expect(audit.events.at(-1)).toMatchObject({ status: 500, category: 'typeerror' });
+    expect(JSON.stringify(recorded)).not.toContain('PRIVATE-VALUE-CANARY');
+    expect(JSON.stringify(audit.events)).not.toContain('PRIVATE-VALUE-CANARY');
+
+    // stderr names the route and class, but not the message, unless asked.
+    const printed = printedLines.join('\n');
+    expect(printed).toContain('[unexpected-error]');
+    expect(printed).toContain('class=typeerror');
+    expect(printed).not.toContain('PRIVATE-VALUE-CANARY');
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it('prints the full stack only when the diagnostic switch is set', async () => {
+    const dependencies = createDefaultAgentApiDependencies(true);
+    const app = createApp(new MemoryConfigStore(), new MemoryAuditLogger(), new MemoryWorkspaceStore(), undefined, dependencies);
+    const original = dependencies.center.get.bind(dependencies.center);
+    dependencies.center.get = async () => { throw new TypeError('STACK-CANARY'); };
+    const printedLines: string[] = [];
+    const stderr = vi.spyOn(console, 'error')
+      .mockImplementation((...parts: unknown[]) => { printedLines.push(parts.join(' ')); });
+    const previous = process.env.JOB_MATCH_ERROR_STACKS;
+    process.env.JOB_MATCH_ERROR_STACKS = '1';
+    try {
+      await request(app).get('/api/agent-runs/11111111-1111-4111-8111-111111111111');
+    } finally {
+      if (previous === undefined) delete process.env.JOB_MATCH_ERROR_STACKS;
+      else process.env.JOB_MATCH_ERROR_STACKS = previous;
+      dependencies.center.get = original;
+      stderr.mockRestore();
+    }
+    const printed = printedLines.join('\n');
+    expect(printed).toContain('class=typeerror');
+    expect(printed).toContain('STACK-CANARY');
+    expect(printed).toMatch(/at .*app\.(ts|js)/);
+  });
+
   it('keeps a streaming response truthful when it fails after its headers were sent', async () => {
     const root = await mkdtemp(join(tmpdir(), 'stream-observability-'));
     const dependencies = createDefaultAgentApiDependencies(true);

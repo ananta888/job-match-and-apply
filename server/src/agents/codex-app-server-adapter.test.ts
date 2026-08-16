@@ -126,6 +126,27 @@ describe('Codex App Server experimental adapter', () => {
     }));
   });
 
+  it('survives a notification it does not map and names it once', async () => {
+    const supervisor = new SyntheticAppServerSupervisor(); const events: AgentEventDraft[] = [];
+    supervisor.autoComplete = false;
+    const adapter = new CodexAppServerAgentAdapter(supervisor, undefined, { requestTimeoutMs: 1_000, userConfigIsolationVerified: true });
+    const handle = await adapter.start(context(events));
+    // Codex 0.147.0 emits this; the protocol defines ~70 notifications against
+    // the dozen mapped here, so failing closed killed the run.
+    supervisor.send({ method: 'remoteControl/status/changed', params: { status: 'connected' } });
+    supervisor.send({ method: 'remoteControl/status/changed', params: { status: 'disconnected' } });
+    supervisor.send({ method: 'thread/goal/updated', params: { goal: 'synthetic' } });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    supervisor.finishTurn();
+
+    expect((await handle.completion).state).toBe('succeeded');
+    const unmapped = events.filter((event) => event.kind === 'warning'
+      && (event.data as { code?: string }).code === 'codex_notification_unmapped');
+    // Reported once per distinct method, not once per notification.
+    expect(unmapped.map((event) => (event.data as { message?: string }).message))
+      .toEqual(['remoteControl/status/changed', 'thread/goal/updated']);
+  });
+
   it('replays the versioned App Server fixture corpus', async () => {
     const fixture = JSON.parse(await readFile(resolve(process.cwd(), '..', 'contracts', 'fixtures', 'v1', 'codex-app-server-events.json'), 'utf8')) as {
       notifications: Array<{ method: string; params: unknown }>;
@@ -232,14 +253,26 @@ describe('Codex App Server experimental adapter', () => {
     }));
   });
 
-  it('fails closed for unknown notification and item types', async () => {
-    expect(() => mapCodexAppServerNotification('future/event', {})).toThrow('Unbekanntes');
+  it('fails closed for an unknown item type but not for an unknown notification', async () => {
+    // An unmapped notification is skipped: it is one-way, the protocol defines
+    // far more of them than are mapped, and a new one must not kill a run.
+    const seen: string[] = [];
+    expect(mapCodexAppServerNotification('future/event', {}, (method) => seen.push(method))).toEqual([]);
+    expect(seen).toEqual(['future/event']);
+    // An unknown item inside a mapped notification stays fatal: it carries the
+    // turn's actual content, so guessing at it would fabricate a result.
     expect(() => mapCodexAppServerNotification('item/completed', { item: { id: 'x', type: 'futureItem' } })).toThrow('Unbekannter');
+
     const supervisor = new SyntheticAppServerSupervisor(); supervisor.autoComplete = false;
     const adapter = new CodexAppServerAgentAdapter(supervisor, undefined, { requestTimeoutMs: 1_000, userConfigIsolationVerified: true });
-    const handle = await adapter.start(context([]));
+    const events: AgentEventDraft[] = [];
+    const handle = await adapter.start(context(events));
     supervisor.send({ method: 'future/event', params: { secret: 'not-forwarded' } });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    supervisor.send({ method: 'item/completed', params: { item: { id: 'x', type: 'futureItem' } } });
     expect(await handle.completion).toMatchObject({ state: 'failed', failure: { code: 'codex_app_server_protocol_error', retryable: false } });
+    // The skipped notification's payload is never forwarded.
+    expect(JSON.stringify(events)).not.toContain('not-forwarded');
   });
 
   it('falls back to codex exec for an unknown version before spawning app-server', async () => {

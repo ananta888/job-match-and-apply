@@ -87,6 +87,7 @@ interface AppServerRun {
   emitQueue: Promise<void>;
   nextRpcId: number;
   dynamicToolNames: Map<string, string>;
+  unknownNotifications: Set<string>;
   isolatedCodexHome?: { path: string; dispose(): Promise<void> };
 }
 
@@ -267,8 +268,22 @@ function itemDrafts(method: 'item/started' | 'item/completed', params: JsonObjec
   }
 }
 
-/** Maps only methods documented by the v2 App Server contract. Unknown methods throw fail-closed. */
-export function mapCodexAppServerNotification(method: string, paramsValue: unknown): AgentEventDraft[] {
+/**
+ * Maps the notification methods this adapter understands.
+ *
+ * Unknown methods are reported and skipped rather than treated as fatal. A
+ * notification is one-way and carries no obligation, and the protocol defines
+ * around seventy of them against the dozen mapped here, so failing closed meant
+ * any Codex release that emitted an unmapped one killed the run — which is what
+ * `remoteControl/status/changed` did. Server *requests* keep failing closed:
+ * they carry an id, are dispatched elsewhere, and ignoring one would leave the
+ * provider waiting or let a turn proceed without its answer.
+ */
+export function mapCodexAppServerNotification(
+  method: string,
+  paramsValue: unknown,
+  onUnknown?: (method: string) => void,
+): AgentEventDraft[] {
   const params = object(paramsValue) ?? {};
   switch (method) {
     case 'thread/started': {
@@ -334,7 +349,8 @@ export function mapCodexAppServerNotification(method: string, paramsValue: unkno
     case 'turn/completed':
       return [];
     default:
-      throw new CodexAppServerProtocolError(`Unbekanntes Codex App Server Ereignis: ${method}`);
+      onUnknown?.(method);
+      return [];
   }
 }
 
@@ -554,7 +570,14 @@ export class CodexAppServerAgentAdapter implements AgentRunnerPort {
         void run.process.cancel('Codex App Server Turn abgeschlossen.');
         return;
       }
-      for (const draft of mapCodexAppServerNotification(method, message.params)) this.queue(run, draft);
+      // Report each unmapped method once per run; delta-style notifications
+      // arrive continuously and would otherwise flood the event log.
+      const drafts = mapCodexAppServerNotification(method, message.params, (unknown) => {
+        if (run.unknownNotifications.has(unknown)) return;
+        run.unknownNotifications.add(unknown);
+        this.queue(run, { kind: 'warning', data: { code: 'codex_notification_unmapped', message: unknown } });
+      });
+      for (const draft of drafts) this.queue(run, draft);
     } catch (error) { this.protocolFailure(run, error as Error); }
   }
 
@@ -612,6 +635,7 @@ export class CodexAppServerAgentAdapter implements AgentRunnerPort {
       context, process: processHandle, parser, pending: new Map(), approvals: new Map(),
       emitQueue: Promise.resolve(), nextRpcId: 1,
       dynamicToolNames: new Map((context.domainTools?.listTools() ?? []).map((tool) => [dynamicToolName(tool.name), tool.name])),
+      unknownNotifications: new Set<string>(),
       isolatedCodexHome: isolatedHome,
     };
     this.active.set(context.runId, run);

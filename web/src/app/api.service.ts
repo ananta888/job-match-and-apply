@@ -9,6 +9,11 @@ export class ApiService {
 
   config(): Observable<AppConfig> { return this.http.get<AppConfig>('/api/config'); }
   saveConfig(config: AppConfig): Observable<AppConfig> { return this.http.put<AppConfig>('/api/config', config); }
+  deleteIdentity(identityId: string): Observable<{ removed: number; remainingActiveIdentityId: string }> {
+    return this.http.delete<{ removed: number; remainingActiveIdentityId: string }>(
+      `/api/identities/${encodeURIComponent(identityId)}`, { body: { confirmation: `DELETE identity ${identityId}` } }
+    );
+  }
   setMcpPortalAccess(enabled: boolean, expectedRevision: number): Observable<AppConfig> {
     return this.http.put<AppConfig>('/api/config/mcp/portal-access', { enabled, confirmed: true, expectedRevision });
   }
@@ -35,6 +40,11 @@ export class ApiService {
     return this.http.put<JobDecision>(`/api/job-decisions/${encodeURIComponent(jobId)}`, { state });
   }
   jobInventory(): Observable<JobInventoryView[]> { return this.http.get<JobInventoryView[]>('/api/job-inventory'); }
+  deleteJobInventory(key: string): Observable<{ removed: number }> {
+    return this.http.delete<{ removed: number }>(`/api/job-inventory/${encodeURIComponent(key)}`, {
+      body: { confirmation: `DELETE job-inventory ${key}` }
+    });
+  }
   setJobInventoryCategory(key: string, category: JobInventoryCategory): Observable<JobInventoryView> {
     return this.http.put<JobInventoryView>(`/api/job-inventory/${encodeURIComponent(key)}/category`, { category });
   }
@@ -51,6 +61,11 @@ export class ApiService {
   dataInventory(): Observable<DataInventory> { return this.http.get<DataInventory>('/api/data/inventory'); }
   portableExport(): Observable<Record<string, unknown>> { return this.http.post<Record<string, unknown>>('/api/data/export', { includeIdentities: false, confirmed: false }); }
   schedules(): Observable<SearchSchedule[]> { return this.http.get<SearchSchedule[]>('/api/search-schedules'); }
+  deleteSearchSchedule(id: string): Observable<{ removed: number }> {
+    return this.http.delete<{ removed: number }>(`/api/search-schedules/${encodeURIComponent(id)}`, {
+      body: { confirmation: `DELETE search-schedule ${id}` }
+    });
+  }
   createSchedule(profile: SearchProfile): Observable<SearchSchedule> {
     return this.http.post<SearchSchedule>('/api/search-schedules', { name: `${profile.name} – lokal`, enabled: false, profile, intervalMinutes: 1440, quietHours: { start: 22, end: 7, timeZone: 'Europe/Berlin' } });
   }
@@ -166,6 +181,12 @@ export class ApiService {
       { expectedRunRevision: run.revision, expectedRunSha256: run.sha256, confirmed: true }
     );
   }
+  deleteCvAiRun(importId: string, run: CvAiStructuringPublicRun): Observable<{ removed: number; id: string }> {
+    return this.http.delete<{ removed: number; id: string }>(
+      `/api/cv-imports/${encodeURIComponent(importId)}/ai-structuring/runs/${encodeURIComponent(run.id)}`,
+      { body: { expectedRunRevision: run.revision, expectedRunSha256: run.sha256, confirmed: true } }
+    );
+  }
   retryCvAiStructuring(
     current: CvImportRecord,
     run: CvAiStructuringPublicRun,
@@ -249,6 +270,11 @@ export class ApiService {
     return this.http.post<{ valid: boolean; errors: string[] }>('/api/applications/validate-match', { matrix, documentType });
   }
   applicationCases(): Observable<ApplicationCase[]> { return this.http.get<ApplicationCase[]>('/api/application-cases'); }
+  deleteApplicationCase(id: string): Observable<{ removed: number; id: string; cascade: { events: number; trackingEvents: number; artifacts: number } }> {
+    return this.http.delete<{ removed: number; id: string; cascade: { events: number; trackingEvents: number; artifacts: number } }>(
+      `/api/application-cases/${encodeURIComponent(id)}`, { body: { confirmation: `DELETE application-case ${id}` } }
+    );
+  }
   agentProviders(refresh = false): Observable<AgentProvider[]> {
     return this.http.get<AgentProvider[]>(refresh ? '/api/agents/providers?refresh=true' : '/api/agents/providers');
   }

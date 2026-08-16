@@ -165,7 +165,7 @@
           <section class="jobs-board" data-testid="jobs-board">
             @for (category of jobCategories; track category) {
               <div class="jobs-column" [attr.data-category]="category">
-                <header><h3>{{ jobCategoryLabel(category) }}</h3><span class="count">{{ jobsInCategory(category).length }}</span></header>
+                <header><h3>{{ jobCategoryLabel(category) }}</h3><span class="count">{{ jobsInCategory(category).length }}</span>@if (jobsInCategory(category).length) { <button class="text-button" type="button" (click)="deleteJobsInCategory(category)" [disabled]="jobsBusy" [title]="'Alle Jobs in ' + jobCategoryLabel(category) + ' löschen'">Alle löschen</button> }</header>
                 @for (entry of jobsInCategory(category); track entry.key) {
                   <article class="job-inventory-card" [class.applied]="entry.status.applied">
                     <div class="job-inventory-head">
@@ -207,6 +207,7 @@
                         <button class="secondary compact" type="button" (click)="toggleJobApplied(entry)">{{ entry.status.manualApplied ? 'Beworben-Markierung entfernen' : 'Als beworben markieren' }}</button>
                         @if (entry.job.url) { <a class="secondary compact" [href]="entry.job.url" target="_blank" rel="noopener noreferrer">Stelle öffnen ↗</a> }
                         <button class="primary compact" type="button" (click)="startApplicationFromInventory(entry)" [disabled]="jobsBusy">Bewerbung anlegen →</button>
+                        <button class="danger-button compact" type="button" (click)="deleteJob(entry)" [disabled]="jobsBusy">Löschen</button>
                       </div>
                     </div>
                   </article>
@@ -234,7 +235,7 @@
               <button class="secondary compact" type="button" (click)="revealSensitiveIdentity = !revealSensitiveIdentity" [attr.aria-pressed]="revealSensitiveIdentity">{{ revealSensitiveIdentity ? 'Sensible Werte verbergen' : 'Sensible Werte bewusst anzeigen' }}</button>
               <div class="form-grid"><label>Anzeigename<input [(ngModel)]="identity.label"></label><label>Vollständiger Name<input [type]="revealSensitiveIdentity ? 'text' : 'password'" [(ngModel)]="identity.fullName"></label><label>E-Mail<input [type]="revealSensitiveIdentity ? 'email' : 'password'" [(ngModel)]="identity.email"></label><label>Telefon<input [type]="revealSensitiveIdentity ? 'tel' : 'password'" [(ngModel)]="identity.phone"></label><label>Ort<input [type]="revealSensitiveIdentity ? 'text' : 'password'" [(ngModel)]="identity.location"></label><label>LinkedIn / Profil-URL<input [type]="revealSensitiveIdentity ? 'url' : 'password'" [(ngModel)]="identity.linkedin"></label></div>
               <h4>Platzhalter-Vorschau</h4><div class="placeholder-grid">@for (entry of identity.placeholders | keyvalue; track entry.key) { <div><code>{{ entry.key }}</code><span>→</span><strong>{{ entry.value }}</strong></div> }</div>
-              <div class="form-footer"><p>Diese Daten werden verschlüsselt unter <code>.local-data/</code> gespeichert.</p><button class="primary" (click)="saveConfig('Identität gespeichert.')">Änderungen speichern</button></div>
+              <div class="form-footer"><p>Diese Daten werden verschlüsselt unter <code>.local-data/</code> gespeichert.</p><div class="form-footer-actions"><button class="danger-button" type="button" (click)="deleteIdentity(identity)" [disabled]="busy || config.identities.length <= 1" [title]="config.identities.length <= 1 ? 'Die letzte Identität kann nicht gelöscht werden.' : 'Diese Identität löschen'">Identität löschen</button><button class="primary" (click)="saveConfig('Identität gespeichert.')">Änderungen speichern</button></div></div>
             </article>
           }
         </section>
@@ -533,7 +534,7 @@
                 }
 
                 @if (cvAiRuns.length) {
-                  <div class="cv-ai-history"><label for="cv-ai-run-select">Gespeicherter AI-Lauf</label><select id="cv-ai-run-select" data-testid="cv-ai-run-select" [ngModel]="cvAiRun?.id || ''" (ngModelChange)="selectCvAiRun($event)" [disabled]="cvAiBusy"><option value="">Bitte wählen</option>@for (run of cvAiRuns; track run.id) { <option [value]="run.id">Versuch {{ run.attempt }} · {{ cvAiRunStatusLabel(run.status, run) }} · {{ run.updatedAt | date:'short' }}</option> }</select></div>
+                  <div class="cv-ai-history"><label for="cv-ai-run-select">Gespeicherter AI-Lauf</label><div class="cv-ai-history-row"><select id="cv-ai-run-select" data-testid="cv-ai-run-select" [ngModel]="cvAiRun?.id || ''" (ngModelChange)="selectCvAiRun($event)" [disabled]="cvAiBusy"><option value="">Bitte wählen</option>@for (run of cvAiRuns; track run.id) { <option [value]="run.id">Versuch {{ run.attempt }} · {{ cvAiRunStatusLabel(run.status, run) }} · {{ run.updatedAt | date:'short' }}</option> }</select>@if (cvAiRun; as run) { <button class="danger-button compact" type="button" (click)="deleteCvAiRun(run)" [disabled]="cvAiBusy">Lauf löschen</button> }</div></div>
                 }
 
                 @if (cvAiRun; as run) {
@@ -864,7 +865,7 @@
             @if (applicationCases.length) {
               <section class="panel application-cases" style="margin-top:18px"><span class="kicker">LOKALER WORKFLOW</span><h3>Bewerbungsfälle</h3>
                 @for (item of applicationCases; track item.id) {
-                  <div class="summary-row" [class.selected-case]="selectedApplicationCaseId === item.id"><span>▤</span><div class="summary-main"><small>{{ item.state }} · Fallrevision {{ item.revision }}</small><p>{{ item.job.title }} bei {{ item.job.company }} · {{ item.identityMode }}</p></div><button class="secondary compact" type="button" (click)="selectApplicationCase(item)">Werkstatt öffnen</button>@if (nextApplicationState(item); as next) { <button class="secondary compact" type="button" (click)="advanceApplication(item)" [disabled]="busy">Weiter: {{ next }}</button> } @else if (item.identityMode === 'incognito') { <span class="status">Finalisierung gesperrt</span> } @else if (item.state === 'review') { <span class="status">Pipeline-Revision erforderlich</span> } @else if (item.state === 'approved') { <span class="status ok">Exportbereit</span> }</div>
+                  <div class="summary-row" [class.selected-case]="selectedApplicationCaseId === item.id"><span>▤</span><div class="summary-main"><small>{{ item.state }} · Fallrevision {{ item.revision }}</small><p>{{ item.job.title }} bei {{ item.job.company }} · {{ item.identityMode }}</p></div><button class="secondary compact" type="button" (click)="selectApplicationCase(item)">Werkstatt öffnen</button>@if (nextApplicationState(item); as next) { <button class="secondary compact" type="button" (click)="advanceApplication(item)" [disabled]="busy">Weiter: {{ next }}</button> } @else if (item.identityMode === 'incognito') { <span class="status">Finalisierung gesperrt</span> } @else if (item.state === 'review') { <span class="status">Pipeline-Revision erforderlich</span> } @else if (item.state === 'approved') { <span class="status ok">Exportbereit</span> }<button class="danger-button compact" type="button" (click)="deleteApplicationCaseRow(item)" [disabled]="busy">Löschen</button></div>
                 }
               </section>
             }
@@ -1382,7 +1383,7 @@
             @if (exportPreview) { <div class="info-box"><strong>Export erstellt</strong><p>Personenbezogene Identitäten wurden ausgeschlossen. Die Vorschau bleibt nur im Arbeitsspeicher dieser Seite.</p></div> }
           </article>
           <article class="panel"><div class="panel-head"><div><span class="kicker">SUCHPLÄNE</span><h3>Standardmäßig deaktiviert</h3></div><button class="secondary compact" type="button" (click)="createDisabledSchedule()">Deaktivierten Plan anlegen</button></div>
-            @for (schedule of schedules; track schedule.id) { <div class="summary-row"><span>{{ schedule.enabled ? '●' : '○' }}</span><div><strong>{{ schedule.name }}</strong><small>{{ schedule.enabled ? 'aktiv' : 'deaktiviert' }} · alle {{ schedule.intervalMinutes }} Minuten</small></div></div> }
+            @for (schedule of schedules; track schedule.id) { <div class="summary-row"><span>{{ schedule.enabled ? '●' : '○' }}</span><div><strong>{{ schedule.name }}</strong><small>{{ schedule.enabled ? 'aktiv' : 'deaktiviert' }} · alle {{ schedule.intervalMinutes }} Minuten</small></div><button class="danger-button compact" type="button" (click)="deleteSchedule(schedule)">Löschen</button></div> }
             <div class="warning-box"><strong>Aufbewahrung ausführen</strong><p>Entfernt alte Suchläufe, abgeschlossene Fälle, erledigte Reminder und alte Vergleichsnotizen. Aktive Fälle und gemerkte Stellen bleiben erhalten.</p><label>Tage<input type="number" min="1" max="3650" [(ngModel)]="retentionDays"></label><button class="secondary" type="button" (click)="applyRetentionPolicy()">Bewusst anwenden</button></div>
           </article>
         </section>

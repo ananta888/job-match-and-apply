@@ -1968,6 +1968,20 @@ export class App implements OnInit, OnDestroy {
     });
   }
 
+  deleteIdentity(identity: IdentityProfile): void {
+    if (!this.config || this.busy) return;
+    if (this.config.identities.length <= 1) { this.error = 'Die letzte Identität kann nicht gelöscht werden.'; this.refreshView(); return; }
+    if (!confirm(`Identität „${identity.label}“ endgültig löschen?`)) return;
+    this.busy = true; this.error = ''; this.notice = '';
+    this.api.deleteIdentity(identity.id).subscribe({
+      next: () => this.api.config().subscribe({
+        next: (config) => { this.config = this.normalizeConfigForUi(config); this.busy = false; this.notice = 'Identität gelöscht.'; this.refreshView(); },
+        error: (error) => this.fail(error)
+      }),
+      error: (error) => this.fail(error)
+    });
+  }
+
   runSearch(): void {
     if (!this.config) return;
     this.busy = true; this.error = ''; this.notice = '';
@@ -2027,6 +2041,38 @@ export class App implements OnInit, OnDestroy {
       },
       error: (error) => { this.jobsError = this.message(error); this.refreshView(); }
     });
+  }
+
+  deleteJob(entry: JobInventoryView): void {
+    if (this.jobsBusy) return;
+    if (!confirm(`„${entry.job.title}" (${entry.job.company}) aus der zentralen Liste löschen?`)) return;
+    this.jobsBusy = true; this.jobsError = ''; this.jobsNotice = '';
+    this.api.deleteJobInventory(entry.key).subscribe({
+      next: () => { this.jobInventory = this.jobInventory.filter((item) => item.key !== entry.key); this.jobsBusy = false; this.jobsNotice = 'Job gelöscht.'; this.refreshView(); },
+      error: (error) => { this.jobsBusy = false; this.jobsError = this.message(error); this.refreshView(); }
+    });
+  }
+
+  deleteJobsInCategory(category: JobInventoryCategory): void {
+    if (this.jobsBusy) return;
+    const targets = this.jobsInCategory(category);
+    if (!targets.length) return;
+    if (!confirm(`Alle ${targets.length} Jobs in „${this.jobCategoryLabel(category)}" löschen?`)) return;
+    this.jobsBusy = true; this.jobsError = ''; this.jobsNotice = '';
+    let removed = 0; const failed: string[] = [];
+    const runNext = (index: number): void => {
+      if (index >= targets.length) {
+        this.jobsBusy = false; this.jobsNotice = `${removed} Job(s) gelöscht.`;
+        if (failed.length) this.jobsError = `${failed.length} nicht gelöscht.`;
+        this.refreshView(); return;
+      }
+      const target = targets[index]!;
+      this.api.deleteJobInventory(target.key).subscribe({
+        next: () => { removed += 1; this.jobInventory = this.jobInventory.filter((item) => item.key !== target.key); runNext(index + 1); },
+        error: () => { failed.push(target.job.title); runNext(index + 1); }
+      });
+    };
+    runNext(0);
   }
 
   startApplicationFromInventory(entry: JobInventoryView): void {
@@ -2176,6 +2222,22 @@ export class App implements OnInit, OnDestroy {
 
   selectedApplicationCase(): ApplicationCase | undefined {
     return this.applicationCases.find((item) => item.id === this.selectedApplicationCaseId);
+  }
+
+  deleteApplicationCaseRow(item: ApplicationCase): void {
+    if (this.busy) return;
+    if (!confirm(`Bewerbungsfall „${item.job.company} · ${item.job.title}“ samt Artefakten und Tracking endgültig löschen?`)) return;
+    this.busy = true; this.error = ''; this.notice = '';
+    this.api.deleteApplicationCase(item.id).subscribe({
+      next: (result) => {
+        this.busy = false;
+        this.applicationCases = this.applicationCases.filter((entry) => entry.id !== item.id);
+        if (this.selectedApplicationCaseId === item.id) this.selectedApplicationCaseId = undefined;
+        this.notice = `Bewerbungsfall gelöscht (${result.cascade.artifacts} Artefakt(e), ${result.cascade.trackingEvents} Tracking, ${result.cascade.events} Status).`;
+        this.refreshView();
+      },
+      error: (error) => { this.busy = false; this.fail(error); }
+    });
   }
 
   selectApplicationCase(application: ApplicationCase): void {
@@ -2409,6 +2471,13 @@ export class App implements OnInit, OnDestroy {
   createDisabledSchedule(): void {
     if (!this.config) return;
     this.api.createSchedule(this.config.searchProfile).subscribe({ next: (schedule) => { this.schedules.unshift(schedule); this.notice = 'Suchplan wurde sicher deaktiviert angelegt.'; this.refreshView(); }, error: (error) => this.fail(error) });
+  }
+  deleteSchedule(schedule: SearchSchedule): void {
+    if (!confirm(`Suchplan „${schedule.name}“ löschen?`)) return;
+    this.api.deleteSearchSchedule(schedule.id).subscribe({
+      next: () => { this.schedules = this.schedules.filter((item) => item.id !== schedule.id); this.notice = 'Suchplan gelöscht.'; this.refreshView(); },
+      error: (error) => this.fail(error)
+    });
   }
   previewPortableExport(): void { this.api.portableExport().subscribe({ next: (value) => { this.exportPreview = value; this.notice = 'Portabler Export ohne Identitäten erstellt.'; this.refreshView(); }, error: (error) => this.fail(error) }); }
   applyRetentionPolicy(): void { this.api.runRetention(this.retentionDays).subscribe({ next: () => { this.notice = 'Bestätigte Aufbewahrungsregel wurde lokal ausgeführt.'; this.loadOperations(); }, error: (error) => this.fail(error) }); }
@@ -2943,6 +3012,23 @@ export class App implements OnInit, OnDestroy {
         this.cvAiBusy = false; this.setCvAiRun(fresh);
         this.cvAiNotice = 'Abbruch wurde angefordert. Der deterministische Import bleibt erhalten.';
         this.focusCvAiStatus(); this.refreshView();
+      },
+      error: (error) => this.failCvAi(error)
+    });
+  }
+
+  deleteCvAiRun(run: CvAiStructuringPublicRun): void {
+    const current = this.cvImport;
+    if (!current || this.cvAiBusy) return;
+    if (!confirm(`Diesen AI-Lauf (Versuch ${run.attempt}) endgültig löschen?`)) return;
+    this.cvAiBusy = true; this.cvAiError = '';
+    this.api.deleteCvAiRun(current.id, run).subscribe({
+      next: () => {
+        this.cvAiBusy = false;
+        this.cvAiRuns = this.cvAiRuns.filter((item) => item.id !== run.id);
+        if (this.cvAiRun?.id === run.id) this.setCvAiRun(undefined);
+        this.cvAiNotice = 'AI-Lauf gelöscht.';
+        this.refreshView();
       },
       error: (error) => this.failCvAi(error)
     });

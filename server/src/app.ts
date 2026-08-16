@@ -3346,6 +3346,37 @@ export function createApp(
     response.json(publicCvImportRecord(await (await cvImports()).adopt(id, payload.expectedRevision, payload.expectedSha256)));
   }));
 
+  app.get('/api/cv-imports/:importId/adoption/revocable', asyncRoute(async (request, response) => {
+    const id = z.string().uuid().parse(request.params.importId);
+    response.setHeader('cache-control', 'no-store');
+    response.json(await (await cvImports()).revocableAdoptions(id));
+  }));
+
+  app.post('/api/cv-imports/:importId/adoption/revoke', asyncRoute(async (request, response) => {
+    const id = z.string().uuid().parse(request.params.importId);
+    const payload = cvCasSchema.extend({ transactionId: z.string().regex(/^[a-f0-9]{32}$/) }).parse(request.body);
+    response.setHeader('cache-control', 'no-store');
+    response.json(publicCvImportRecord(await (await cvImports()).revokeAdoption(
+      id, payload.expectedRevision, payload.expectedSha256, payload.transactionId,
+    )));
+  }));
+
+  app.get('/api/cv-imports/:importId/profile-snapshots', asyncRoute(async (request, response) => {
+    const id = z.string().uuid().parse(request.params.importId);
+    response.setHeader('cache-control', 'no-store');
+    response.json(await (await cvImports()).profileSnapshots(id));
+  }));
+
+  app.post('/api/cv-imports/:importId/profile-snapshots/:snapshotId/restore', asyncRoute(async (request, response) => {
+    const id = z.string().uuid().parse(request.params.importId);
+    const snapshotId = z.string().regex(/^profile-snapshot-[a-f0-9]{16}$/).parse(request.params.snapshotId);
+    const payload = cvCasSchema.parse(request.body);
+    response.setHeader('cache-control', 'no-store');
+    response.json(publicCvImportRecord(await (await cvImports()).restoreProfileSnapshot(
+      id, payload.expectedRevision, payload.expectedSha256, snapshotId,
+    )));
+  }));
+
   app.post('/api/application-cases/:caseId/cv-proposals', asyncRoute(async (request, response) => {
     const caseId = z.string().uuid().parse(request.params.caseId);
     const payload = cvCasSchema.extend({

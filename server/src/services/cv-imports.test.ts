@@ -4,7 +4,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import JSZip from 'jszip';
-import type { CvFact, CvNormalizationEnvelope, CvNormalizationPort, CvTheme } from '../ports/cv-normalization.js';
+import type {
+  CvAdoptionLedgerEntry, CvFact, CvNormalizationEnvelope, CvNormalizationPort, CvProfileSnapshot, CvTheme,
+} from '../ports/cv-normalization.js';
 import {
   CvImportService, JsonCvImportRepository, MemoryCvImportRepository, pdfExtractionWarnings, type CvImportRecord,
   publicCvImportRecord, publicCvImportSummary,
@@ -50,6 +52,35 @@ class FakeNormalization implements CvNormalizationPort {
       adoptedClaimIds: this.adopted.map((fact) => fact.claimId ?? `claim-${fact.id}`),
       adoptedRecordIds: [...new Set(this.adopted.map((fact) => fact.recordId))],
       candidateProfileSha256: 'a'.repeat(64), candidateProfileRevision: `sha256:${'a'.repeat(64)}`,
+      transactionId: this.transactionId, replacedSnapshotId: 'profile-snapshot-' + 'b'.repeat(16),
+    };
+  }
+  transactionId = 'c'.repeat(32);
+  ledger: CvAdoptionLedgerEntry[] = [];
+  revoked: string[] = [];
+  restored: string[] = [];
+  snapshots: CvProfileSnapshot[] = [];
+  async adoptionLedger() {
+    return { candidateProfileSha256: 'a'.repeat(64), adoptions: structuredClone(this.ledger) };
+  }
+  async revokeAdoption(input: { transactionId: string }) {
+    this.revoked.push(input.transactionId);
+    this.ledger = this.ledger.filter((entry) => entry.transactionId !== input.transactionId);
+    return {
+      contract: 'cv-profile-adoption-revocation' as const, contractVersion: '1.0' as const,
+      revokedTransactionId: input.transactionId, revokedClaimIds: [], revokedRecordIds: [],
+      candidateProfileSha256: 'd'.repeat(64), candidateProfileRevision: `sha256:${'d'.repeat(64)}`,
+    };
+  }
+  async profileSnapshots() {
+    return { candidateProfileSha256: 'a'.repeat(64), snapshots: structuredClone(this.snapshots) };
+  }
+  async restoreProfileSnapshot(input: { snapshotId: string }) {
+    this.restored.push(input.snapshotId);
+    return {
+      contract: 'cv-profile-snapshot-restore' as const, contractVersion: '1.0' as const,
+      snapshotId: input.snapshotId,
+      candidateProfileSha256: 'e'.repeat(64), candidateProfileRevision: `sha256:${'e'.repeat(64)}`,
     };
   }
 }
@@ -247,6 +278,88 @@ describe('CV import service', () => {
       { factId: 'fact-role', action: 'reject' },
     ])).rejects.toMatchObject({ statusCode: 409 });
     await expect(service.adopt(adopted.id, adopted.revision, adopted.sha256)).rejects.toMatchObject({ statusCode: 409 });
+  });
+
+  it('offers only this import\'s own adoptions as revocable', async () => {
+    const { service, fake, record } = await imported();
+    const reviewed = await service.review(record.id, record.revision, record.sha256, [
+      { factId: 'fact-role', action: 'confirm' }, { factId: 'fact-company', action: 'confirm' },
+    ]);
+    const entry = (sourceSha256: string, transactionId: string): CvAdoptionLedgerEntry => ({
+      transactionId, occurredAt: '2026-08-15T10:28:58.136Z', sourceSha256,
+      claimCount: 2, presentClaimCount: 2,
+    });
+    fake.ledger = [entry(reviewed.source.sha256, 'c'.repeat(32)), entry('9'.repeat(64), 'a'.repeat(32))];
+
+    const revocable = await service.revocableAdoptions(reviewed.id);
+    expect(revocable.adoptions.map((item) => item.transactionId)).toEqual(['c'.repeat(32)]);
+
+    // A transaction from another source must never be revocable through this import.
+    await expect(service.revokeAdoption(
+      reviewed.id, reviewed.revision, reviewed.sha256, 'a'.repeat(32),
+    )).rejects.toMatchObject({ statusCode: 409 });
+    expect(fake.revoked).toEqual([]);
+  });
+
+  it('revokes a committed adoption and reopens the import for a fresh adoption', async () => {
+    const { service, fake, record } = await imported();
+    const reviewed = await service.review(record.id, record.revision, record.sha256, [
+      { factId: 'fact-role', action: 'confirm' }, { factId: 'fact-company', action: 'confirm' },
+    ]);
+    const adopted = await service.adopt(reviewed.id, reviewed.revision, reviewed.sha256);
+    expect(adopted.adoption?.transactionId).toBe('c'.repeat(32));
+    expect(adopted.adoption?.replacedSnapshotId).toBe('profile-snapshot-' + 'b'.repeat(16));
+    fake.ledger = [{
+      transactionId: 'c'.repeat(32), occurredAt: '2026-08-15T10:28:58.136Z',
+      sourceSha256: adopted.source.sha256, claimCount: 2, presentClaimCount: 2,
+    }];
+
+    const revoked = await service.revokeAdoption(
+      adopted.id, adopted.revision, adopted.sha256, 'c'.repeat(32),
+    );
+    expect(fake.revoked).toEqual(['c'.repeat(32)]);
+    expect(revoked.adoption).toBeUndefined();
+    expect(revoked.status).toBe('facts_reviewed');
+
+    // Reopened: adopting again is allowed instead of blocked as a duplicate.
+    const readopted = await service.adopt(revoked.id, revoked.revision, revoked.sha256);
+    expect(readopted.status).toBe('adopted');
+  });
+
+  it('rejects a stale CAS and an unknown transaction before touching the profile', async () => {
+    const { service, fake, record } = await imported();
+    const reviewed = await service.review(record.id, record.revision, record.sha256, [
+      { factId: 'fact-role', action: 'confirm' }, { factId: 'fact-company', action: 'confirm' },
+    ]);
+    await expect(service.revokeAdoption(
+      reviewed.id, reviewed.revision + 1, reviewed.sha256, 'c'.repeat(32),
+    )).rejects.toMatchObject({ statusCode: 409 });
+    await expect(service.revokeAdoption(
+      reviewed.id, reviewed.revision, reviewed.sha256, 'c'.repeat(32),
+    )).rejects.toMatchObject({ statusCode: 409 });
+    expect(fake.revoked).toEqual([]);
+  });
+
+  it('drops the adoption proof when the profile is rolled back to a snapshot', async () => {
+    const { service, fake, record } = await imported();
+    const reviewed = await service.review(record.id, record.revision, record.sha256, [
+      { factId: 'fact-role', action: 'confirm' }, { factId: 'fact-company', action: 'confirm' },
+    ]);
+    const adopted = await service.adopt(reviewed.id, reviewed.revision, reviewed.sha256);
+    const snapshot: CvProfileSnapshot = {
+      id: 'profile-snapshot-' + 'b'.repeat(16), createdAt: '2026-08-15T10:28:58.136Z',
+      candidateProfileSha256: 'f'.repeat(64), byteSize: 1_024, reason: 'pre_adoption',
+      claimCount: 4, current: false,
+    };
+    fake.snapshots = [snapshot];
+
+    expect((await service.profileSnapshots(adopted.id)).snapshots).toEqual([snapshot]);
+    const restored = await service.restoreProfileSnapshot(
+      adopted.id, adopted.revision, adopted.sha256, snapshot.id,
+    );
+    expect(fake.restored).toEqual([snapshot.id]);
+    expect(restored.adoption).toBeUndefined();
+    expect(restored.status).toBe('facts_reviewed');
   });
 
   it('validates user facts before persistence, caps the final fact set and blocks unresolved conflicts', async () => {

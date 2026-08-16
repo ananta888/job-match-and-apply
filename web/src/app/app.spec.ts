@@ -375,6 +375,16 @@ describe('App', () => {
       cvRecognitionVersions: vi.fn().mockImplementation((current: CvImportRecord) => of(cvRecognitionVersionsFixture(current))),
       activateCvRecognitionVersion: vi.fn(),
       confirmCvRecognitionVersion: vi.fn(),
+      revocableCvAdoptions: vi.fn().mockImplementation((current: CvImportRecord) => of({
+        contract: 'cv-adoption-revocation-candidates', contractVersion: '1.0',
+        importId: current.id, candidateProfileSha256: 'a'.repeat(64), adoptions: []
+      })),
+      revokeCvAdoption: vi.fn(),
+      cvProfileSnapshots: vi.fn().mockImplementation((current: CvImportRecord) => of({
+        contract: 'cv-profile-snapshot-list', contractVersion: '1.0',
+        importId: current.id, candidateProfileSha256: 'a'.repeat(64), snapshots: []
+      })),
+      restoreCvProfileSnapshot: vi.fn(),
       cvAiStructuringOptions: vi.fn().mockImplementation((current: CvImportRecord) => of(cvAiOptionsFixture(current))),
       cvAiStructuringRuns: vi.fn().mockReturnValue(of([])),
       cvAiStructuringRun: vi.fn(),
@@ -1344,6 +1354,135 @@ describe('App', () => {
     expect(element.querySelector('nav[aria-label="Lebenslauf-Schritte"] [aria-current="step"]')?.textContent).toContain('Fakten');
     expect(element.querySelector('[data-testid="cv-facts-step"]')?.textContent).toContain('Ungeprüft');
     expect(component.cvImport?.source.retention).toBe('upload_deleted_after_local_extraction');
+    fixture.destroy();
+  });
+
+  it('offers claim management only when the profile still holds a revocable adoption', async () => {
+    const current = cvImportFixture();
+    const confirmed = { ...current, facts: current.facts.map((fact) => ({ ...fact, decision: 'confirmed' as const })) };
+    const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
+    const component = fixture.componentInstance;
+    component.section = 'cv'; component.cvStep = 2; component.cvImport = confirmed;
+    component.loadCvClaimManagement();
+    await vi.waitFor(() => expect(component.cvClaimManagementBusy).toBe(false));
+    fixture.detectChanges();
+    const element = fixture.nativeElement as HTMLElement;
+    expect(element.querySelector('[data-testid="cv-claim-management"]')).toBeNull();
+
+    apiMock['revocableCvAdoptions'].mockReturnValue(of({
+      contract: 'cv-adoption-revocation-candidates', contractVersion: '1.0',
+      importId: confirmed.id, candidateProfileSha256: 'a'.repeat(64),
+      adoptions: [{
+        transactionId: 'c'.repeat(32), occurredAt: '2026-08-15T10:28:58.136Z',
+        sourceSha256: confirmed.source.sha256, claimCount: 213, presentClaimCount: 213
+      }]
+    }));
+    component.loadCvClaimManagement();
+    await vi.waitFor(() => expect(component.cvRevocableAdoptions).toHaveLength(1));
+    fixture.detectChanges();
+    const panel = element.querySelector('[data-testid="cv-claim-management"]')!;
+    expect(panel.textContent).toContain('213');
+    // Without a pre-adoption snapshot the scalar limit must be stated, not hidden.
+    expect(panel.textContent).toContain('Überschriebene Profilfelder');
+    fixture.destroy();
+  });
+
+  it('requires explicit confirmation before discarding an adoption and then re-adopts in one flow', async () => {
+    const current = cvImportFixture();
+    const confirmed = { ...current, facts: current.facts.map((fact) => ({ ...fact, decision: 'confirmed' as const })) };
+    const revoked = { ...confirmed, revision: confirmed.revision + 1, sha256: 'b'.repeat(64) };
+    const readopted = {
+      ...revoked, revision: revoked.revision + 1, status: 'adopted' as const,
+      adoption: {
+        adoptedAt: '2026-08-16T10:00:00.000Z', adoptedClaimIds: ['claim-one', 'claim-two'],
+        adoptedRecordIds: [], candidateProfileSha256: 'c'.repeat(64),
+        candidateProfileRevision: `sha256:${'c'.repeat(64)}`
+      }
+    };
+    apiMock['revokeCvAdoption'].mockReturnValue(of(revoked));
+    apiMock['adoptCvFacts'].mockReturnValue(of(readopted));
+    const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
+    const component = fixture.componentInstance;
+    component.section = 'cv'; component.cvStep = 2; component.cvImport = confirmed;
+    component.cvRevocableAdoptions = [{
+      transactionId: 'c'.repeat(32), occurredAt: '2026-08-15T10:28:58.136Z',
+      sourceSha256: confirmed.source.sha256, claimCount: 213, presentClaimCount: 213
+    }];
+
+    component.revokeAndReadoptCvAdoption();
+    expect(apiMock['revokeCvAdoption']).not.toHaveBeenCalled();
+
+    component.cvRevokeConfirmed = true;
+    component.revokeAndReadoptCvAdoption();
+    await vi.waitFor(() => expect(apiMock['adoptCvFacts']).toHaveBeenCalled());
+    expect(apiMock['revokeCvAdoption']).toHaveBeenCalledWith(confirmed, 'c'.repeat(32));
+    expect(apiMock['adoptCvFacts']).toHaveBeenCalledWith(revoked);
+    expect(component.cvImport?.status).toBe('adopted');
+    expect(component.cvRevokeConfirmed).toBe(false);
+    expect(component.cvClaimManagementNotice).toContain('verworfen');
+    fixture.destroy();
+  });
+
+  it('explains a partial overlap instead of booking it as already adopted', async () => {
+    const current = cvImportFixture();
+    const confirmed = { ...current, facts: current.facts.map((fact) => ({ ...fact, decision: 'confirmed' as const })) };
+    apiMock['adoptCvFacts'].mockReturnValue(throwError(() => ({ status: 409 })));
+    const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
+    const component = fixture.componentInstance;
+    component.section = 'cv'; component.cvStep = 2; component.cvImport = confirmed;
+
+    component.markCvAlreadyAdopted();
+    await vi.waitFor(() => expect(component.cvClaimManagementError).toContain('Nur ein Teil'));
+    expect(component.cvImport?.adoption).toBeUndefined();
+    fixture.destroy();
+  });
+
+  it('rolls the candidate profile back to a chosen snapshot only after explicit confirmation', async () => {
+    const current = cvImportFixture();
+    const rolledBack = { ...current, revision: current.revision + 1, sha256: 'b'.repeat(64) };
+    apiMock['restoreCvProfileSnapshot'].mockReturnValue(of(rolledBack));
+    const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
+    const component = fixture.componentInstance;
+    component.section = 'cv'; component.cvStep = 2; component.cvImport = current;
+    apiMock['cvProfileSnapshots'].mockReturnValue(of({
+      contract: 'cv-profile-snapshot-list', contractVersion: '1.0',
+      importId: current.id, candidateProfileSha256: 'e'.repeat(64),
+      snapshots: [
+        {
+          id: 'profile-snapshot-' + 'a'.repeat(16), createdAt: '2026-08-15T10:00:00.000Z',
+          candidateProfileSha256: 'd'.repeat(64), byteSize: 2_048, reason: 'pre_adoption',
+          claimCount: 4, current: false
+        },
+        {
+          id: 'profile-snapshot-' + 'b'.repeat(16), createdAt: '2026-08-15T10:28:58.136Z',
+          candidateProfileSha256: 'e'.repeat(64), byteSize: 4_096, reason: 'pre_revoke',
+          claimCount: 213, current: true
+        }
+      ]
+    }));
+    component.loadCvClaimManagement();
+    await vi.waitFor(() => expect(component.cvProfileSnapshots).toHaveLength(2));
+    fixture.detectChanges();
+    // The load preselects the newest restorable state, never the live one.
+    expect(component.cvSelectedSnapshotId).toBe('profile-snapshot-' + 'a'.repeat(16));
+    expect((fixture.nativeElement as HTMLElement).querySelectorAll('[data-testid="cv-profile-snapshots"] li')).toHaveLength(2);
+
+    component.restoreCvProfileSnapshot();
+    expect(apiMock['restoreCvProfileSnapshot']).not.toHaveBeenCalled();
+
+    component.cvSnapshotConfirmed = true;
+    component.restoreCvProfileSnapshot();
+    await vi.waitFor(() => expect(apiMock['restoreCvProfileSnapshot']).toHaveBeenCalled());
+    expect(apiMock['restoreCvProfileSnapshot']).toHaveBeenCalledWith(current, 'profile-snapshot-' + 'a'.repeat(16));
+    expect(component.cvSnapshotConfirmed).toBe(false);
+    expect(component.cvClaimManagementNotice).toContain('zurückgerollt');
+
+    // The live state must never be selectable as a rollback target.
+    component.cvSelectedSnapshotId = 'profile-snapshot-' + 'b'.repeat(16);
+    component.cvSnapshotConfirmed = true;
+    apiMock['restoreCvProfileSnapshot'].mockClear();
+    component.restoreCvProfileSnapshot();
+    expect(apiMock['restoreCvProfileSnapshot']).not.toHaveBeenCalled();
     fixture.destroy();
   });
 

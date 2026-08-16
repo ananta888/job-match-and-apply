@@ -5,8 +5,8 @@ import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   classifyCvContractRejection, conflictsFromArtifact, cvContractChildEnvironment, cvFactAdditionForContract,
-  mapCvAdoptionDecisions, readValidatedPrivateProfile, SubmoduleCvNormalizationAdapter,
-  unresolvedConflictsForDecisions,
+  mapCvAdoptionDecisions, readValidatedPrivateProfile, selectedClaimIdsAlreadyAdopted,
+  SubmoduleCvNormalizationAdapter, unresolvedConflictsForDecisions,
 } from './submodule-cv-normalization.js';
 
 function canonical(value: unknown): string {
@@ -336,6 +336,50 @@ describe('submodule CV normalization adapter', () => {
       { fact_id: 'fact-contract-new', decision: 'confirm', explicitly_confirmed: true, confirmation_origin: 'explicit_local_user_action' },
       { fact_id: 'fact-imported', decision: 'reject' },
     ]);
+  });
+
+  describe('repeat adoption detection', () => {
+    const sourceSha256 = 'e'.repeat(64);
+    const proposalFact = (suffix: string) => ({
+      id: `fact-${suffix}`, claim_id: `claim-${suffix}`, category: 'skill', record_id: `skill-${suffix}`,
+      field: 'name', value: `Skill ${suffix}`, status: 'unverified',
+      source_anchor: { source_sha256: sourceSha256, line_start: 1 },
+    });
+    const artifact = { proposal: { facts: [proposalFact('one'), proposalFact('two')] } };
+    const rootFact = (suffix: string, decision: string) => ({
+      id: `fact-${suffix}`, claimId: `claim-${suffix}`, category: 'skill', recordId: `skill-${suffix}`,
+      field: 'name', value: `Skill ${suffix}`, decision,
+      provenance: { sourceSha256, anchor: 'line:1', origin: 'imported' },
+    });
+    const profile = (...claimIds: string[]) => `claims:\n${claimIds.map((id) => `  - id: ${id}\n`).join('')}`;
+
+    it('reads the confirmed claim IDs from the proposal envelope, not the artifact root', () => {
+      const facts = [rootFact('one', 'confirmed'), rootFact('two', 'confirmed')];
+      expect(selectedClaimIdsAlreadyAdopted(
+        artifact, facts as never, profile('claim-one', 'claim-two'),
+      )).toEqual(['claim-one', 'claim-two']);
+    });
+
+    it('keeps a partial overlap a collision so duplicate protection stays intact', () => {
+      const facts = [rootFact('one', 'confirmed'), rootFact('two', 'confirmed')];
+      expect(selectedClaimIdsAlreadyAdopted(
+        artifact, facts as never, profile('claim-one'),
+      )).toBeUndefined();
+    });
+
+    it('ignores claims of rejected facts and unrelated profile claims', () => {
+      const facts = [rootFact('one', 'confirmed'), rootFact('two', 'rejected')];
+      expect(selectedClaimIdsAlreadyAdopted(
+        artifact, facts as never, profile('claim-one', 'claim-unrelated'),
+      )).toEqual(['claim-one']);
+    });
+
+    it('reports no repeat adoption without a confirmed fact or a parsable profile', () => {
+      const pending = [rootFact('one', 'pending'), rootFact('two', 'pending')];
+      expect(selectedClaimIdsAlreadyAdopted(artifact, pending as never, profile('claim-one'))).toBeUndefined();
+      const confirmed = [rootFact('one', 'confirmed'), rootFact('two', 'confirmed')];
+      expect(selectedClaimIdsAlreadyAdopted(artifact, confirmed as never, ': not yaml :')).toBeUndefined();
+    });
   });
 
   it('normalizes an edited imported employment detail to the bounded user-fact field', () => {

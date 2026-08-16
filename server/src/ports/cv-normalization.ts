@@ -50,6 +50,62 @@ export interface CvAdoptionResult {
   candidateProfileRevision: string;
   /** True when every confirmed claim was already present, so nothing was written. */
   alreadyAdopted?: boolean;
+  /** Candidate-history transaction this adoption committed under; the handle a revoke is scoped to. */
+  transactionId?: string;
+  /** Pre-adoption profile snapshot, the only way back for overwritten profile scalars. */
+  replacedSnapshotId?: string;
+}
+
+export interface CvAdoptionRevocationResult {
+  contract: 'cv-profile-adoption-revocation';
+  contractVersion: '1.0';
+  revokedTransactionId: string;
+  revokedClaimIds: string[];
+  revokedRecordIds: string[];
+  candidateProfileSha256: string;
+  candidateProfileRevision: string;
+  /** Snapshot captured immediately before the revoke, so the revoke itself is reversible. */
+  replacedSnapshotId?: string;
+  /** Snapshot matching the pre-adoption state, when one is still retained. */
+  rollbackSnapshotId?: string;
+  /** True when the claims were already absent, so nothing was written. */
+  alreadyRevoked?: boolean;
+}
+
+/** A committed adoption that is still revocable, as recorded in the candidate profile history. */
+export interface CvAdoptionLedgerEntry {
+  transactionId: string;
+  occurredAt: string;
+  sourceSha256?: string;
+  claimCount: number;
+  /** How many of the adopted claims are still present in the profile. */
+  presentClaimCount: number;
+  /** Profile digest before the adoption; a snapshot with this digest allows a full rollback. */
+  beforeSha256?: string;
+  replacedSnapshotId?: string;
+}
+
+export interface CvProfileSnapshot {
+  id: string;
+  createdAt: string;
+  candidateProfileSha256: string;
+  byteSize: number;
+  reason: string;
+  claimCount: number;
+  label?: string;
+  /** True when the live profile is byte-identical to this snapshot. */
+  current: boolean;
+}
+
+export interface CvProfileSnapshotRestoreResult {
+  contract: 'cv-profile-snapshot-restore';
+  contractVersion: '1.0';
+  snapshotId: string;
+  candidateProfileSha256: string;
+  candidateProfileRevision: string;
+  replacedSnapshotId?: string;
+  /** True when the profile already matched the snapshot, so nothing was written. */
+  alreadyRestored?: boolean;
 }
 
 export interface CvNormalizationConflict {
@@ -128,4 +184,10 @@ export interface CvNormalizationPort {
     facts: CvFact[];
     artifact: unknown;
   }): Promise<CvAdoptionResult>;
+  /** Committed adoptions still revocable according to the candidate profile history. */
+  adoptionLedger(): Promise<{ candidateProfileSha256: string; adoptions: CvAdoptionLedgerEntry[] }>;
+  /** Removes exactly what one committed adoption transaction added. */
+  revokeAdoption(input: { transactionId: string }): Promise<CvAdoptionRevocationResult>;
+  profileSnapshots(): Promise<{ candidateProfileSha256: string; snapshots: CvProfileSnapshot[] }>;
+  restoreProfileSnapshot(input: { snapshotId: string }): Promise<CvProfileSnapshotRestoreResult>;
 }

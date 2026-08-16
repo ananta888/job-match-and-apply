@@ -163,6 +163,23 @@
 .cv-provenance code { overflow-wrap: anywhere; }
 .cv-fact-actions { display: flex; justify-content: flex-end; gap: 7px; flex-wrap: wrap; }
 .cv-adoption-bar { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 18px; margin-top: 20px; padding: 15px; border: 1px solid #d9d4fb; border-radius: 11px; background: #f8f7ff; }
+/* Diagnostics and the claim-management block are full-width rows, not grid cells. */
+.cv-adoption-bar > .cv-adoption-error, .cv-adoption-bar > .cv-claim-management { grid-column: 1 / -1; margin: 0; }
+.cv-claim-management { padding: 14px; border: 1px solid #e6d7c2; border-radius: 10px; background: #fffdf7; }
+.cv-claim-management h3 { margin: 0 0 5px; font-size: 12px; }
+.cv-claim-management > p { margin: 0 0 11px; color: #657084; font-size: 9px; }
+.cv-claim-management-actions { display: grid; gap: 8px; margin-top: 11px; padding-top: 11px; border-top: 1px solid #efe4d3; }
+.cv-claim-management-actions > button { justify-self: start; }
+.cv-claim-management-actions .hint { margin: 0; color: #8a7a5e; font-size: 8px; }
+.cv-claim-management > .warning-box, .cv-claim-management > .info-box { margin: 11px 0 0; }
+.cv-profile-snapshots { margin-top: 18px; padding: 14px; border: 1px solid #dfe3e9; border-radius: 10px; background: #fafbfc; }
+.cv-profile-snapshots summary { cursor: pointer; font-size: 11px; font-weight: 600; }
+.cv-profile-snapshots > p { margin: 9px 0 11px; color: #657084; font-size: 9px; }
+.cv-profile-snapshot-list { display: grid; gap: 7px; margin: 0 0 12px; padding: 0; list-style: none; }
+.cv-profile-snapshot-list li { display: grid; gap: 3px; padding: 8px 10px; border: 1px solid #e4e7ed; border-radius: 8px; background: white; font-size: 9px; }
+.cv-profile-snapshot-list label { display: flex; gap: 7px; align-items: baseline; }
+.cv-profile-snapshot-list code { overflow-wrap: anywhere; color: #8892a4; font-size: 8px; }
+.cv-profile-snapshots > button { margin-top: 10px; }
 .cv-theme-fields { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
 .cv-theme-fields > div { min-width: 0; }
 .cv-order { margin-top: 15px; }
@@ -209,6 +226,7 @@
   .cv-provenance, .cv-adoption-bar, .cv-recognition-confirm { grid-template-columns: 1fr; }
   .cv-recognition-confirm > button { width: 100%; }
   .cv-adoption-bar > button, .cv-adoption-bar > div, .cv-adoption-bar > div button { width: 100%; }
+  .cv-claim-management-actions > button, .cv-profile-snapshots > button { width: 100%; justify-self: stretch; }
   .cv-agent-progress ol { grid-template-columns: 1fr; }
   .cv-html-preview { min-height: 520px; }
   .cv-ai-assist { padding: 14px; }

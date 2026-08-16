@@ -6,8 +6,9 @@ import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 import { spawn } from 'node:child_process';
 import YAML from 'yaml';
 import type {
-  CvAdoptionResult, CvFact, CvFactCategory, CvNormalizationEnvelope, CvNormalizationPort,
-  CvNormalizationConflict,
+  CvAdoptionLedgerEntry, CvAdoptionResult, CvAdoptionRevocationResult, CvFact, CvFactCategory,
+  CvNormalizationEnvelope, CvNormalizationPort, CvNormalizationConflict, CvProfileSnapshot,
+  CvProfileSnapshotRestoreResult,
 } from '../ports/cv-normalization.js';
 import type {
   CvAiStructuringSelection, CvAiStructuringValidationPort,
@@ -20,6 +21,13 @@ import { SafeHttpError, type SafeErrorStage } from '../services/safe-http-error.
 
 const sha256 = (value: Buffer | string) => createHash('sha256').update(value).digest('hex');
 const CONTRACT_FACT_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+/** Commands that read or mutate the private candidate profile and therefore need the full path proof. */
+const CV_PROFILE_COMMANDS = new Set([
+  'adopt-confirmed', 'revoke-claims', 'list-adoptions',
+  'capture-profile-snapshot', 'list-profile-snapshots', 'restore-profile-snapshot',
+]);
+const CV_PROFILE_SNAPSHOT_ID = /^profile-snapshot-[a-f0-9]{16}$/;
+const CV_PROFILE_TRANSACTION_ID = /^[a-f0-9]{32}$/;
 const CONTRACT_FACT_FIELD = /^(?=.{1,64}$)[a-z][a-z0-9_.]*(?:\[[0-9]{1,4}\])?$/;
 
 export interface CvAiRecognitionMaterializationInput {
@@ -272,8 +280,95 @@ export class SubmoduleCvNormalizationAdapter implements CvNormalizationPort {
         contract: 'cv-profile-adoption', contractVersion: '1.0', adoptedClaimIds,
         adoptedRecordIds: stringArray(raw.adopted_record_ids), candidateProfileSha256,
         candidateProfileRevision: `sha256:${candidateProfileSha256}`,
+        ...(typeof raw.transaction_id === 'string' && CV_PROFILE_TRANSACTION_ID.test(raw.transaction_id)
+          ? { transactionId: raw.transaction_id } : {}),
+        ...(typeof raw.replaced_snapshot_id === 'string' && CV_PROFILE_SNAPSHOT_ID.test(raw.replaced_snapshot_id)
+          ? { replacedSnapshotId: raw.replaced_snapshot_id } : {}),
       };
     } finally { await rm(temporary, { recursive: true, force: true }); }
+  }
+
+  async adoptionLedger(): Promise<{ candidateProfileSha256: string; adoptions: CvAdoptionLedgerEntry[] }> {
+    const candidateProfile = await readValidatedPrivateProfile(this.candidate, this.privateProfilesRoot, 2 * 1024 * 1024);
+    const raw = await this.run(['list-adoptions', '--candidate', candidateProfile.canonicalPath]);
+    const candidateProfileSha256 = String(raw.candidate_sha256 ?? '');
+    if (!/^[a-f0-9]{64}$/.test(candidateProfileSha256)) {
+      dependencyError('CV-Uebernahmeliste lieferte keinen CandidateProfile-Hash.');
+    }
+    const items = Array.isArray(raw.adoptions) ? raw.adoptions : [];
+    return { candidateProfileSha256, adoptions: items.map((item) => adoptionLedgerEntry(item)) };
+  }
+
+  revokeAdoption(input: { transactionId: string }): Promise<CvAdoptionRevocationResult> {
+    const operation = this.adoptionQueue.then(() => this.revokeAdoptionOnce(input));
+    this.adoptionQueue = operation.then(() => undefined, () => undefined);
+    return operation;
+  }
+
+  private async revokeAdoptionOnce(input: { transactionId: string }): Promise<CvAdoptionRevocationResult> {
+    if (!CV_PROFILE_TRANSACTION_ID.test(input.transactionId)) {
+      invalidProfileRequest('Die Übernahme-Transaktion ist kein gültiger Vertragsbezeichner.');
+    }
+    const candidateProfile = await readValidatedPrivateProfile(this.candidate, this.privateProfilesRoot, 2 * 1024 * 1024);
+    const raw = await this.run([
+      'revoke-claims', '--candidate', candidateProfile.canonicalPath,
+      '--transaction-id', input.transactionId,
+      '--expected-candidate-sha256', sha256(candidateProfile.bytes),
+    ]);
+    const candidateProfileSha256 = String(raw.candidate_sha256 ?? '');
+    if (!/^[a-f0-9]{64}$/.test(candidateProfileSha256)) {
+      dependencyError('CV-Revoke lieferte keinen CandidateProfile-Hash.');
+    }
+    return {
+      contract: 'cv-profile-adoption-revocation', contractVersion: '1.0',
+      revokedTransactionId: input.transactionId,
+      revokedClaimIds: stringArray(raw.revoked_claim_ids),
+      revokedRecordIds: stringArray(raw.revoked_record_ids),
+      candidateProfileSha256, candidateProfileRevision: `sha256:${candidateProfileSha256}`,
+      ...(typeof raw.replaced_snapshot_id === 'string' ? { replacedSnapshotId: raw.replaced_snapshot_id } : {}),
+      ...(typeof raw.rollback_snapshot_id === 'string' ? { rollbackSnapshotId: raw.rollback_snapshot_id } : {}),
+      ...(raw.status === 'no_revocable_claims' ? { alreadyRevoked: true as const } : {}),
+    };
+  }
+
+  async profileSnapshots(): Promise<{ candidateProfileSha256: string; snapshots: CvProfileSnapshot[] }> {
+    const candidateProfile = await readValidatedPrivateProfile(this.candidate, this.privateProfilesRoot, 2 * 1024 * 1024);
+    const raw = await this.run(['list-profile-snapshots', '--candidate', candidateProfile.canonicalPath]);
+    const candidateProfileSha256 = String(raw.candidate_sha256 ?? '');
+    if (!/^[a-f0-9]{64}$/.test(candidateProfileSha256)) {
+      dependencyError('CV-Snapshotliste lieferte keinen CandidateProfile-Hash.');
+    }
+    const items = Array.isArray(raw.snapshots) ? raw.snapshots : [];
+    return { candidateProfileSha256, snapshots: items.map((item) => profileSnapshot(item)) };
+  }
+
+  restoreProfileSnapshot(input: { snapshotId: string }): Promise<CvProfileSnapshotRestoreResult> {
+    const operation = this.adoptionQueue.then(() => this.restoreProfileSnapshotOnce(input));
+    this.adoptionQueue = operation.then(() => undefined, () => undefined);
+    return operation;
+  }
+
+  private async restoreProfileSnapshotOnce(input: { snapshotId: string }): Promise<CvProfileSnapshotRestoreResult> {
+    if (!CV_PROFILE_SNAPSHOT_ID.test(input.snapshotId)) {
+      invalidProfileRequest('Der Profilstand ist kein gültiger Vertragsbezeichner.');
+    }
+    const candidateProfile = await readValidatedPrivateProfile(this.candidate, this.privateProfilesRoot, 2 * 1024 * 1024);
+    const raw = await this.run([
+      'restore-profile-snapshot', '--candidate', candidateProfile.canonicalPath,
+      '--snapshot-id', input.snapshotId,
+      '--expected-candidate-sha256', sha256(candidateProfile.bytes),
+    ]);
+    const candidateProfileSha256 = String(raw.candidate_sha256 ?? '');
+    if (!/^[a-f0-9]{64}$/.test(candidateProfileSha256)) {
+      dependencyError('CV-Snapshotwiederherstellung lieferte keinen CandidateProfile-Hash.');
+    }
+    return {
+      contract: 'cv-profile-snapshot-restore', contractVersion: '1.0',
+      snapshotId: input.snapshotId,
+      candidateProfileSha256, candidateProfileRevision: `sha256:${candidateProfileSha256}`,
+      ...(typeof raw.replaced_snapshot_id === 'string' ? { replacedSnapshotId: raw.replaced_snapshot_id } : {}),
+      ...(raw.status === 'profile_already_at_snapshot' ? { alreadyRestored: true as const } : {}),
+    };
   }
 
   private userFactCapabilities(): Promise<Map<string, Set<string>>> {
@@ -412,7 +507,7 @@ export class SubmoduleCvNormalizationAdapter implements CvNormalizationPort {
     await assertRegularFile(script, 2 * 1024 * 1024);
     const canonicalRoot = await realpath(this.root); const canonicalScript = await realpath(script);
     if (!within(canonicalRoot, canonicalScript)) dependencyError('CV-Skillskript verlässt den kanonischen Submodulpfad.');
-    if (args[0] === 'adopt-confirmed') {
+    if (CV_PROFILE_COMMANDS.has(String(args[0] ?? ''))) {
       await Promise.all([assertRegularFile(this.candidate, 2 * 1024 * 1024), assertRegularFile(this.style, 2 * 1024 * 1024)]);
       const canonicalProfiles = await realpath(this.privateProfilesRoot);
       if (!within(canonicalProfiles, await realpath(this.candidate)) || !within(canonicalProfiles, await realpath(this.style))) {
@@ -502,18 +597,25 @@ const CV_CONTRACT_REJECTION_CODES = new Set([
   'line_manifest_required', 'no_text', 'out_of_source_value',
   'normalization_failed', 'recovery_required', 'type_mismatch', 'unsafe_archive_path',
   'unsupported_source_span', 'unsupported_type',
+  'already_revoked', 'invalid_snapshot', 'invalid_transaction', 'snapshot_corrupted',
+  'snapshot_invalid', 'snapshot_too_large', 'snapshot_unreadable', 'snapshot_write_failed',
+  'unknown_snapshot', 'unknown_transaction',
 ]);
 
 const CV_CONTRACT_BAD_REQUEST_CODES = new Set([
   'digest_mismatch', 'invalid_additions', 'invalid_decisions', 'invalid_envelope', 'invalid_proposal',
+  'invalid_snapshot', 'invalid_transaction',
 ]);
 
+
 const CV_CONTRACT_CONFLICT_CODES = new Set([
-  'cas_mismatch', 'claim_collision', 'confirmation_required',
+  'cas_mismatch', 'claim_collision', 'confirmation_required', 'already_revoked',
+  'unknown_snapshot', 'unknown_transaction',
 ]);
 
 const CV_CONTRACT_DEPENDENCY_CODES = new Set([
   'candidate_unreadable', 'extractor_unavailable', 'recovery_required',
+  'snapshot_corrupted', 'snapshot_unreadable', 'snapshot_write_failed',
 ]);
 
 /** Convert only closed, versioned contract codes to a public failure. Upstream detail is ignored. */
@@ -551,7 +653,11 @@ export function classifyCvContractRejection(command: string, payload: Record<str
 function cvContractStage(command: string): SafeErrorStage {
   if (command === 'normalize-extracted') return 'cv_import_normalization';
   if (command === 'extend-user-facts' || command === 'capabilities') return 'cv_fact_validation';
-  if (command === 'adopt-confirmed') return 'cv_profile_adoption';
+  if (command === 'adopt-confirmed' || command === 'revoke-claims'
+    || command === 'capture-profile-snapshot' || command === 'list-profile-snapshots'
+    || command === 'restore-profile-snapshot') {
+    return 'cv_profile_adoption';
+  }
   return 'cv_skill_contract';
 }
 
@@ -894,14 +1000,10 @@ export function selectedClaimIdsAlreadyAdopted(
   const confirmed = new Set(mapCvAdoptionDecisions(rootFacts, artifact)
     .filter((decision) => decision.decision === 'confirm').map((decision) => decision.fact_id));
   if (confirmed.size === 0) return undefined;
-  const artifactFacts = Array.isArray(artifact.facts) ? artifact.facts as Record<string, unknown>[] : [];
-  const selected = new Set<string>();
-  for (const fact of artifactFacts) {
-    if (!fact || typeof fact !== 'object') continue;
-    const factId = typeof fact.id === 'string' ? fact.id : undefined;
-    const claimId = typeof fact.claim_id === 'string' ? fact.claim_id : undefined;
-    if (factId && claimId && confirmed.has(factId)) selected.add(claimId);
-  }
+  // Facts live under the proposal envelope, not at the artifact root — the same
+  // shape `factsFromArtifact` and the contract's `adopt-confirmed` read.
+  const selected = new Set(factsFromArtifact(artifact)
+    .flatMap((fact) => (confirmed.has(fact.id) && fact.claimId ? [fact.claimId] : [])));
   if (selected.size === 0) return undefined;
   let candidate: unknown;
   try { candidate = YAML.parse(typeof candidateBytes === 'string' ? candidateBytes : candidateBytes.toString('utf8')); }
@@ -1050,6 +1152,64 @@ function dependencyError(_diagnostic: string): never {
     'cv_local_dependency_unavailable',
     'Der lokale CV-Skillvertrag ist nicht verfügbar oder unvollständig eingerichtet.',
   );
+}
+/** Projects one adoption ledger entry; only closed, validated fields reach the client. */
+function adoptionLedgerEntry(value: unknown): CvAdoptionLedgerEntry {
+  if (!isRecord(value)) dependencyError('CV-Uebernahmeliste enthaelt einen typwidrigen Eintrag.');
+  const transactionId = typeof value.transaction_id === 'string' ? value.transaction_id : '';
+  if (!CV_PROFILE_TRANSACTION_ID.test(transactionId)) {
+    dependencyError('CV-Uebernahmeliste enthaelt eine ungueltige Transaktionskennung.');
+  }
+  const occurredAt = typeof value.occurred_at === 'string' ? value.occurred_at : '';
+  if (!occurredAt || Number.isNaN(Date.parse(occurredAt))) {
+    dependencyError('CV-Uebernahmeliste enthaelt keinen gueltigen Zeitstempel.');
+  }
+  const digest = (candidate: unknown) => typeof candidate === 'string' && /^[a-f0-9]{64}$/.test(candidate)
+    ? candidate : undefined;
+  const count = (candidate: unknown) => Number.isSafeInteger(candidate) && (candidate as number) >= 0
+    ? candidate as number : 0;
+  const sourceSha256 = digest(value.source_sha256);
+  const beforeSha256 = digest(value.before_sha256);
+  const replacedSnapshotId = typeof value.replaced_snapshot_id === 'string'
+    && CV_PROFILE_SNAPSHOT_ID.test(value.replaced_snapshot_id) ? value.replaced_snapshot_id : undefined;
+  return {
+    transactionId, occurredAt,
+    claimCount: count(value.claim_count), presentClaimCount: count(value.present_claim_count),
+    ...(sourceSha256 ? { sourceSha256 } : {}),
+    ...(beforeSha256 ? { beforeSha256 } : {}),
+    ...(replacedSnapshotId ? { replacedSnapshotId } : {}),
+  };
+}
+
+/** Projects one snapshot index entry; unknown or typewidrige fields never reach the client. */
+function profileSnapshot(value: unknown): CvProfileSnapshot {
+  if (!isRecord(value)) dependencyError('CV-Snapshotliste enthaelt einen typwidrigen Eintrag.');
+  const id = typeof value.snapshot_id === 'string' ? value.snapshot_id : '';
+  if (!CV_PROFILE_SNAPSHOT_ID.test(id)) dependencyError('CV-Snapshotliste enthaelt eine ungueltige Kennung.');
+  const candidateProfileSha256 = typeof value.candidate_sha256 === 'string' ? value.candidate_sha256 : '';
+  if (!/^[a-f0-9]{64}$/.test(candidateProfileSha256)) {
+    dependencyError('CV-Snapshotliste enthaelt keinen gueltigen Profilhash.');
+  }
+  const createdAt = typeof value.created_at === 'string' ? value.created_at : '';
+  if (!createdAt || Number.isNaN(Date.parse(createdAt))) {
+    dependencyError('CV-Snapshotliste enthaelt keinen gueltigen Zeitstempel.');
+  }
+  const label = typeof value.label === 'string' && value.label.trim() && value.label.length <= 120
+    ? value.label : undefined;
+  return {
+    id, createdAt, candidateProfileSha256,
+    byteSize: Number.isSafeInteger(value.byte_size) && (value.byte_size as number) >= 0 ? value.byte_size as number : 0,
+    reason: typeof value.reason === 'string' && value.reason.length <= 64 ? value.reason : 'unknown',
+    claimCount: Number.isSafeInteger(value.claim_count) && (value.claim_count as number) >= 0 ? value.claim_count as number : 0,
+    ...(label ? { label } : {}),
+    current: value.current === true,
+  };
+}
+function invalidProfileRequest(_diagnostic: string): never {
+  throw new SafeHttpError({
+    statusCode: 400, errorCode: 'cv_profile_request_invalid', stage: 'cv_profile_adoption',
+    publicDetail: 'Die Anfrage zur Profilverwaltung enthält keinen gültigen Bezeichner.', retryable: false,
+  });
 }
 function invalidUserFact(_diagnostic: string): never {
   throw new SafeHttpError({

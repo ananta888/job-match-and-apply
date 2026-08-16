@@ -30,6 +30,26 @@ const normalization: CvNormalizationPort = {
       contract: 'cv-profile-adoption', contractVersion: '1.0',
       adoptedClaimIds: input.facts.filter((fact) => fact.decision === 'confirmed').map((fact) => fact.claimId!),
       adoptedRecordIds: ['skill-synthetic'], candidateProfileSha256: 'a'.repeat(64), candidateProfileRevision: `sha256:${'a'.repeat(64)}`,
+      transactionId: 'c'.repeat(32),
+    };
+  },
+  async adoptionLedger() {
+    return { candidateProfileSha256: 'a'.repeat(64), adoptions: [] };
+  },
+  async revokeAdoption(input) {
+    return {
+      contract: 'cv-profile-adoption-revocation', contractVersion: '1.0',
+      revokedTransactionId: input.transactionId, revokedClaimIds: [], revokedRecordIds: [],
+      candidateProfileSha256: 'd'.repeat(64), candidateProfileRevision: `sha256:${'d'.repeat(64)}`,
+    };
+  },
+  async profileSnapshots() {
+    return { candidateProfileSha256: 'a'.repeat(64), snapshots: [] };
+  },
+  async restoreProfileSnapshot(input) {
+    return {
+      contract: 'cv-profile-snapshot-restore', contractVersion: '1.0', snapshotId: input.snapshotId,
+      candidateProfileSha256: 'e'.repeat(64), candidateProfileRevision: `sha256:${'e'.repeat(64)}`,
     };
   },
 };

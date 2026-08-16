@@ -653,7 +653,47 @@
                   <label class="explicit-confirmation"><input data-testid="cv-adopt-confirmation" type="checkbox" [(ngModel)]="cvAdoptionConfirmed" [disabled]="cvFactCount('pending') > 0 || cvFactCount('confirmed') < 1"><span>Ich habe jeden Fakt geprüft. Nur die {{ cvFactCount('confirmed') }} bestätigten Fakten dürfen als <code>user_confirmed</code> in mein Kandidatenprofil übernommen werden; verworfene Fakten bleiben ausgeschlossen.</span></label>
                   <button class="primary" data-testid="cv-adopt" type="button" (click)="adoptCvFacts()" [disabled]="cvBusy || !cvAdoptionConfirmed || cvFactCount('pending') > 0 || cvFactCount('confirmed') < 1">{{ cvBusy ? 'Übernahme läuft …' : 'Bestätigte Fakten ausdrücklich übernehmen' }}</button>
                   @if (cvError) { <p class="warning-box cv-adoption-error" role="alert" data-testid="cv-adopt-error">{{ cvError }}</p> }
+
+                  @if (cvRevocableAdoption(); as revocable) {
+                    <div class="cv-claim-management" data-testid="cv-claim-management">
+                      <h3>Frühere Übernahme im Kandidatenprofil</h3>
+                      <p>Das Kandidatenprofil enthält bereits eine Übernahme dieser Quelle vom {{ revocable.occurredAt }} mit {{ revocable.claimCount }} Claims, davon {{ revocable.presentClaimCount }} noch vorhanden. Deshalb lehnt der Vertrag eine erneute Übernahme als Dublette ab.</p>
+                      <div class="cv-claim-management-actions">
+                        <button class="secondary" data-testid="cv-mark-already-adopted" type="button" (click)="markCvAlreadyAdopted()" [disabled]="cvBusy || cvClaimManagementBusy || cvFactCount('pending') > 0 || cvFactCount('confirmed') < 1">Als bereits übernommen verbuchen</button>
+                        <p class="hint">Nur möglich, wenn <em>jeder</em> bestätigte Claim bereits im Profil liegt. Es wird nichts geschrieben.</p>
+                      </div>
+                      <div class="cv-claim-management-actions">
+                        <label class="explicit-confirmation"><input data-testid="cv-revoke-confirmation" type="checkbox" [(ngModel)]="cvRevokeConfirmed" [disabled]="cvBusy || cvClaimManagementBusy"><span>Ich verwerfe die {{ revocable.claimCount }} Claims der früheren Übernahme aus dem Kandidatenprofil und übernehme die {{ cvFactCount('confirmed') }} bestätigten Fakten des aktiven Erkennungsstands neu.</span></label>
+                        <button class="secondary" data-testid="cv-revoke-and-readopt" type="button" (click)="revokeAndReadoptCvAdoption()" [disabled]="cvBusy || cvClaimManagementBusy || !cvRevokeConfirmed || cvFactCount('pending') > 0 || cvFactCount('confirmed') < 1">{{ cvClaimManagementBusy ? 'Wird verarbeitet …' : 'Bisherige Übernahme verwerfen und neu übernehmen' }}</button>
+                        @if (!revocable.replacedSnapshotId) {
+                          <p class="hint">Für diese Übernahme gibt es keinen Profilstand von davor. Überschriebene Profilfelder (Name, Kontakt) lassen sich dadurch nicht wiederherstellen; die Claims schon.</p>
+                        }
+                      </div>
+                      @if (cvClaimManagementError) { <p class="warning-box" role="alert" data-testid="cv-claim-management-error">{{ cvClaimManagementError }}</p> }
+                      @if (cvClaimManagementNotice) { <p class="info-box" role="status" data-testid="cv-claim-management-notice">{{ cvClaimManagementNotice }}</p> }
+                    </div>
+                  }
                 </div>
+              }
+
+              @if (cvProfileSnapshots.length) {
+                <details class="cv-profile-snapshots" data-testid="cv-profile-snapshots">
+                  <summary>Profilstände ({{ cvProfileSnapshots.length }})</summary>
+                  <p>Vor jeder Übernahme und jedem Verwerfen wird der vollständige Stand des Kandidatenprofils gesichert. Ein Zurückrollen stellt auch überschriebene Profilfelder wieder her.</p>
+                  <ul class="cv-profile-snapshot-list">
+                    @for (snapshot of cvProfileSnapshots; track snapshot.id) {
+                      <li>
+                        <label>
+                          <input type="radio" name="cv-profile-snapshot" [value]="snapshot.id" [(ngModel)]="cvSelectedSnapshotId" [disabled]="snapshot.current || cvBusy || cvClaimManagementBusy">
+                          <span><strong>{{ snapshot.label || snapshot.reason }}</strong> · {{ snapshot.createdAt }} · {{ snapshot.claimCount }} Claims @if (snapshot.current) { <em>· aktueller Stand</em> }</span>
+                        </label>
+                        <code>{{ snapshot.candidateProfileSha256 }}</code>
+                      </li>
+                    }
+                  </ul>
+                  <label class="explicit-confirmation"><input data-testid="cv-snapshot-confirmation" type="checkbox" [(ngModel)]="cvSnapshotConfirmed" [disabled]="!cvSelectedSnapshotId || cvBusy || cvClaimManagementBusy"><span>Ich rolle das gesamte Kandidatenprofil auf den gewählten Stand zurück. Spätere Änderungen an Claims und Profilfeldern gehen dabei verloren.</span></label>
+                  <button class="secondary" data-testid="cv-restore-snapshot" type="button" (click)="restoreCvProfileSnapshot()" [disabled]="!cvSelectedSnapshotId || !cvSnapshotConfirmed || cvBusy || cvClaimManagementBusy">Auf gewählten Profilstand zurückrollen</button>
+                </details>
               }
             }
           </section>

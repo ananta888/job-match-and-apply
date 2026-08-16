@@ -4,7 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { DomSanitizer, type SafeResourceUrl } from '@angular/platform-browser';
 import { ApiService } from './api.service';
 import { forkJoin, type Subscription } from 'rxjs';
-import type { AgentApproval, AgentArtifactContent, AgentArtifactRecord, AgentConfigProfile, AgentConfigProfileView, AgentOrchestrationConfirmationInput, AgentOrchestrationConflict, AgentOrchestrationConflictStrategy, AgentOrchestrationCreateRequest, AgentOrchestrationGate, AgentOrchestrationRecord, AgentProvider, AgentProviderConfigProfile, AgentProviderInstallation, AgentQueueBlockReason, AgentQueueSnapshot, AgentRecoveryDecision, AgentRecoveryLease, AgentRecoveryRun, AgentRun, AgentRunEvent, AgentRunPreflight, AgentRunRequest, AgentRunStatus, AgentRuntimeTarget, AgentWorkflow, AgentWorkspaceMode, AppConfig, ApplicationCase, ApplicationDraft, ApplicationExportResult, ApplicationNextActionsProposalProjection, ApplicationProfileSetupStatus, ApplicationStyleDocumentType, ApplicationStyleExampleDocumentType, ApplicationStyleProfileView, ArtifactRevision, CandidateMatchAnalysis, CandidateProfileSummary, CompanyCrm, CorrelatedMail, CvAiProviderSelection, CvAiStructuringOptions, CvAiStructuringPublicRun, CvAiStructuringSelection, CvAiStructuringSuggestion, CvFact, CvFactCategory, CvFactDecision, CvFactOperation, CvImportRecord, CvImportSummary, CvRecognitionVersionList, CvRecognitionVersionSummary, CvTheme, CvLayoutFingerprint, CvLayoutSection, CvThemeOriginalLayout, CvLayoutPalette, JobInventoryView, JobInventoryCategory, SearchRunSummary, AtsCheckReport, JobSearchMcpRuntimeCandidate, DataInventory, EditableApplicationStyleProfile, EmployerResponseTriageProposalProjection, IdentityProfile, JobDecision, JobMatch, JobSourceCapabilities, LanguageCheckResult, MailAccount, McpRuntimeStatus, ProfileImportPreview, ProviderModelCatalog, SearchSchedule, Section, SourceCapability, SourceStatus } from './models';
+import type { AgentApproval, AgentArtifactContent, AgentArtifactRecord, AgentConfigProfile, AgentConfigProfileView, AgentOrchestrationConfirmationInput, AgentOrchestrationConflict, AgentOrchestrationConflictStrategy, AgentOrchestrationCreateRequest, AgentOrchestrationGate, AgentOrchestrationRecord, AgentProvider, AgentProviderConfigProfile, AgentProviderInstallation, AgentQueueBlockReason, AgentQueueSnapshot, AgentRecoveryDecision, AgentRecoveryLease, AgentRecoveryRun, AgentRun, AgentRunEvent, AgentRunPreflight, AgentRunRequest, AgentRunStatus, AgentRuntimeTarget, AgentWorkflow, AgentWorkspaceMode, AppConfig, ApplicationCase, ApplicationDraft, ApplicationExportResult, ApplicationNextActionsProposalProjection, ApplicationProfileSetupStatus, ApplicationStyleDocumentType, ApplicationStyleExampleDocumentType, ApplicationStyleProfileView, ArtifactRevision, CandidateMatchAnalysis, CandidateProfileSummary, CompanyCrm, CorrelatedMail, CvAiProviderSelection, CvAiStructuringOptions, CvAiStructuringPublicRun, CvAiStructuringSelection, CvAiStructuringSuggestion, CvAdoptionLedgerEntry, CvFact, CvFactCategory, CvFactDecision, CvFactOperation, CvImportRecord, CvImportSummary, CvProfileSnapshotSummary, CvRecognitionVersionList, CvRecognitionVersionSummary, CvTheme, CvLayoutFingerprint, CvLayoutSection, CvThemeOriginalLayout, CvLayoutPalette, JobInventoryView, JobInventoryCategory, SearchRunSummary, AtsCheckReport, JobSearchMcpRuntimeCandidate, DataInventory, EditableApplicationStyleProfile, EmployerResponseTriageProposalProjection, IdentityProfile, JobDecision, JobMatch, JobSourceCapabilities, LanguageCheckResult, MailAccount, McpRuntimeStatus, ProfileImportPreview, ProviderModelCatalog, SearchSchedule, Section, SourceCapability, SourceStatus } from './models';
 
 type AgentEventLevelFilter = 'all' | 'debug' | 'info' | 'warning' | 'error';
 type AgentTimelineView = 'readable' | 'diagnostic';
@@ -158,6 +158,14 @@ export class App implements OnInit, OnDestroy {
     sectionOrder: ['profile', 'employment', 'project', 'education', 'skill', 'certification', 'language', 'additional']
   };
   cvAdoptionConfirmed = false;
+  cvRevocableAdoptions: CvAdoptionLedgerEntry[] = [];
+  cvProfileSnapshots: CvProfileSnapshotSummary[] = [];
+  cvClaimManagementBusy = false;
+  cvClaimManagementError = '';
+  cvClaimManagementNotice = '';
+  cvRevokeConfirmed = false;
+  cvSnapshotConfirmed = false;
+  cvSelectedSnapshotId = '';
   cvThemeConfirmed = false;
   cvThemeVariant: 'ats' | 'original' = 'ats';
   cvThemePreviewUrl?: SafeResourceUrl;
@@ -2709,6 +2717,131 @@ export class App implements OnInit, OnDestroy {
     });
   }
 
+  /**
+   * Loads what the candidate profile itself says about this import: which adoptions are still
+   * revocable and which profile snapshots exist. The server record can lose its adoption link
+   * while the claims stay in the profile, so the profile ledger is the authority here.
+   */
+  loadCvClaimManagement(): void {
+    const current = this.cvImport;
+    if (!current) { this.cvRevocableAdoptions = []; this.cvProfileSnapshots = []; return; }
+    this.cvClaimManagementBusy = true; this.cvClaimManagementError = '';
+    forkJoin({
+      revocable: this.api.revocableCvAdoptions(current),
+      snapshots: this.api.cvProfileSnapshots(current)
+    }).subscribe({
+      next: ({ revocable, snapshots }) => {
+        this.cvClaimManagementBusy = false;
+        if (this.cvImport?.id !== current.id) { this.refreshView(); return; }
+        this.cvRevocableAdoptions = revocable.adoptions;
+        this.cvProfileSnapshots = snapshots.snapshots;
+        if (!this.cvProfileSnapshots.some((item) => item.id === this.cvSelectedSnapshotId)) {
+          this.cvSelectedSnapshotId = this.cvProfileSnapshots.find((item) => !item.current)?.id ?? '';
+        }
+        this.refreshView();
+      },
+      error: (error) => {
+        this.cvClaimManagementBusy = false;
+        this.cvRevocableAdoptions = []; this.cvProfileSnapshots = [];
+        this.cvClaimManagementError = `Profilstände konnten nicht geladen werden: ${this.message(error)}`;
+        this.refreshView();
+      }
+    });
+  }
+
+  /** The adoption of this import's source that a revoke would target. */
+  cvRevocableAdoption(): CvAdoptionLedgerEntry | undefined {
+    return this.cvRevocableAdoptions.find((item) => item.presentClaimCount > 0)
+      ?? this.cvRevocableAdoptions[0];
+  }
+
+  /**
+   * Records an adoption that already happened without writing the profile again. The server only
+   * accepts this when *every* confirmed claim is already present; a partial overlap stays a
+   * collision, so this can never paper over a half-finished adoption.
+   */
+  markCvAlreadyAdopted(): void {
+    const current = this.cvImport;
+    if (!current || this.cvBusy || this.cvClaimManagementBusy) return;
+    this.cvClaimManagementBusy = true; this.cvBusy = true;
+    this.cvClaimManagementError = ''; this.cvClaimManagementNotice = ''; this.cvError = '';
+    this.api.adoptCvFacts(current).subscribe({
+      next: (record) => {
+        this.cvClaimManagementBusy = false; this.cvBusy = false; this.cvAdoptionConfirmed = false;
+        this.applyCvImport(record, true);
+        this.cvClaimManagementNotice = record.adoption?.alreadyAdopted
+          ? `Die ${record.adoption.adoptedClaimIds.length} Claims lagen bereits im Kandidatenprofil und wurden ohne erneute Schreiboperation verbucht.`
+          : `${record.adoption?.adoptedClaimIds.length ?? 0} bestätigte Claims wurden in das Kandidatenprofil übernommen.`;
+        this.loadCandidateProfile(); this.loadCvClaimManagement(); this.refreshView();
+      },
+      error: (error) => {
+        this.cvClaimManagementBusy = false; this.cvBusy = false;
+        this.cvClaimManagementError = (error as { status?: number })?.status === 409
+          ? 'Nur ein Teil der bestätigten Claims liegt bereits im Kandidatenprofil. Verwirf die bisherige Übernahme und übernimm neu.'
+          : this.message(error);
+        this.refreshView();
+      }
+    });
+  }
+
+  /** Discards the recorded adoption and immediately re-adopts the currently confirmed facts. */
+  revokeAndReadoptCvAdoption(): void {
+    const current = this.cvImport; const target = this.cvRevocableAdoption();
+    if (!current || !target || !this.cvRevokeConfirmed || this.cvBusy || this.cvClaimManagementBusy) return;
+    this.cvClaimManagementBusy = true; this.cvBusy = true;
+    this.cvClaimManagementError = ''; this.cvClaimManagementNotice = ''; this.cvError = '';
+    this.api.revokeCvAdoption(current, target.transactionId).subscribe({
+      next: (revoked) => {
+        this.applyCvImport(revoked, true); this.cvRevokeConfirmed = false;
+        this.api.adoptCvFacts(revoked).subscribe({
+          next: (record) => {
+            this.cvClaimManagementBusy = false; this.cvBusy = false; this.cvAdoptionConfirmed = false;
+            this.applyCvImport(record, true);
+            this.cvClaimManagementNotice = `Die frühere Übernahme (${target.claimCount} Claims) wurde verworfen; ${record.adoption?.adoptedClaimIds.length ?? 0} Claims des aktiven Erkennungsstands wurden neu übernommen.`;
+            this.loadCandidateProfile(); this.loadCvClaimManagement(); this.refreshView();
+          },
+          error: (error) => {
+            this.cvClaimManagementBusy = false; this.cvBusy = false;
+            this.cvClaimManagementError = `Die frühere Übernahme wurde verworfen, die neue Übernahme ist aber fehlgeschlagen: ${this.message(error)}`;
+            this.loadCandidateProfile(); this.loadCvClaimManagement(); this.refreshView();
+          }
+        });
+      },
+      error: (error) => {
+        this.cvClaimManagementBusy = false; this.cvBusy = false;
+        this.cvClaimManagementError = (error as { status?: number })?.status === 409
+          ? 'Die frühere Übernahme ist nicht mehr widerrufbar. Lade den Import neu.'
+          : this.message(error);
+        this.refreshView();
+      }
+    });
+  }
+
+  /** Rolls the whole candidate profile back to a stored state, including overwritten Profilfelder. */
+  restoreCvProfileSnapshot(): void {
+    const current = this.cvImport;
+    const snapshot = this.cvProfileSnapshots.find((item) => item.id === this.cvSelectedSnapshotId);
+    if (!current || !snapshot || snapshot.current || !this.cvSnapshotConfirmed
+      || this.cvBusy || this.cvClaimManagementBusy) return;
+    this.cvClaimManagementBusy = true; this.cvBusy = true;
+    this.cvClaimManagementError = ''; this.cvClaimManagementNotice = ''; this.cvError = '';
+    this.api.restoreCvProfileSnapshot(current, snapshot.id).subscribe({
+      next: (record) => {
+        this.cvClaimManagementBusy = false; this.cvBusy = false; this.cvSnapshotConfirmed = false;
+        this.applyCvImport(record, true);
+        this.cvClaimManagementNotice = `Das Kandidatenprofil wurde auf den Stand vom ${snapshot.createdAt} zurückgerollt (${snapshot.claimCount} Claims).`;
+        this.loadCandidateProfile(); this.loadCvClaimManagement(); this.refreshView();
+      },
+      error: (error) => {
+        this.cvClaimManagementBusy = false; this.cvBusy = false;
+        this.cvClaimManagementError = (error as { status?: number })?.status === 409
+          ? 'Das Kandidatenprofil hat sich zwischenzeitlich geändert. Lade die Profilstände neu.'
+          : this.message(error);
+        this.refreshView();
+      }
+    });
+  }
+
   activateCvRecognitionVersion(versionId: string): void {
     const current = this.cvImport;
     const version = this.cvRecognitionVersions?.versions.find((item) => item.id === versionId);
@@ -3976,7 +4109,11 @@ export class App implements OnInit, OnDestroy {
 
   private applyCvImport(record: CvImportRecord, preserveStep = false): void {
     const changedImport = this.cvImport?.id !== record.id;
-    if (changedImport) { this.resetCvAiStructuringState(); this.resetCvRecognitionVersions(); }
+    if (changedImport) {
+      this.resetCvAiStructuringState(); this.resetCvRecognitionVersions();
+      this.cvRevocableAdoptions = []; this.cvProfileSnapshots = [];
+      this.cvSelectedSnapshotId = ''; this.cvClaimManagementError = ''; this.cvClaimManagementNotice = '';
+    }
     this.cvImport = record;
     this.cvFactDrafts = Object.fromEntries(record.facts.map((fact) => [fact.id, {
       category: fact.category, recordId: fact.recordId, field: fact.field, value: fact.value
@@ -3989,10 +4126,12 @@ export class App implements OnInit, OnDestroy {
     if (!preserveStep) this.cvStep = record.proposal ? 6 : record.adoption ? 3 : 2;
     this.cvAdoptionConfirmed = false; this.cvThemeConfirmed = false; this.cvDeleteConfirmation = '';
     this.cvRecognitionVersionConfirmed = false;
+    this.cvRevokeConfirmed = false; this.cvSnapshotConfirmed = false;
     this.loadCvImportInventory();
     if (this.section === 'cv') setTimeout(() => {
       this.loadCvRecognitionVersions();
       this.loadCvAiStructuringState();
+      this.loadCvClaimManagement();
     }, 0);
   }
 

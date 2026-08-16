@@ -132,6 +132,27 @@ class RecognitionNormalization implements CvNormalizationPort {
       adoptedClaimIds: confirmed.map((fact) => fact.claimId!),
       adoptedRecordIds: [...new Set(confirmed.map((fact) => fact.recordId))],
       candidateProfileSha256: 'a'.repeat(64), candidateProfileRevision: `sha256:${'a'.repeat(64)}`,
+      transactionId: 'c'.repeat(32),
+    };
+  }
+  async adoptionLedger() {
+    return { candidateProfileSha256: 'a'.repeat(64), adoptions: [] };
+  }
+  async revokeAdoption(input: { transactionId: string }) {
+    return {
+      contract: 'cv-profile-adoption-revocation' as const, contractVersion: '1.0' as const,
+      revokedTransactionId: input.transactionId, revokedClaimIds: [], revokedRecordIds: [],
+      candidateProfileSha256: 'd'.repeat(64), candidateProfileRevision: `sha256:${'d'.repeat(64)}`,
+    };
+  }
+  async profileSnapshots() {
+    return { candidateProfileSha256: 'a'.repeat(64), snapshots: [] };
+  }
+  async restoreProfileSnapshot(input: { snapshotId: string }) {
+    return {
+      contract: 'cv-profile-snapshot-restore' as const, contractVersion: '1.0' as const,
+      snapshotId: input.snapshotId,
+      candidateProfileSha256: 'e'.repeat(64), candidateProfileRevision: `sha256:${'e'.repeat(64)}`,
     };
   }
 }

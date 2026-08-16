@@ -1,7 +1,7 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
-import type { AtsCheckReport, AgentArtifactAdoptionResult, AgentArtifactContent, AgentArtifactRecord, AgentConfigProfile, AgentConfigProfileView, AgentOrchestrationConfirmationInput, AgentOrchestrationConflict, AgentOrchestrationConflictResolutionRequest, AgentOrchestrationCreateRequest, AgentOrchestrationRecord, AgentProvider, AgentQueueSnapshot, AgentRecoveryDecision, AgentRecoveryLease, AgentRecoveryResolution, AgentRecoverySnapshot, AgentRun, AgentRunEvent, AgentRunEventsPage, AgentRunPreflight, AgentRunRequest, AgentWorkflow, AppConfig, ApplicationCase, ApplicationDraft, ApplicationExportResult, ApplicationPipelineFinalizeResult, ApplicationProfileSetupStatus, ApplicationStyleProfileView, ArtifactRevision, CandidateMatchAnalysis, CandidateProfileSummary, CompanyCrm, CorrelatedMail, CvAiProviderSelection, CvAiStructuringOptions, CvAiStructuringPublicRun, CvAiStructuringSelection, CvFactOperation, CvImportRecord, CvImportSummary, CvRecognitionVersionList, CvTheme, DataInventory, EditableApplicationStyleProfile, IdentityProfile, JobDecision, JobInventoryCategory, JobInventoryView, JobMatch, JobSearchMcpRuntimeCandidate, JobSourceCapabilities, LanguageCheckResult, MailAccount, McpRuntimeStatus, ProfileImportPreview, ProviderModelCatalog, SearchProfile, SearchRunSummary, SearchSchedule, SourceStatus } from './models';
+import type { AtsCheckReport, AgentArtifactAdoptionResult, AgentArtifactContent, AgentArtifactRecord, AgentConfigProfile, AgentConfigProfileView, AgentOrchestrationConfirmationInput, AgentOrchestrationConflict, AgentOrchestrationConflictResolutionRequest, AgentOrchestrationCreateRequest, AgentOrchestrationRecord, AgentProvider, AgentQueueSnapshot, AgentRecoveryDecision, AgentRecoveryLease, AgentRecoveryResolution, AgentRecoverySnapshot, AgentRun, AgentRunEvent, AgentRunEventsPage, AgentRunPreflight, AgentRunRequest, AgentWorkflow, AppConfig, ApplicationCase, ApplicationDraft, ApplicationExportResult, ApplicationPipelineFinalizeResult, ApplicationProfileSetupStatus, ApplicationStyleProfileView, ArtifactRevision, CandidateMatchAnalysis, CandidateProfileSummary, CompanyCrm, CorrelatedMail, CvAiProviderSelection, CvAiStructuringOptions, CvAiStructuringPublicRun, CvAiStructuringSelection, CvAdoptionRevocationCandidates, CvFactOperation, CvImportRecord, CvProfileSnapshotList, CvImportSummary, CvRecognitionVersionList, CvTheme, DataInventory, EditableApplicationStyleProfile, IdentityProfile, JobDecision, JobInventoryCategory, JobInventoryView, JobMatch, JobSearchMcpRuntimeCandidate, JobSourceCapabilities, LanguageCheckResult, MailAccount, McpRuntimeStatus, ProfileImportPreview, ProviderModelCatalog, SearchProfile, SearchRunSummary, SearchSchedule, SourceStatus } from './models';
 
 @Injectable({ providedIn: 'root' })
 export class ApiService {
@@ -246,6 +246,27 @@ export class ApiService {
     return this.http.post<CvImportRecord>(`/api/cv-imports/${encodeURIComponent(current.id)}/adopt`, {
       expectedRevision: current.revision, expectedSha256: current.sha256, confirmed: true
     });
+  }
+  revocableCvAdoptions(current: CvImportRecord): Observable<CvAdoptionRevocationCandidates> {
+    return this.http.get<CvAdoptionRevocationCandidates>(
+      `/api/cv-imports/${encodeURIComponent(current.id)}/adoption/revocable`
+    );
+  }
+  revokeCvAdoption(current: CvImportRecord, transactionId: string): Observable<CvImportRecord> {
+    return this.http.post<CvImportRecord>(`/api/cv-imports/${encodeURIComponent(current.id)}/adoption/revoke`, {
+      expectedRevision: current.revision, expectedSha256: current.sha256, confirmed: true, transactionId
+    });
+  }
+  cvProfileSnapshots(current: CvImportRecord): Observable<CvProfileSnapshotList> {
+    return this.http.get<CvProfileSnapshotList>(
+      `/api/cv-imports/${encodeURIComponent(current.id)}/profile-snapshots`
+    );
+  }
+  restoreCvProfileSnapshot(current: CvImportRecord, snapshotId: string): Observable<CvImportRecord> {
+    return this.http.post<CvImportRecord>(
+      `/api/cv-imports/${encodeURIComponent(current.id)}/profile-snapshots/${encodeURIComponent(snapshotId)}/restore`,
+      { expectedRevision: current.revision, expectedSha256: current.sha256, confirmed: true }
+    );
   }
   createCvProposal(
     applicationCaseId: string,

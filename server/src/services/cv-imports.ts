@@ -9,6 +9,7 @@ import {
   CV_FACT_CATEGORIES, CV_LAYOUT_SECTIONS, type CvFact, type CvFactCategory, type CvNormalizationEnvelope,
   type CvNormalizationConflict, type CvNormalizationPort, type CvTheme, type CvLayoutFingerprint,
   type CvLayoutSection, type CvLayoutPalette, type CvThemeOriginalLayout,
+  type CvAdoptionLedgerEntry, type CvProfileSnapshot,
 } from '../ports/cv-normalization.js';
 import { extractLayoutFingerprint, validateLayoutFingerprint } from './cv-layout-fingerprint.js';
 import { checkAtsHtml, type AtsCheckReport } from './ats-check.js';
@@ -134,6 +135,12 @@ export interface CvImportRecord {
     adoptedAt: string; adoptedClaimIds: string[]; adoptedRecordIds: string[];
     candidateProfileSha256: string; candidateProfileRevision: string;
     recognitionVersionId?: string; recognitionVersionSha256?: string;
+    /** Candidate-history transaction this adoption committed under; the handle a revoke is scoped to. */
+    transactionId?: string;
+    /** Pre-adoption profile snapshot, for a full rollback including overwritten profile scalars. */
+    replacedSnapshotId?: string;
+    /** True when the claims were already present, so the profile was not written. */
+    alreadyAdopted?: boolean;
   };
   proposal?: {
     applicationCaseId: string; jobId: string; createdAt: string; html: string;
@@ -844,11 +851,93 @@ export class CvImportService implements CvAiStructuringImportPort {
     return this.save(current, {
       ...current, status: 'adopted',
       adoption: {
-        ...adopted, adoptedAt: new Date().toISOString(),
+        adoptedClaimIds: adopted.adoptedClaimIds, adoptedRecordIds: adopted.adoptedRecordIds,
+        candidateProfileSha256: adopted.candidateProfileSha256,
+        candidateProfileRevision: adopted.candidateProfileRevision,
+        adoptedAt: new Date().toISOString(),
         recognitionVersionId: activeRecognition.id,
         recognitionVersionSha256: recognitionVersionSha256(activeRecognition),
+        ...(adopted.transactionId ? { transactionId: adopted.transactionId } : {}),
+        ...(adopted.replacedSnapshotId ? { replacedSnapshotId: adopted.replacedSnapshotId } : {}),
+        ...(adopted.alreadyAdopted ? { alreadyAdopted: true as const } : {}),
       },
       proposal: undefined,
+    });
+  }
+
+  /**
+   * Adoptions of *this* import's source that are still revocable. The server record can lose its
+   * adoption link (a re-review clears it) while the claims stay in the profile, so the profile
+   * history — not the record — decides what can still be revoked.
+   */
+  async revocableAdoptions(id: string): Promise<{
+    contract: 'cv-adoption-revocation-candidates'; contractVersion: '1.0';
+    importId: string; candidateProfileSha256: string; adoptions: CvAdoptionLedgerEntry[];
+  }> {
+    const current = await this.require(id);
+    const ledger = await this.normalization.adoptionLedger();
+    return {
+      contract: 'cv-adoption-revocation-candidates', contractVersion: '1.0',
+      importId: current.id, candidateProfileSha256: ledger.candidateProfileSha256,
+      adoptions: ledger.adoptions.filter((entry) => entry.sourceSha256 === current.source.sha256),
+    };
+  }
+
+  /**
+   * Discards a committed adoption of this import's source. The transaction must belong to this
+   * import's source, so one import can never revoke another one's claims.
+   */
+  async revokeAdoption(id: string, expectedRevision: number, expectedSha256: string, transactionId: string) {
+    const current = await this.require(id);
+    assertCas(current, expectedRevision, expectedSha256);
+    const ledger = await this.normalization.adoptionLedger();
+    const entry = ledger.adoptions.find((item) => item.transactionId === transactionId);
+    if (!entry) {
+      conflict('Diese Übernahme ist im CandidateProfile nicht mehr als widerrufbar verzeichnet.');
+    }
+    if (entry.sourceSha256 !== current.source.sha256) {
+      conflict('Die angegebene Übernahme gehört nicht zu diesem Lebenslaufimport.');
+    }
+    const revoked = await this.normalization.revokeAdoption({ transactionId });
+    if (revoked.contract !== 'cv-profile-adoption-revocation' || revoked.contractVersion !== '1.0'
+      || !/^[a-f0-9]{64}$/.test(revoked.candidateProfileSha256)) {
+      dependencyFailure('Der CV-Revoke-Vertrag lieferte keinen prüfbaren CandidateProfile-Nachweis.');
+    }
+    return this.save(current, {
+      ...current,
+      // Back to a reviewed state so the confirmed facts can be adopted again.
+      status: current.status === 'facts_pending' ? 'facts_pending' : 'facts_reviewed',
+      adoption: undefined, proposal: undefined,
+    });
+  }
+
+  async profileSnapshots(id: string): Promise<{
+    contract: 'cv-profile-snapshot-list'; contractVersion: '1.0';
+    importId: string; candidateProfileSha256: string; snapshots: CvProfileSnapshot[];
+  }> {
+    const current = await this.require(id);
+    const listed = await this.normalization.profileSnapshots();
+    return {
+      contract: 'cv-profile-snapshot-list', contractVersion: '1.0',
+      importId: current.id, candidateProfileSha256: listed.candidateProfileSha256,
+      snapshots: listed.snapshots,
+    };
+  }
+
+  /** Rolls the whole candidate profile back to a stored snapshot, including overwritten scalars. */
+  async restoreProfileSnapshot(id: string, expectedRevision: number, expectedSha256: string, snapshotId: string) {
+    const current = await this.require(id);
+    assertCas(current, expectedRevision, expectedSha256);
+    const restored = await this.normalization.restoreProfileSnapshot({ snapshotId });
+    if (restored.contract !== 'cv-profile-snapshot-restore' || restored.contractVersion !== '1.0'
+      || !/^[a-f0-9]{64}$/.test(restored.candidateProfileSha256)) {
+      dependencyFailure('Der CV-Snapshot-Vertrag lieferte keinen prüfbaren CandidateProfile-Nachweis.');
+    }
+    // A rollback invalidates any adoption proof this record still carries.
+    return this.save(current, {
+      ...current,
+      status: current.status === 'facts_pending' ? 'facts_pending' : 'facts_reviewed',
+      adoption: undefined, proposal: undefined,
     });
   }
 

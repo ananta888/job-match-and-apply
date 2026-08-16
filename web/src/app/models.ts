@@ -339,6 +339,9 @@ export interface CvImportRecord {
     candidateProfileRevision: string;
     recognitionVersionId?: string;
     recognitionVersionSha256?: string;
+    transactionId?: string;
+    replacedSnapshotId?: string;
+    alreadyAdopted?: boolean;
   };
   proposal?: {
     applicationCaseId: string;
@@ -407,6 +410,43 @@ export interface CvRecognitionVersionList {
   importId: string;
   activeVersionId: string;
   versions: CvRecognitionVersionSummary[];
+}
+
+export interface CvAdoptionLedgerEntry {
+  transactionId: string;
+  occurredAt: string;
+  sourceSha256?: string;
+  claimCount: number;
+  presentClaimCount: number;
+  beforeSha256?: string;
+  replacedSnapshotId?: string;
+}
+
+export interface CvAdoptionRevocationCandidates {
+  contract: 'cv-adoption-revocation-candidates';
+  contractVersion: '1.0';
+  importId: string;
+  candidateProfileSha256: string;
+  adoptions: CvAdoptionLedgerEntry[];
+}
+
+export interface CvProfileSnapshotSummary {
+  id: string;
+  createdAt: string;
+  candidateProfileSha256: string;
+  byteSize: number;
+  reason: string;
+  claimCount: number;
+  label?: string;
+  current: boolean;
+}
+
+export interface CvProfileSnapshotList {
+  contract: 'cv-profile-snapshot-list';
+  contractVersion: '1.0';
+  importId: string;
+  candidateProfileSha256: string;
+  snapshots: CvProfileSnapshotSummary[];
 }
 
 export type CvFactOperation =

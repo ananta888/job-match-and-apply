@@ -1,4 +1,8 @@
+import { createHash } from 'node:crypto';
 import type { JobPosting, SourceReference } from '../domain/models.js';
+
+/** Shape every stored job identifier must satisfy. */
+export const SAFE_JOB_ID = /^job-[a-f0-9]{16}$/;
 
 const normalized = (value: string): string => value.normalize('NFKC').trim().toLocaleLowerCase('de-DE').replace(/\s+/g, ' ');
 
@@ -13,6 +17,20 @@ export function jobIdentityKey(job: JobPosting): string {
   const urlKey = job.url ? normalized(job.url).replace(/[?#].*$/, '') : '';
   const semanticKey = [job.title, job.company, job.location].map(normalized).join('|');
   return urlKey || semanticKey;
+}
+
+/**
+ * Allowlist-safe identifier derived from the stable identity key.
+ *
+ * Sources hand out whatever they please as an id — the MCP sources use the
+ * posting URL, which carries `/`, `?` and `&`. Those ids flow into agent
+ * orchestration scopes, artifact metadata and process contexts, all of which
+ * accept only a narrow character set, so an unnormalized id made every
+ * case-bound orchestration fail. The source's own id stays available in
+ * `sourceReferences[].externalId` and the address in `url`.
+ */
+export function safeJobId(job: JobPosting): string {
+  return `job-${createHash('sha256').update(jobIdentityKey(job)).digest('hex').slice(0, 16)}`;
 }
 
 export function mergeJob(left: JobPosting, right: JobPosting): JobPosting {
@@ -49,7 +67,9 @@ export function deduplicateJobs(jobs: JobPosting[]): JobPosting[] {
   const merged = new Map<string, JobPosting>();
   for (const job of jobs) {
     const key = jobIdentityKey(job);
-    merged.set(key, merged.has(key) ? mergeJob(merged.get(key)!, job) : structuredClone(job));
+    // Normalize on the way in, so no source-shaped id ever reaches storage.
+    const incoming = { ...structuredClone(job), id: safeJobId(job) };
+    merged.set(key, merged.has(key) ? mergeJob(merged.get(key)!, incoming) : incoming);
   }
   return [...merged.values()];
 }

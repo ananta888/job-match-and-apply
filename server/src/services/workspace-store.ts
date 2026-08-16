@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { dirname, resolve } from 'node:path';
 import type { ApplicationArtifactRevision, ApplicationCase, ApplicationStatusEvent, ApplicationTrackingEvent, ComparisonNote, FollowUpReminder, JobDecision, JobInventoryCategory, JobInventoryEntry, SearchRun, SearchSchedule } from '../domain/models.js';
 import { foldInventory, setInventoryApplied, setInventoryCategory, type DiscoverySettingsInput, type JobInventoryFoldItem } from './job-inventory.js';
+import { migrateWorkspaceJobIds } from './job-id-migration.js';
 
 export interface WorkspaceEnvelope {
   schemaVersion: 1;
@@ -235,6 +236,10 @@ export class JsonWorkspaceStore implements WorkspaceStore {
       parsed.trackingEvents ??= [];
       parsed.artifactRevisions ??= [];
       parsed.jobInventory ??= [];
+      // Workspaces written before job ids were normalized carry posting URLs,
+      // which fail the allowlist every orchestration scope applies. The pass is
+      // deterministic and idempotent, so it is safe on every load.
+      migrateWorkspaceJobIds(parsed);
       return parsed;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return emptyWorkspace();

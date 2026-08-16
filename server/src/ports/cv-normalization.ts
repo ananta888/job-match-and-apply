@@ -48,6 +48,8 @@ export interface CvAdoptionResult {
   adoptedRecordIds: string[];
   candidateProfileSha256: string;
   candidateProfileRevision: string;
+  /** True when every confirmed claim was already present, so nothing was written. */
+  alreadyAdopted?: boolean;
 }
 
 export interface CvNormalizationConflict {

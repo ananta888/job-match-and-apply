@@ -240,10 +240,31 @@ export class SubmoduleCvNormalizationAdapter implements CvNormalizationPort {
       const expectedCandidateSha256 = sha256(candidateProfile.bytes);
       await writeFile(proposal, YAML.stringify(artifact), { encoding: 'utf8', mode: 0o600, flag: 'wx' });
       await writeFile(decisions, JSON.stringify(mapCvAdoptionDecisions(input.facts, artifact)), { encoding: 'utf8', mode: 0o600, flag: 'wx' });
-      const raw = await this.run([
-        'adopt-confirmed', '--proposal', proposal, '--candidate', candidateProfile.canonicalPath,
-        '--decisions', decisions, '--expected-candidate-sha256', expectedCandidateSha256,
-      ]);
+      let raw: Record<string, unknown>;
+      try {
+        raw = await this.run([
+          'adopt-confirmed', '--proposal', proposal, '--candidate', candidateProfile.canonicalPath,
+          '--decisions', decisions, '--expected-candidate-sha256', expectedCandidateSha256,
+        ]);
+      } catch (error) {
+        // Idempotent re-adoption: the contract refuses when a confirmed claim is
+        // already present, which permanently blocks an import whose claims were
+        // adopted earlier. Only when *every* selected claim is already in the
+        // profile is this a repeat of the same adoption — report it as already
+        // adopted instead of failing. Any partial overlap stays a hard conflict,
+        // so the duplicate protection is unchanged.
+        const alreadyAdopted = error instanceof SafeHttpError && error.errorCode === 'claim_collision'
+          ? selectedClaimIdsAlreadyAdopted(artifact, input.facts, candidateProfile.bytes)
+          : undefined;
+        if (!alreadyAdopted) throw error;
+        return {
+          contract: 'cv-profile-adoption', contractVersion: '1.0',
+          adoptedClaimIds: alreadyAdopted, adoptedRecordIds: [],
+          candidateProfileSha256: expectedCandidateSha256,
+          candidateProfileRevision: `sha256:${expectedCandidateSha256}`,
+          alreadyAdopted: true,
+        };
+      }
       const adoptedClaimIds = stringArray(raw.adopted_claim_ids);
       const candidateProfileSha256 = String(raw.candidate_sha256 ?? '');
       if (!/^[a-f0-9]{64}$/.test(candidateProfileSha256)) dependencyError('CV-Adopt lieferte keinen CandidateProfile-Hash.');
@@ -858,6 +879,38 @@ function provenance(value: unknown, metadataValue?: unknown): CvFact['provenance
       },
     } : {}),
   };
+}
+
+/**
+ * Returns the confirmed claim ids when *every* one of them is already present in
+ * the candidate profile — i.e. this is a repeat of an adoption that already
+ * happened. Returns undefined for any partial overlap, which stays a collision.
+ */
+export function selectedClaimIdsAlreadyAdopted(
+  artifact: Record<string, unknown>,
+  rootFacts: CvFact[],
+  candidateBytes: Buffer | string,
+): string[] | undefined {
+  const confirmed = new Set(mapCvAdoptionDecisions(rootFacts, artifact)
+    .filter((decision) => decision.decision === 'confirm').map((decision) => decision.fact_id));
+  if (confirmed.size === 0) return undefined;
+  const artifactFacts = Array.isArray(artifact.facts) ? artifact.facts as Record<string, unknown>[] : [];
+  const selected = new Set<string>();
+  for (const fact of artifactFacts) {
+    if (!fact || typeof fact !== 'object') continue;
+    const factId = typeof fact.id === 'string' ? fact.id : undefined;
+    const claimId = typeof fact.claim_id === 'string' ? fact.claim_id : undefined;
+    if (factId && claimId && confirmed.has(factId)) selected.add(claimId);
+  }
+  if (selected.size === 0) return undefined;
+  let candidate: unknown;
+  try { candidate = YAML.parse(typeof candidateBytes === 'string' ? candidateBytes : candidateBytes.toString('utf8')); }
+  catch { return undefined; }
+  const claims = candidate && typeof candidate === 'object' && Array.isArray((candidate as { claims?: unknown }).claims)
+    ? (candidate as { claims: unknown[] }).claims : [];
+  const existing = new Set(claims.flatMap((claim) => claim && typeof claim === 'object' && typeof (claim as { id?: unknown }).id === 'string'
+    ? [(claim as { id: string }).id] : []));
+  return [...selected].every((claimId) => existing.has(claimId)) ? [...selected].sort() : undefined;
 }
 
 export function mapCvAdoptionDecisions(rootFacts: CvFact[], artifact: Record<string, unknown>) {

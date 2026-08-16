@@ -430,6 +430,18 @@ export interface CvAdoptionRevocationCandidates {
   adoptions: CvAdoptionLedgerEntry[];
 }
 
+export interface CvIncognitoPreview {
+  contract: 'cv-incognito-preview';
+  contractVersion: '1.0';
+  importId: string;
+  artifactId: string;
+  artifactLifecycle: 'proposed' | 'approved';
+  html: string;
+  htmlSha256: string;
+  /** Always false: an incognito preview is never a document revision. */
+  usableAsDocumentRevision: false;
+}
+
 export interface CvProfileSnapshotSummary {
   id: string;
   createdAt: string;

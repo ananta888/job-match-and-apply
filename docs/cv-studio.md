@@ -142,9 +142,15 @@ die freigegebene Revision angewendet und ihr Hash im CV-Importnachweis gespeiche
 originalgetreue Variante rendert ausschließlich aus serverseitig abgeleiteten, auf sichere Hex-Werte
 begrenzten Stildaten; freies HTML/CSS bleibt ausgeschlossen. Das Ergebnis ist eigenständiges, escaped
 HTML mit CSP, ohne Skripte oder externe Ressourcen. Die Angular-Vorschau läuft in einem sandboxed `iframe`.
-Inkognito-Agentenläufe bleiben als nicht verwendbare Vorschlagsartefakte im Agent Center prüfbar;
-sie können weder als fachliche Dokumentrevision übernommen noch als HTML erzeugt oder heruntergeladen
-werden. Damit wird eine Scheinidentität niemals versehentlich zu einer verwendbaren Bewerbung.
+Inkognito-Agentenläufe bleiben als nicht verwendbare Vorschlagsartefakte im Agent Center prüfbar.
+Sie können weder als fachliche Dokumentrevision übernommen noch über die Fallfreigabe finalisiert
+werden. Ihr Ergebnis ist jedoch sichtbar: Die Inkognito-Vorschau rendert `proposed`- und
+`approved`-Artefakte direkt, ohne Adoption und ohne Fallfreigabe, und persistiert dabei keinen
+Vorschlagsdatensatz — sie kann also nie zu einer freigegebenen Revision werden. Das Dokument trägt
+einen Inkognito-Hinweis im `<body>`, der den Download überdauert und den Artefaktstand benennt;
+`proposed` bedeutet dabei ausdrücklich, dass kein Mensch das Ergebnis bestätigt hat. Damit wird eine
+Scheinidentität nicht versehentlich zu einer verwendbaren Bewerbung, ohne dass ein Inkognito-Lauf
+ergebnislos bleibt.
 
 Der Job-Search-MCP bleibt davon getrennt: Er läuft ausschließlich als validierter Trusted-Host-
 stdio-Prozess und niemals innerhalb einer Agenten-, Container- oder Bubblewrap-Sandbox.

@@ -4,7 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { DomSanitizer, type SafeResourceUrl } from '@angular/platform-browser';
 import { ApiService } from './api.service';
 import { forkJoin, type Subscription } from 'rxjs';
-import type { AgentApproval, AgentArtifactContent, AgentArtifactRecord, AgentConfigProfile, AgentConfigProfileView, AgentOrchestrationConfirmationInput, AgentOrchestrationConflict, AgentOrchestrationConflictStrategy, AgentOrchestrationCreateRequest, AgentOrchestrationGate, AgentOrchestrationRecord, AgentProvider, AgentProviderConfigProfile, AgentProviderInstallation, AgentQueueBlockReason, AgentQueueSnapshot, AgentRecoveryDecision, AgentRecoveryLease, AgentRecoveryRun, AgentRun, AgentRunEvent, AgentRunPreflight, AgentRunRequest, AgentRunStatus, AgentRuntimeTarget, AgentWorkflow, AgentWorkspaceMode, AppConfig, ApplicationCase, ApplicationDraft, ApplicationExportResult, ApplicationNextActionsProposalProjection, ApplicationProfileSetupStatus, ApplicationStyleDocumentType, ApplicationStyleExampleDocumentType, ApplicationStyleProfileView, ArtifactRevision, CandidateMatchAnalysis, CandidateProfileSummary, CompanyCrm, CorrelatedMail, CvAiProviderSelection, CvAiStructuringOptions, CvAiStructuringPublicRun, CvAiStructuringSelection, CvAiStructuringSuggestion, CvAdoptionLedgerEntry, CvFact, CvFactCategory, CvFactDecision, CvFactOperation, CvImportRecord, CvImportSummary, CvProfileSnapshotSummary, CvRecognitionVersionList, CvRecognitionVersionSummary, CvTheme, CvLayoutFingerprint, CvLayoutSection, CvThemeOriginalLayout, CvLayoutPalette, JobInventoryView, JobInventoryCategory, SearchRunSummary, AtsCheckReport, JobSearchMcpRuntimeCandidate, DataInventory, EditableApplicationStyleProfile, EmployerResponseTriageProposalProjection, IdentityProfile, JobDecision, JobMatch, JobSourceCapabilities, LanguageCheckResult, MailAccount, McpRuntimeStatus, ProfileImportPreview, ProviderModelCatalog, SearchSchedule, Section, SourceCapability, SourceStatus } from './models';
+import type { AgentApproval, AgentArtifactContent, AgentArtifactRecord, AgentConfigProfile, AgentConfigProfileView, AgentOrchestrationConfirmationInput, AgentOrchestrationConflict, AgentOrchestrationConflictStrategy, AgentOrchestrationCreateRequest, AgentOrchestrationGate, AgentOrchestrationRecord, AgentProvider, AgentProviderConfigProfile, AgentProviderInstallation, AgentQueueBlockReason, AgentQueueSnapshot, AgentRecoveryDecision, AgentRecoveryLease, AgentRecoveryRun, AgentRun, AgentRunEvent, AgentRunPreflight, AgentRunRequest, AgentRunStatus, AgentRuntimeTarget, AgentWorkflow, AgentWorkspaceMode, AppConfig, ApplicationCase, ApplicationDraft, ApplicationExportResult, ApplicationNextActionsProposalProjection, ApplicationProfileSetupStatus, ApplicationStyleDocumentType, ApplicationStyleExampleDocumentType, ApplicationStyleProfileView, ArtifactRevision, CandidateMatchAnalysis, CandidateProfileSummary, CompanyCrm, CorrelatedMail, CvAiProviderSelection, CvAiStructuringOptions, CvAiStructuringPublicRun, CvAiStructuringSelection, CvAiStructuringSuggestion, CvAdoptionLedgerEntry, CvFact, CvFactCategory, CvFactDecision, CvFactOperation, CvImportRecord, CvImportSummary, CvIncognitoPreview, CvProfileSnapshotSummary, CvRecognitionVersionList, CvRecognitionVersionSummary, CvTheme, CvLayoutFingerprint, CvLayoutSection, CvThemeOriginalLayout, CvLayoutPalette, JobInventoryView, JobInventoryCategory, SearchRunSummary, AtsCheckReport, JobSearchMcpRuntimeCandidate, DataInventory, EditableApplicationStyleProfile, EmployerResponseTriageProposalProjection, IdentityProfile, JobDecision, JobMatch, JobSourceCapabilities, LanguageCheckResult, MailAccount, McpRuntimeStatus, ProfileImportPreview, ProviderModelCatalog, SearchSchedule, Section, SourceCapability, SourceStatus } from './models';
 
 type AgentEventLevelFilter = 'all' | 'debug' | 'info' | 'warning' | 'error';
 type AgentTimelineView = 'readable' | 'diagnostic';
@@ -171,6 +171,9 @@ export class App implements OnInit, OnDestroy {
   cvThemePreviewUrl?: SafeResourceUrl;
   cvThemePreviewVariant?: 'ats' | 'original';
   cvThemePreviewBusy = false;
+  cvIncognitoPreview?: CvIncognitoPreview;
+  cvIncognitoPreviewUrl?: SafeResourceUrl;
+  private cvIncognitoPreviewObjectUrl?: string;
   private cvThemePreviewObjectUrl?: string;
   cvAtsReport?: AtsCheckReport;
   cvAtsBusy = false;
@@ -3921,6 +3924,57 @@ export class App implements OnInit, OnDestroy {
       if (distance < bestDistance) { bestDistance = distance; best = option; }
     }
     return best;
+  }
+
+  /**
+   * Renders the incognito result for viewing and download. Adoption and case
+   * release stay closed; this only makes the outcome visible, which the general
+   * contract has always allowed incognito to reach.
+   */
+  /** Artifacts of the selected run that an incognito preview can render from. */
+  selectedAgentRunArtifacts(): AgentArtifactRecord[] {
+    return this.agentArtifacts.filter((artifact) => artifact.lifecycle === 'proposed' || artifact.lifecycle === 'approved');
+  }
+
+  renderIncognitoCvPreview(artifact: AgentArtifactRecord): void {
+    const current = this.cvImport; const application = this.cvSelectedApplicationCase();
+    const run = this.selectedAgentRun;
+    if (!current || !application || !run || this.cvBusy) return;
+    this.cvBusy = true; this.cvError = ''; this.cvIncognitoPreview = undefined;
+    this.api.renderIncognitoCvPreview(current, application.id, run.id, artifact.id).subscribe({
+      next: (preview) => {
+        this.cvBusy = false;
+        this.cvIncognitoPreview = preview;
+        try {
+          this.revokeIncognitoPreview();
+          const url = URL.createObjectURL(new Blob([preview.html], { type: 'text/html' }));
+          this.cvIncognitoPreviewObjectUrl = url;
+          this.cvIncognitoPreviewUrl = this.sanitizer.bypassSecurityTrustResourceUrl(url);
+        } catch { /* Object URLs are unavailable in some environments; the download still works. */ }
+        this.refreshView();
+      },
+      error: (error) => this.failCv(error)
+    });
+  }
+
+  /** The state is part of the file name, so an unconfirmed render stays recognizable on disk. */
+  downloadIncognitoCvPreview(): void {
+    const preview = this.cvIncognitoPreview;
+    if (!preview || typeof document === 'undefined' || typeof URL === 'undefined') return;
+    try {
+      const url = URL.createObjectURL(new Blob([preview.html], { type: 'text/html' }));
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `lebenslauf-inkognito-${preview.artifactLifecycle}-${preview.htmlSha256.slice(0, 12)}.html`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch { this.cvError = 'Der Download konnte in dieser Umgebung nicht gestartet werden.'; this.refreshView(); }
+  }
+
+  private revokeIncognitoPreview(): void {
+    if (!this.cvIncognitoPreviewObjectUrl) return;
+    try { URL.revokeObjectURL(this.cvIncognitoPreviewObjectUrl); } catch { /* already released */ }
+    this.cvIncognitoPreviewObjectUrl = undefined;
   }
 
   refreshCvThemePreview(): void {

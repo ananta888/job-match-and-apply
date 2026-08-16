@@ -850,7 +850,35 @@
                 @if (cvAgentStartUnavailableReason(); as reason) { <p class="approval-block-reason" role="status">Gesperrt: {{ reason }}</p> }
                 @if (agentOrchestrationError) { <p class="warning-box" role="alert">{{ agentOrchestrationError }}</p> }
               </div></article>
-              <article><span>2</span><div><h3>Freigegebene Revision als HTML</h3><p>Nach Agentenreview, Artefakt-Adoption und Fallfreigabe rendert der Server ausschließlich die exakt gebundene CV-Revision.</p><button class="secondary compact" type="button" (click)="loadApplicationCases()" [disabled]="cvBusy">Fallstatus aktualisieren</button><button class="primary" data-testid="cv-render-approved" type="button" (click)="renderApprovedCvHtml()" [disabled]="cvBusy || !!cvHtmlRenderUnavailableReason()">Proof-verifiziertes HTML erzeugen</button>@if (cvHtmlRenderUnavailableReason(); as reason) { <p class="approval-block-reason" role="status">Gesperrt: {{ reason }}</p> }</div></article>
+              <article><span>2</span><div><h3>Freigegebene Revision als HTML</h3><p>Nach Agentenreview, Artefakt-Adoption und Fallfreigabe rendert der Server ausschließlich die exakt gebundene CV-Revision.</p><button class="secondary compact" type="button" (click)="loadApplicationCases()" [disabled]="cvBusy">Fallstatus aktualisieren</button><button class="primary" data-testid="cv-render-approved" type="button" (click)="renderApprovedCvHtml()" [disabled]="cvBusy || !!cvHtmlRenderUnavailableReason()">Proof-verifiziertes HTML erzeugen</button>@if (cvHtmlRenderUnavailableReason(); as reason) { <p class="approval-block-reason" role="status">Gesperrt: {{ reason }}</p> }
+                @if (cvSelectedApplicationCase()?.identityMode === 'incognito') {
+                  <div class="cv-incognito-preview" data-testid="cv-incognito-preview">
+                    <h4>Inkognito-Vorschau</h4>
+                    <p>Der Lauf hat ein Ergebnis erzeugt. Es lässt sich ansehen und herunterladen, wird aber nie eine freigegebene Dokumentrevision: Adoption, Fallfreigabe und Finalverwendung bleiben gesperrt.</p>
+                    @if (selectedAgentRunArtifacts().length) {
+                      <ul class="cv-incognito-artifacts">
+                        @for (artifact of selectedAgentRunArtifacts(); track artifact.id) {
+                          <li>
+                            <span><strong>{{ artifact.kind || artifact.id }}</strong> · {{ artifact.lifecycle }}</span>
+                            <button class="secondary compact" type="button" (click)="renderIncognitoCvPreview(artifact)" [disabled]="cvBusy">Ergebnis anzeigen</button>
+                          </li>
+                        }
+                      </ul>
+                    } @else {
+                      <p role="status">Wähle im Agent Center den Lauf mit den Finalizer-Artefakten aus.</p>
+                    }
+                    @if (cvIncognitoPreview; as preview) {
+                      <div class="warning-box">
+                        <strong>Keine verwendbare Bewerbung</strong>
+                        <p>Stand <code>{{ preview.artifactLifecycle }}</code> · SHA-256 <code>{{ preview.htmlSha256 }}</code>. Die Markierung steht im Dokument selbst und bleibt im Download erhalten.</p>
+                      </div>
+                      @if (cvIncognitoPreviewUrl; as previewUrl) {
+                        <iframe class="cv-html-preview" [src]="previewUrl" sandbox title="Inkognito-Vorschau des Lebenslaufs"></iframe>
+                      }
+                      <div class="cv-step-actions"><button class="primary" data-testid="cv-incognito-download" type="button" (click)="downloadIncognitoCvPreview()">Inkognito-HTML herunterladen</button></div>
+                    }
+                  </div>
+                }</div></article>
             </div>
             @if (cvAgentOrchestration(); as orchestration) {
               <section class="cv-agent-progress" aria-labelledby="cv-agent-progress-heading"><div class="panel-head"><div><span class="kicker">ROOT-ORCHESTRIERUNG</span><h3 id="cv-agent-progress-heading">Agentenlauf {{ orchestration.status }}</h3></div><div class="cv-inline-actions"><button class="secondary compact" type="button" (click)="refreshCvAgentStatus()" [disabled]="cvAgentStatusBusy()">Status aktualisieren</button><button class="secondary compact" type="button" (click)="openCvAgentOrchestration()">Im Agent Center prüfen</button></div></div>

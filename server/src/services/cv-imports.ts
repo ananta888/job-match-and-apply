@@ -804,6 +804,44 @@ export class CvImportService implements CvAiStructuringImportPort {
   }
 
   /** Render a skeleton preview of the given theme so the user can compare ATS vs. original layout in step 4. */
+  /**
+   * Renders an incognito application for viewing and download.
+   *
+   * The normal document path runs through artifact adoption and case release,
+   * both of which are closed for incognito, so an incognito case could never
+   * see its own result. This path deliberately bypasses neither: it renders
+   * from the agent artifact directly, persists nothing, and writes no
+   * `proposal` record, so nothing here can be mistaken for — or promoted to —
+   * an approved document revision. Adoption, case release, `used` and export
+   * stay blocked exactly as before.
+   *
+   * The banner is injected into the document itself rather than the surrounding
+   * UI, because the file is downloadable and the marking has to survive that.
+   */
+  async renderIncognitoPreview(id: string, input: {
+    artifactId: string;
+    artifactLifecycle: 'proposed' | 'approved';
+    documentContent: string;
+  }) {
+    const current = await this.require(id);
+    if (!current.adoption) {
+      conflict('Der Lebenslauf muss vor der Vorschau in das CandidateProfile übernommen werden.');
+    }
+    const rendered = renderHtml(sectionsFromDocument(input.documentContent), current.theme);
+    const html = withIncognitoBanner(rendered, input.artifactLifecycle);
+    return {
+      contract: 'cv-incognito-preview' as const,
+      contractVersion: '1.0' as const,
+      importId: current.id,
+      artifactId: input.artifactId,
+      artifactLifecycle: input.artifactLifecycle,
+      html,
+      htmlSha256: createHash('sha256').update(html).digest('hex'),
+      /** Never a document revision; deliberately not persisted on the record. */
+      usableAsDocumentRevision: false as const,
+    };
+  }
+
   async previewTheme(id: string, theme: CvTheme) {
     const current = await this.require(id);
     const normalized = normalizeTheme(theme);
@@ -1579,6 +1617,27 @@ function fontStack(family: 'sans' | 'serif') {
 }
 function sectionHtml(section: RenderSection) {
   return `<section data-section="${escapeHtml(section.id)}"><h2>${escapeHtml(section.heading)}</h2><ul>${section.items.map((item) => `<li>${escapeHtml(item.text)}</li>`).join('')}</ul></section>`;
+}
+
+/**
+ * Stamps an incognito render so the marking survives a download. It is placed
+ * inside `<body>` rather than added as a wrapper, so it cannot be stripped by
+ * merely unwrapping the document, and it names the artifact state the render
+ * came from — `proposed` output carries no human confirmation at all.
+ */
+function withIncognitoBanner(html: string, lifecycle: 'proposed' | 'approved'): string {
+  const state = lifecycle === 'approved'
+    ? 'ausdrücklich bestätigtes Agentenartefakt'
+    : 'ungeprüftes Agentenergebnis, von niemandem bestätigt';
+  const banner = '<div role="note" style="margin:0 0 16px;padding:12px 14px;border:2px solid #b45309;'
+    + 'border-radius:8px;background:#fffbeb;color:#7c2d12;font:700 13px/1.5 Arial,sans-serif">'
+    + 'INKOGNITO-VORSCHAU – KEINE VERWENDBARE BEWERBUNG'
+    + `<div style="margin-top:4px;font-weight:400;font-size:11px">Scheinidentität mit Platzhalter-Kontaktdaten · ${escapeHtml(state)}. `
+    + 'Dieses Dokument ist keine freigegebene Dokumentrevision und darf nicht als Bewerbung versendet werden.</div></div>';
+  const openingBody = html.match(/<body[^>]*>/i);
+  return openingBody
+    ? html.replace(openingBody[0], `${openingBody[0]}${banner}`)
+    : `${banner}${html}`;
 }
 
 function renderHtml(document: RenderDocument, theme?: CvTheme) {

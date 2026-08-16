@@ -1357,6 +1357,54 @@ describe('App', () => {
     fixture.destroy();
   });
 
+  it('renders and downloads an incognito result without ever making it a revision', async () => {
+    const preview = {
+      contract: 'cv-incognito-preview', contractVersion: '1.0',
+      importId: '66666666-6666-4666-8666-666666666666',
+      artifactId: '33333333-3333-4333-8333-333333333333',
+      artifactLifecycle: 'proposed', html: '<html><body><div role="note">INKOGNITO-VORSCHAU</div></body></html>',
+      htmlSha256: 'c'.repeat(64), usableAsDocumentRevision: false
+    };
+    apiMock['renderIncognitoCvPreview'] = vi.fn().mockReturnValue(of(preview));
+    const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
+    const component = fixture.componentInstance;
+    component.section = 'cv'; component.cvStep = 5; component.cvImport = cvImportFixture();
+    component.selectedAgentRun = { id: 'run-1' } as never;
+    component.cvSelectedApplicationCaseId = '55555555-5555-4555-8555-555555555555';
+    component.applicationCases = [{
+      id: '55555555-5555-4555-8555-555555555555', documentType: 'cv', identityMode: 'incognito', state: 'selected'
+    }] as never;
+    component.agentArtifacts = [
+      { id: '33333333-3333-4333-8333-333333333333', lifecycle: 'proposed', kind: 'annotated_draft' },
+      { id: '44444444-4444-4444-8444-444444444444', lifecycle: 'used', kind: 'other' }
+    ] as never;
+    // Only renderable states are offered; a used artifact is not a preview source.
+    expect(component.selectedAgentRunArtifacts().map((item) => item.id))
+      .toEqual(['33333333-3333-4333-8333-333333333333']);
+
+    const anchors: Array<{ download?: string; click: () => void }> = [];
+    const createElement = vi.spyOn(document, 'createElement').mockImplementation(((tag: string) => {
+      if (tag !== 'a') return document.createElementNS('http://www.w3.org/1999/xhtml', tag) as HTMLElement;
+      const anchor = { href: '', download: '', click: vi.fn() };
+      anchors.push(anchor as never);
+      return anchor as unknown as HTMLElement;
+    }) as never);
+    try {
+      component.renderIncognitoCvPreview(component.agentArtifacts[0]!);
+      await vi.waitFor(() => expect(component.cvIncognitoPreview).toBeDefined());
+      component.downloadIncognitoCvPreview();
+    } finally {
+      createElement.mockRestore();
+    }
+
+    expect(component.cvIncognitoPreview?.usableAsDocumentRevision).toBe(false);
+    // The unconfirmed state is carried in the file name, not just on screen.
+    expect(anchors[0]?.download).toBe(`lebenslauf-inkognito-proposed-${'c'.repeat(12)}.html`);
+    // Nothing here turns the import into a proposal-bearing record.
+    expect(component.cvImport?.proposal).toBeUndefined();
+    fixture.destroy();
+  });
+
   it('explains an unreadable style profile instead of hiding the editor', async () => {
     // A rejected style profile used to leave the identity section blank: the
     // editor is gated on the loaded profile and there was no else branch.

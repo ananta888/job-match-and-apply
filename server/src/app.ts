@@ -3381,6 +3381,41 @@ export function createApp(
     )));
   }));
 
+  app.post('/api/cv-imports/:importId/incognito-preview', asyncRoute(async (request, response) => {
+    const id = z.string().uuid().parse(request.params.importId);
+    const payload = z.object({
+      applicationCaseId: z.string().uuid(),
+      runId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/),
+      artifactId: z.string().uuid(),
+      confirmed: z.literal(true),
+    }).strict().parse(request.body);
+    const application = await workspace.getApplicationCase(payload.applicationCaseId);
+    if (!application) { response.status(404).json({ error: 'Bewerbungsfall nicht gefunden.' }); return; }
+    // This path exists only because adoption and case release are closed for
+    // incognito. A real identity must keep using the approved-revision path,
+    // which binds the document to a released revision and its hash.
+    if (application.identityMode !== 'incognito') {
+      throw Object.assign(new Error('Reale Bewerbungsfälle rendern über die freigegebene Dokumentrevision, nicht über die Inkognito-Vorschau.'), { statusCode: 409 });
+    }
+    if (application.documentType !== 'cv') throw Object.assign(new Error('HTML-CV kann nur für einen Bewerbungsfall vom Typ Lebenslauf gerendert werden.'), { statusCode: 409 });
+    const run = await artifactRun(payload.runId);
+    const artifact = await artifactForRun(run.id, payload.artifactId);
+    if (artifact.lifecycle !== 'proposed' && artifact.lifecycle !== 'approved') {
+      throw Object.assign(new Error('Nur vorgeschlagene oder bestätigte Artefakte können als Inkognito-Vorschau gerendert werden.'), { statusCode: 409 });
+    }
+    if (artifact.provenance.identityMode !== 'incognito' || artifact.provenance.applicationCaseId !== application.id) {
+      throw Object.assign(new Error('Das Artefakt gehört nicht zu diesem Inkognito-Bewerbungsfall.'), { statusCode: 409 });
+    }
+    const { content } = await agentApi.artifacts.read(artifact.id);
+    let documentContent: string;
+    try { documentContent = new TextDecoder('utf-8', { fatal: true }).decode(content); }
+    catch { throw Object.assign(new Error('Artefaktinhalt ist kein gültiger UTF-8-Text.'), { statusCode: 409 }); }
+    response.setHeader('cache-control', 'no-store');
+    response.json(await (await cvImports()).renderIncognitoPreview(id, {
+      artifactId: artifact.id, artifactLifecycle: artifact.lifecycle, documentContent,
+    }));
+  }));
+
   app.post('/api/cv-imports/:importId/theme/preview', asyncRoute(async (request, response) => {
     const id = z.string().uuid().parse(request.params.importId);
     const payload = z.object({ theme: cvThemeSchema }).strict().parse(request.body);

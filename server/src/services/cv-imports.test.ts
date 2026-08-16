@@ -421,6 +421,46 @@ describe('CV import service', () => {
     expect(publicCvImportRecord(rendered).proposal).not.toHaveProperty('html');
   });
 
+  it('renders an incognito preview that is marked in the document and never a revision', async () => {
+    const { service, record } = await imported();
+    const reviewed = await service.review(record.id, record.revision, record.sha256, [
+      { factId: 'fact-role', action: 'confirm' }, { factId: 'fact-company', action: 'confirm' },
+    ]);
+    const adopted = await service.adopt(reviewed.id, reviewed.revision, reviewed.sha256);
+    const content = '# Jane <script>alert(1)</script>\n## Profil\n- Engineer';
+
+    const unconfirmed = await service.renderIncognitoPreview(adopted.id, {
+      artifactId: '33333333-3333-4333-8333-333333333333', artifactLifecycle: 'proposed', documentContent: content,
+    });
+    // The marking has to survive a download, so it lives inside <body>.
+    expect(unconfirmed.html).toContain('INKOGNITO-VORSCHAU – KEINE VERWENDBARE BEWERBUNG');
+    expect(unconfirmed.html).toMatch(/<body[^>]*><div role="note"/);
+    expect(unconfirmed.html).toContain('von niemandem bestätigt');
+    expect(unconfirmed.usableAsDocumentRevision).toBe(false);
+    // Escaping is unchanged by the injection.
+    expect(unconfirmed.html).toContain('&lt;script&gt;');
+    expect(unconfirmed.html).not.toContain('<script>alert(1)</script>');
+
+    const confirmed = await service.renderIncognitoPreview(adopted.id, {
+      artifactId: '33333333-3333-4333-8333-333333333333', artifactLifecycle: 'approved', documentContent: content,
+    });
+    expect(confirmed.html).toContain('ausdrücklich bestätigtes Agentenartefakt');
+    expect(confirmed.htmlSha256).not.toBe(unconfirmed.htmlSha256);
+
+    // Nothing is persisted: the preview cannot become or shadow a revision.
+    const reloaded = await service.get(adopted.id);
+    expect(reloaded?.proposal).toBeUndefined();
+    expect(reloaded?.status).toBe(adopted.status);
+    expect(reloaded?.revision).toBe(adopted.revision);
+  });
+
+  it('refuses an incognito preview before the facts were adopted', async () => {
+    const { service, record } = await imported();
+    await expect(service.renderIncognitoPreview(record.id, {
+      artifactId: '33333333-3333-4333-8333-333333333333', artifactLifecycle: 'approved', documentContent: '# Jane',
+    })).rejects.toMatchObject({ statusCode: 409 });
+  });
+
   it('encrypts fact values and HTML at rest with a separate key', async () => {
     const root = await mkdtemp(join(tmpdir(), 'cv-import-vault-')); roots.push(root);
     const repository = new JsonCvImportRepository(join(root, 'records'), join(root, 'cv.key'));

@@ -166,8 +166,19 @@ function sandboxPolicy(context: ProviderRunContext, workspaceRoot: string): Json
     : { type: 'readOnly', networkAccess: false };
 }
 
-function approvalPolicy(context: ProviderRunContext): 'never' | 'onRequest' {
-  return context.request.approvalMode === 'explicit' ? 'onRequest' : 'never';
+/**
+ * `AskForApproval` on the wire is kebab-case, unlike `SandboxPolicy.type`
+ * further down, which really is camelCase. The protocol mixes both, so the
+ * shapes are not interchangeable and cannot be derived from one another.
+ * Authoritative source: `codex app-server generate-json-schema`.
+ */
+function approvalPolicy(context: ProviderRunContext): 'never' | 'on-request' {
+  return context.request.approvalMode === 'explicit' ? 'on-request' : 'never';
+}
+
+/** `SandboxMode` (thread/start, thread/resume, thread/fork) is kebab-case. */
+function sandboxMode(context: ProviderRunContext): 'read-only' | 'workspace-write' {
+  return context.request.sandbox === 'workspace-write' ? 'workspace-write' : 'read-only';
 }
 
 function safeMessage(value: unknown, fallback: string): string {
@@ -614,8 +625,8 @@ export class CodexAppServerAgentAdapter implements AgentRunnerPort {
       await this.write(run, { method: 'initialized', params: {} });
       const scopedDynamicTools = dynamicTools(context);
       const threadResult = object(await this.request(run, resumeThreadId ? 'thread/resume' : 'thread/start', resumeThreadId
-        ? { threadId: resumeThreadId, cwd: workspace, approvalPolicy: approvalPolicy(context), sandbox: context.request.sandbox === 'workspace-write' ? 'workspaceWrite' : 'readOnly', ...(scopedDynamicTools ? { dynamicTools: scopedDynamicTools } : {}) }
-        : { cwd: workspace, approvalPolicy: approvalPolicy(context), sandbox: context.request.sandbox === 'workspace-write' ? 'workspaceWrite' : 'readOnly', serviceName: 'job_match_and_apply', ephemeral: true, ...(scopedDynamicTools ? { dynamicTools: scopedDynamicTools } : {}), ...(context.request.model ? { model: context.request.model } : {}) }));
+        ? { threadId: resumeThreadId, cwd: workspace, approvalPolicy: approvalPolicy(context), sandbox: sandboxMode(context), ...(scopedDynamicTools ? { dynamicTools: scopedDynamicTools } : {}) }
+        : { cwd: workspace, approvalPolicy: approvalPolicy(context), sandbox: sandboxMode(context), serviceName: 'job_match_and_apply', ephemeral: true, ...(scopedDynamicTools ? { dynamicTools: scopedDynamicTools } : {}), ...(context.request.model ? { model: context.request.model } : {}) }));
       const threadId = stringField(threadResult?.thread, 'id');
       if (!threadId || (resumeThreadId && threadId !== resumeThreadId)) throw new CodexAppServerHealthError('Thread-Healthcheck lieferte keine passende thread.id.');
       run.threadId = threadId;

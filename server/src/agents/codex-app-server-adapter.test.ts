@@ -148,9 +148,20 @@ describe('Codex App Server experimental adapter', () => {
     expect(supervisor.spec?.stdin).toBeUndefined();
     expect(supervisor.spec?.limits).toEqual(expect.objectContaining(PROVIDER_RESOURCE_CEILINGS));
     expect(supervisor.writes.map((entry) => entry.method)).toEqual(['initialize', 'initialized', 'thread/start', 'turn/start']);
-    expect(supervisor.writes.find((entry) => entry.method === 'turn/start')).toMatchObject({
-      params: { sandboxPolicy: { type: 'readOnly', networkAccess: false } },
+    // The protocol mixes casing on purpose and rejects the wrong shape outright
+    // (`unknown variant \`onRequest\``), so both are pinned to the values from
+    // `codex app-server generate-json-schema`:
+    //   AskForApproval -> untrusted | on-request | never   (kebab)
+    //   SandboxMode    -> read-only | workspace-write      (kebab)
+    //   SandboxPolicy  -> readOnly  | workspaceWrite       (camel)
+    expect(supervisor.writes.find((entry) => entry.method === 'thread/start')).toMatchObject({
+      params: { approvalPolicy: 'never', sandbox: 'read-only' },
     });
+    expect(supervisor.writes.find((entry) => entry.method === 'turn/start')).toMatchObject({
+      params: { approvalPolicy: 'never', sandboxPolicy: { type: 'readOnly', networkAccess: false } },
+    });
+    expect(JSON.stringify(supervisor.writes)).not.toContain('onRequest');
+    expect(JSON.stringify(supervisor.writes)).not.toContain('"sandbox":"readOnly"');
     expect(JSON.stringify(supervisor.writes)).toContain('synthetic private task');
     expect(events.map((event) => event.kind)).toContain('agent_message_delta');
     expect(events.map((event) => event.kind)).toContain('agent_message_completed');

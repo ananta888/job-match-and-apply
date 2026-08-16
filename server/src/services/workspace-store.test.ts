@@ -107,7 +107,7 @@ describe('JsonWorkspaceStore', () => {
       artifactNames: [], warnings: [], revision: 1,
     });
     await store.appendApplicationEvent({ id: '40000000-0000-4000-8000-000000000001', applicationCaseId: caseId, from: null, to: 'selected', occurredAt: '2026-01-01T00:00:00.000Z', source: 'user' });
-    await store.appendTrackingEvent({ id: '50000000-0000-4000-8000-000000000001', applicationCaseId: caseId, status: 'submitted', occurredAt: '2026-01-01T00:00:00.000Z', source: 'user' });
+    await store.appendTrackingEvent({ id: '50000000-0000-4000-8000-000000000001', applicationCaseId: caseId, status: 'manually_submitted', occurredAt: '2026-01-01T00:00:00.000Z', source: 'user' });
     await store.saveArtifactRevision({
       id: '60000000-0000-4000-8000-000000000001', applicationCaseId: caseId, companyKey: 'example', jobId: 'job-x',
       type: 'cover_letter', lifecycle: 'proposed', sha256: 'b'.repeat(64), bytes: 10, artifactPath: 'x/y.md',

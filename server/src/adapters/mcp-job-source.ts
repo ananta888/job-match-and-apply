@@ -117,7 +117,7 @@ function major(version: string): number { return Number.parseInt(version.split('
 export class McpJobSourceAdapter implements JobSourcePort {
   constructor(private readonly settings: McpSettings) {}
 
-  private async call(name: string, args: Record<string, unknown>): Promise<unknown> {
+  private async call(name: string, args: Record<string, unknown>, timeoutMs?: number): Promise<unknown> {
     const launch = launchFromMcpSettings(this.settings as unknown as Record<string, unknown>, resolve(process.cwd(), '..'));
     const validated = await validateJobSearchMcpRuntime(launch, { projectRoot: resolve(process.cwd(), '..') });
     const transport = new StdioClientTransport({
@@ -128,7 +128,7 @@ export class McpJobSourceAdapter implements JobSourcePort {
     const client = new Client({ name: 'job-match-and-apply', version: '0.1.0' });
     try {
       await client.connect(transport);
-      const result = await client.callTool({ name, arguments: args });
+      const result = await client.callTool({ name, arguments: args }, undefined, timeoutMs ? { timeout: timeoutMs } : undefined);
       if ('isError' in result && result.isError) throw new Error(`MCP-Werkzeug ${name} meldete einen Fehler.`);
       return parseToolResult(result);
     } finally {
@@ -157,12 +157,20 @@ export class McpJobSourceAdapter implements JobSourcePort {
   }
 
   async statuses(): Promise<SourceStatus[]> {
-    const [result, capabilities] = await Promise.all([
-      this.call('browser_status', {}) as Promise<Record<string, unknown>>,
-      this.capabilities()
-    ]);
-    const portals = Array.isArray(result.portale) ? result.portale as Record<string, unknown>[] : [];
-    const statusById = new Map(portals.map((portal) => [String(portal.portal_id), portal]));
+    // The source catalog comes from the fast `capabilities` tool and must always
+    // populate the list. The live `browser_status` probe can be slow (it inspects
+    // the visible-login driver), so it is best-effort behind a short timeout: a
+    // failure or timeout still returns every configured source, just without the
+    // live driver/session overlay, instead of hanging or returning an empty list.
+    const capabilities = await this.capabilities();
+    let statusById = new Map<string, Record<string, unknown>>();
+    let liveProbe = false;
+    try {
+      const result = await this.call('browser_status', {}, 4_000) as Record<string, unknown>;
+      const portals = Array.isArray(result.portale) ? result.portale as Record<string, unknown>[] : [];
+      statusById = new Map(portals.map((portal) => [String(portal.portal_id), portal]));
+      liveProbe = true;
+    } catch { /* Live driver status unavailable; report the catalog with unknown live status. */ }
     return capabilities.sources.filter((source) => source.enabled).map((source) => {
       const portal = statusById.get(source.id);
       return {
@@ -173,7 +181,9 @@ export class McpJobSourceAdapter implements JobSourcePort {
       connected: source.supportsLogin ? Boolean(portal?.treiber_verfuegbar) : true,
       supportsLogin: source.supportsLogin,
       sessionAvailable: Boolean(portal?.sitzung_vorhanden),
-      note: Array.isArray(portal?.anmerkungen) ? portal.anmerkungen.map(String).join(' ') : `${source.access}; Policy: ${source.policyStatus}`
+      note: Array.isArray(portal?.anmerkungen) ? portal.anmerkungen.map(String).join(' ')
+        : liveProbe ? `${source.access}; Policy: ${source.policyStatus}`
+        : `${source.access}; Policy: ${source.policyStatus} · Live-Status derzeit nicht verfügbar`
     }; });
   }
 

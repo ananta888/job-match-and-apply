@@ -77,7 +77,10 @@ code { font-family: 'SFMono-Regular', Consolas, monospace; }
 .agent-config-model{display:flex;flex-direction:column;gap:.25rem}
 .agent-config-model-input{display:flex;gap:.5rem}
 .agent-config-model-input input{flex:1 1 auto;min-width:0}
-.agent-config-model-hint{font-size:.8rem;opacity:.75}
+/* Override the global `label small { float: right }` — the hint must stay a
+   normal-flow block below the field, otherwise it floats and squeezes the
+   following disclosure block into a few characters. */
+.agent-config-model-hint{display:block;float:none !important;clear:both;width:100%;font-size:.8rem;opacity:.75}
 .agent-config-model-hint.error{opacity:1;color:#b00020}
 .list-bulk-actions{display:flex;gap:.75rem;align-items:center;flex-wrap:wrap;margin:.5rem 0}
 .cv-import-inventory li{display:flex;gap:.5rem;align-items:center}

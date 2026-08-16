@@ -488,6 +488,22 @@
                         <strong>{{ cvAiProviderLabel(selected.providerId) }} · {{ cvAiRuntimeLabel(selected) }}</strong>
                         @if (selected.installation.blockers.length) { <ul>@for (blocker of selected.installation.blockers; track blocker) { <li>{{ cvAiBlockerLabel(blocker) }}</li> }</ul> }
                       </div>
+                      <label class="agent-config-model" for="cv-ai-model">Modell (optional — sonst Profilstandard)
+                        <span class="agent-config-model-input">
+                          <input id="cv-ai-model" data-testid="cv-ai-model" [(ngModel)]="cvAiModelOverride" list="cv-ai-model-list" maxlength="192" placeholder="Profilstandard" autocomplete="off" [disabled]="cvAiBusy || cvAiRunActive()">
+                          <button type="button" (click)="loadCvAiModels()" [disabled]="agentModelCatalogBusy[cvAiModelCatalogKey()] || cvAiBusy || cvAiRunActive()">{{ agentModelCatalogBusy[cvAiModelCatalogKey()] ? 'Lade…' : 'Modelle laden' }}</button>
+                        </span>
+                        @if (cvAiModelCatalog(); as catalog) {
+                          <datalist id="cv-ai-model-list">
+                            @for (model of catalog.models; track model.id) { <option [value]="model.id">{{ model.label || model.id }}{{ model.note ? ' — ' + model.note : '' }}</option> }
+                          </datalist>
+                          <small class="agent-config-model-hint">@if (catalog.models.length) { {{ catalog.models.length }} Modelle aus dem Tool @if (catalog.currentModel) { · aktiv im Tool: {{ catalog.currentModel }} } } @else { {{ catalog.note || 'Keine Liste – Name frei eingeben.' }} }</small>
+                        } @else if (agentModelCatalogError[cvAiModelCatalogKey()]) {
+                          <small class="agent-config-model-hint error">{{ agentModelCatalogError[cvAiModelCatalogKey()] }}</small>
+                        } @else {
+                          <small class="agent-config-model-hint">Leer lassen für den im Agent-Profil gesetzten Standard, oder „Modelle laden" für Vorschläge aus dem Tool.</small>
+                        }
+                      </label>
                     }
                     <dl class="cv-ai-disclosure">
                       <div><dt>Geteilte Daten</dt><dd>Vollständiger lokal extrahierter Lebenslauftext und exakte Quellanker</dd></div>
@@ -926,7 +942,7 @@
               <div class="agent-config-witness"><div><small>Aktives Profil</small><strong>{{ profile.profileId }}</strong></div><div><small>Quelle</small><strong>{{ view.source === 'primary' ? 'Primärprofil' : 'Last Known Good' }}</strong></div><div><small>Schema</small><strong>v{{ profile.schemaVersion }}@if (view.migratedFrom) { · migriert von v{{ view.migratedFrom }} }</strong></div><div><small>CAS-Stand</small><code>{{ view.profile.updatedAt }}</code></div></div>
               @if (view.source === 'last_known_good') { <div class="warning-box" role="status"><strong>Last Known Good aktiv</strong><p>Das Primärprofil konnte nicht geladen werden. Änderungen bleiben möglich, werden aber ausschließlich gegen den angezeigten LKG-Zeitstand gespeichert.</p>@if (view.primaryError) { <code>{{ view.primaryError }}</code> }</div> }
               <div class="agent-config-provider-list" aria-label="Providerregeln des aktiven Profils">
-                @for (provider of profile.providers; track provider.provider) {
+                @for (provider of visibleAgentConfigProviders(profile); track provider.provider) {
                   <fieldset class="agent-config-provider" [attr.data-provider-config]="provider.provider"><legend>{{ agentProviderName(provider.provider) }} · <code>{{ provider.provider }}</code></legend>
                     <label class="explicit-confirmation"><input type="checkbox" [ngModel]="provider.enabled" (ngModelChange)="provider.enabled = $event; invalidateAgentConfigConfirmation()"><span>Provider lokal aktiviert</span></label>
                     <div class="agent-config-provider-grid">
@@ -934,8 +950,26 @@
                       @if (provider.runtimeTarget === 'wsl') { <label>WSL-Distribution (optional)<input [ngModel]="provider.wslDistribution" (ngModelChange)="setAgentConfigWslDistribution(provider, $event)" maxlength="128" pattern="[A-Za-z0-9][A-Za-z0-9._-]*" placeholder="Ubuntu-24.04"></label> }
                       <label>Sandbox<select [ngModel]="provider.sandbox" (ngModelChange)="provider.sandbox = $event; invalidateAgentConfigConfirmation()"><option value="read-only">Nur lesen</option><option value="workspace-write">Workspace schreiben</option></select></label>
                       <label>Approval<select [ngModel]="provider.approvalMode" (ngModelChange)="provider.approvalMode = $event; invalidateAgentConfigConfirmation()"><option value="deny">Deny-by-default</option><option value="explicit">Explizite Freigabe</option></select></label>
+                      <label class="agent-config-model">Modell
+                        <span class="agent-config-model-input">
+                          <input [ngModel]="provider.model" (ngModelChange)="setAgentConfigProviderModel(provider, $event)" [attr.list]="'models-' + provider.provider + '-' + provider.runtimeTarget" maxlength="192" placeholder="Providerstandard" autocomplete="off">
+                          <button type="button" (click)="loadProviderModels(provider)" [disabled]="agentModelCatalogBusy[modelCatalogKey(provider)]">{{ agentModelCatalogBusy[modelCatalogKey(provider)] ? 'Lade…' : 'Modelle laden' }}</button>
+                        </span>
+                        @if (providerModelCatalog(provider); as catalog) {
+                          <datalist [attr.id]="'models-' + provider.provider + '-' + provider.runtimeTarget">
+                            @for (model of catalog.models; track model.id) { <option [value]="model.id">{{ model.label || model.id }}{{ model.note ? ' — ' + model.note : '' }}</option> }
+                          </datalist>
+                          <small class="agent-config-model-hint">
+                            @if (catalog.models.length) { {{ catalog.models.length }} Modelle aus dem Tool @if (catalog.currentModel) { · aktiv im Tool: {{ catalog.currentModel }} } } @else { {{ catalog.note || 'Keine Liste – Name frei eingeben.' }} }
+                          </small>
+                        } @else if (agentModelCatalogError[modelCatalogKey(provider)]) {
+                          <small class="agent-config-model-hint error">{{ agentModelCatalogError[modelCatalogKey(provider)] }}</small>
+                        } @else {
+                          <small class="agent-config-model-hint">Frei eingeben oder „Modelle laden" für Vorschläge aus dem Tool.</small>
+                        }
+                      </label>
                     </div>
-                    <div class="agent-config-readonly"><span>Netzwerk: <strong>{{ provider.network === 'disabled' ? 'offline / gesperrt' : 'gespeicherte Regel: restricted; Runs bleiben derzeit offline' }}</strong></span><span>Modell: <strong>{{ provider.model || 'Providerstandard, nicht frei eingegeben' }}</strong></span><span>Runtime-Regel: <strong>{{ agentConfigRuntimeLabel(provider) }}</strong></span></div>
+                    <div class="agent-config-readonly"><span>Netzwerk: <strong>{{ provider.network === 'disabled' ? 'offline / gesperrt' : 'gespeicherte Regel: restricted; Runs bleiben derzeit offline' }}</strong></span><span>Modell: <strong>{{ provider.model || 'Providerstandard' }}</strong></span><span>Runtime-Regel: <strong>{{ agentConfigRuntimeLabel(provider) }}</strong></span></div>
                     <p class="agent-config-contract-note">Runtime und Sandbox werden vor dem Start serverseitig geprüft. Approval und Modell übersetzt ausschließlich der Server in die effektiven Run-Regeln; die Oberfläche behauptet daraus keine Werkzeugfreigabe.</p>
                   </fieldset>
                 }

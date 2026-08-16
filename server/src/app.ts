@@ -90,6 +90,7 @@ import {
   AgentRetentionCoordinator, AgentRetentionJournal, FileAgentRawLogRetentionPort,
 } from './agents/retention.js';
 import { AgentConfigProfileStore, safeDefaultAgentConfigProfile } from './agents/config-profile-store.js';
+import { discoverProviderModelCatalog } from './agents/agent-model-catalog.js';
 import { AgentLocalObservability } from './agents/local-observability.js';
 import { JsonAgentIdempotencyStore } from './agents/idempotency-store.js';
 import { JsonlApprovalLifecycleJournal } from './agents/approval-lifecycle-journal.js';
@@ -232,6 +233,7 @@ const cvAiProviderSchema = z.object({
   runtimeTarget: z.enum(['windows', 'wsl', 'linux', 'darwin']),
   wslDistribution: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/).optional(),
   expectedVersion: z.string().trim().min(1).max(256),
+  model: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,191}$/).optional(),
 }).strict().refine(
   (value) => (value.runtimeTarget === 'wsl') === Boolean(value.wslDistribution),
   'WSL-Distribution ist genau für WSL erforderlich.',
@@ -1110,6 +1112,29 @@ export function createApp(
 
   app.get('/api/agents/providers', asyncRoute(async (request, response) => {
     response.json(await discoverAgentProviders(request.query.refresh === 'true'));
+  }));
+
+  app.get('/api/agents/providers/:providerId/models', asyncRoute(async (request, response) => {
+    const providerId = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/).parse(request.params.providerId);
+    const query = z.object({
+      runtimeTarget: z.enum(['windows', 'wsl', 'linux', 'darwin']),
+      wslDistribution: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/).optional(),
+    }).strict().refine(
+      (value) => (value.runtimeTarget === 'wsl') === Boolean(value.wslDistribution),
+      'WSL-Distribution ist genau für WSL erforderlich.',
+    ).parse(request.query);
+    if (!agentApi.providers.some((provider) => provider.provider === providerId)) {
+      throw Object.assign(new Error('Unbekannter Provider.'), { statusCode: 404 });
+    }
+    const view = (await discoverAgentProviders()).find((provider) => provider.id === providerId);
+    const installation = view?.installations?.find((item) => item.runtimeTarget === query.runtimeTarget
+      && (query.wslDistribution ? item.distribution === query.wslDistribution : true));
+    response.setHeader('cache-control', 'no-store');
+    response.json(await discoverProviderModelCatalog({
+      providerId, runtimeTarget: query.runtimeTarget,
+      ...(query.wslDistribution ? { wslDistribution: query.wslDistribution } : {}),
+      ...(installation?.executable ? { executable: installation.executable } : {}),
+    }));
   }));
 
   app.get('/api/agents/health', asyncRoute(async (_request, response) => {

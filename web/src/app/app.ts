@@ -4,7 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { DomSanitizer, type SafeResourceUrl } from '@angular/platform-browser';
 import { ApiService } from './api.service';
 import { forkJoin, type Subscription } from 'rxjs';
-import type { AgentApproval, AgentArtifactContent, AgentArtifactRecord, AgentConfigProfile, AgentConfigProfileView, AgentOrchestrationConfirmationInput, AgentOrchestrationConflict, AgentOrchestrationConflictStrategy, AgentOrchestrationCreateRequest, AgentOrchestrationGate, AgentOrchestrationRecord, AgentProvider, AgentProviderConfigProfile, AgentProviderInstallation, AgentQueueBlockReason, AgentQueueSnapshot, AgentRecoveryDecision, AgentRecoveryLease, AgentRecoveryRun, AgentRun, AgentRunEvent, AgentRunPreflight, AgentRunRequest, AgentRunStatus, AgentRuntimeTarget, AgentWorkflow, AgentWorkspaceMode, AppConfig, ApplicationCase, ApplicationDraft, ApplicationExportResult, ApplicationNextActionsProposalProjection, ApplicationProfileSetupStatus, ApplicationStyleDocumentType, ApplicationStyleExampleDocumentType, ApplicationStyleProfileView, ArtifactRevision, CandidateMatchAnalysis, CandidateProfileSummary, CompanyCrm, CorrelatedMail, CvAiProviderSelection, CvAiStructuringOptions, CvAiStructuringPublicRun, CvAiStructuringSelection, CvAiStructuringSuggestion, CvFact, CvFactCategory, CvFactDecision, CvFactOperation, CvImportRecord, CvImportSummary, CvRecognitionVersionList, CvRecognitionVersionSummary, CvTheme, CvLayoutFingerprint, CvLayoutSection, CvThemeOriginalLayout, CvLayoutPalette, JobInventoryView, JobInventoryCategory, SearchRunSummary, AtsCheckReport, JobSearchMcpRuntimeCandidate, DataInventory, EditableApplicationStyleProfile, EmployerResponseTriageProposalProjection, IdentityProfile, JobDecision, JobMatch, JobSourceCapabilities, LanguageCheckResult, MailAccount, McpRuntimeStatus, ProfileImportPreview, SearchSchedule, Section, SourceCapability, SourceStatus } from './models';
+import type { AgentApproval, AgentArtifactContent, AgentArtifactRecord, AgentConfigProfile, AgentConfigProfileView, AgentOrchestrationConfirmationInput, AgentOrchestrationConflict, AgentOrchestrationConflictStrategy, AgentOrchestrationCreateRequest, AgentOrchestrationGate, AgentOrchestrationRecord, AgentProvider, AgentProviderConfigProfile, AgentProviderInstallation, AgentQueueBlockReason, AgentQueueSnapshot, AgentRecoveryDecision, AgentRecoveryLease, AgentRecoveryRun, AgentRun, AgentRunEvent, AgentRunPreflight, AgentRunRequest, AgentRunStatus, AgentRuntimeTarget, AgentWorkflow, AgentWorkspaceMode, AppConfig, ApplicationCase, ApplicationDraft, ApplicationExportResult, ApplicationNextActionsProposalProjection, ApplicationProfileSetupStatus, ApplicationStyleDocumentType, ApplicationStyleExampleDocumentType, ApplicationStyleProfileView, ArtifactRevision, CandidateMatchAnalysis, CandidateProfileSummary, CompanyCrm, CorrelatedMail, CvAiProviderSelection, CvAiStructuringOptions, CvAiStructuringPublicRun, CvAiStructuringSelection, CvAiStructuringSuggestion, CvFact, CvFactCategory, CvFactDecision, CvFactOperation, CvImportRecord, CvImportSummary, CvRecognitionVersionList, CvRecognitionVersionSummary, CvTheme, CvLayoutFingerprint, CvLayoutSection, CvThemeOriginalLayout, CvLayoutPalette, JobInventoryView, JobInventoryCategory, SearchRunSummary, AtsCheckReport, JobSearchMcpRuntimeCandidate, DataInventory, EditableApplicationStyleProfile, EmployerResponseTriageProposalProjection, IdentityProfile, JobDecision, JobMatch, JobSourceCapabilities, LanguageCheckResult, MailAccount, McpRuntimeStatus, ProfileImportPreview, ProviderModelCatalog, SearchSchedule, Section, SourceCapability, SourceStatus } from './models';
 
 type AgentEventLevelFilter = 'all' | 'debug' | 'info' | 'warning' | 'error';
 type AgentTimelineView = 'readable' | 'diagnostic';
@@ -173,6 +173,7 @@ export class App implements OnInit, OnDestroy {
   cvAiRuns: CvAiStructuringPublicRun[] = [];
   cvAiRun?: CvAiStructuringPublicRun;
   cvAiInstallationKey = '';
+  cvAiModelOverride = '';
   cvAiDisclosureConfirmed = false;
   cvAiApplyConfirmed = false;
   cvAiSuggestionSelections: Record<string, boolean> = {};
@@ -218,6 +219,9 @@ export class App implements OnInit, OnDestroy {
   agentConfigCostCurrency = 'EUR';
   agentConfigProfileBusy = false;
   agentConfigProfileError = '';
+  agentModelCatalogs: Record<string, ProviderModelCatalog> = {};
+  agentModelCatalogBusy: Record<string, boolean> = {};
+  agentModelCatalogError: Record<string, string> = {};
   agentWorkflows: AgentWorkflow[] = [];
   agentRuns: AgentRun[] = [];
   agentQueue?: AgentQueueSnapshot;
@@ -448,6 +452,57 @@ export class App implements OnInit, OnDestroy {
     this.invalidateAgentConfigConfirmation();
   }
 
+  modelCatalogKey(provider: Pick<AgentProviderConfigProfile, 'provider' | 'runtimeTarget' | 'wslDistribution'>): string {
+    return `${provider.provider}:${provider.runtimeTarget}:${provider.wslDistribution ?? ''}`;
+  }
+
+  providerModelCatalog(provider: AgentProviderConfigProfile): ProviderModelCatalog | undefined {
+    return this.agentModelCatalogs[this.modelCatalogKey(provider)];
+  }
+
+  loadProviderModels(provider: Pick<AgentProviderConfigProfile, 'provider' | 'runtimeTarget' | 'wslDistribution'>): void {
+    if (provider.runtimeTarget === 'wsl' && !provider.wslDistribution) {
+      this.agentModelCatalogError[this.modelCatalogKey(provider)] = 'Für WSL zuerst die Distribution angeben.';
+      return;
+    }
+    const key = this.modelCatalogKey(provider);
+    this.agentModelCatalogBusy[key] = true;
+    this.agentModelCatalogError[key] = '';
+    this.api.providerModels(provider.provider, provider.runtimeTarget, provider.wslDistribution).subscribe({
+      next: (catalog) => { this.agentModelCatalogs[key] = catalog; this.agentModelCatalogBusy[key] = false; },
+      error: (error) => { this.agentModelCatalogBusy[key] = false; this.agentModelCatalogError[key] = this.message(error); }
+    });
+  }
+
+  private cvAiModelCatalogTarget(): Pick<AgentProviderConfigProfile, 'provider' | 'runtimeTarget' | 'wslDistribution'> | undefined {
+    const selected = this.cvAiSelectedInstallation();
+    if (!selected) return undefined;
+    return {
+      provider: selected.providerId, runtimeTarget: selected.installation.runtimeTarget,
+      ...(selected.installation.wslDistribution ? { wslDistribution: selected.installation.wslDistribution } : {}),
+    };
+  }
+
+  cvAiModelCatalog(): ProviderModelCatalog | undefined {
+    const target = this.cvAiModelCatalogTarget();
+    return target ? this.agentModelCatalogs[this.modelCatalogKey(target)] : undefined;
+  }
+
+  cvAiModelCatalogKey(): string {
+    const target = this.cvAiModelCatalogTarget();
+    return target ? this.modelCatalogKey(target) : '';
+  }
+
+  loadCvAiModels(): void {
+    const target = this.cvAiModelCatalogTarget();
+    if (target) this.loadProviderModels(target);
+  }
+
+  setAgentConfigProviderModel(provider: AgentProviderConfigProfile, model: string | undefined): void {
+    provider.model = model?.trim() || undefined;
+    this.invalidateAgentConfigConfirmation();
+  }
+
   setAgentConfigBudget(key: 'maxTotalTokens' | 'maxToolCalls' | 'maxRunDurationMs', value: number | string | null | undefined): void {
     if (!this.agentConfigProfileDraft) return;
     const parsed = value === '' || value === null || value === undefined ? undefined : Number(value);
@@ -583,7 +638,7 @@ export class App implements OnInit, OnDestroy {
     this.agentBusy = true;
     this.api.agentProviders(refresh).subscribe({
       next: (providers) => {
-        this.agentProviders = providers;
+        this.agentProviders = providers.filter((item) => this.isRealAgentProvider(item.id));
         this.agentTimelineCache = undefined;
         if (!this.agentRunForm.providerId) this.agentRunForm.providerId = providers.find((item) => item.available)?.id ?? providers[0]?.id ?? '';
         if (!this.agentOrchestrationForm.providerId) this.agentOrchestrationForm.providerId = providers.find((item) => item.available)?.id ?? providers[0]?.id ?? '';
@@ -1375,6 +1430,11 @@ export class App implements OnInit, OnDestroy {
   selectedAgentWorkflow(): AgentWorkflow | undefined { return this.agentWorkflows.find((item) => item.id === this.agentRunForm.workflowId); }
   agentProviderSupportsNetwork(): boolean { return false; }
   agentProviderName(providerId: string): string { return this.agentProviders.find((item) => item.id === providerId)?.name ?? providerId; }
+  /** Synthetic offline test providers are never surfaced in the UI. */
+  isRealAgentProvider(providerId: string): boolean { return providerId !== 'fake' && providerId !== 'fake-interactive'; }
+  visibleAgentConfigProviders(profile: AgentConfigProfile): AgentProviderConfigProfile[] {
+    return profile.providers.filter((provider) => this.isRealAgentProvider(provider.provider));
+  }
   agentRunProviderVersion(run: AgentRun): string {
     if (run.providerVersion) return `v${run.providerVersion}`;
     const current = this.agentProviders.find((item) => item.id === run.providerId)?.version;
@@ -2715,8 +2775,10 @@ export class App implements OnInit, OnDestroy {
     providerId: string;
     installation: CvAiStructuringOptions['providers'][number]['installations'][number];
   }> {
-    return (this.cvAiOptions?.providers ?? []).flatMap((provider) => provider.installations
-      .map((installation) => ({ providerId: provider.providerId, installation })));
+    return (this.cvAiOptions?.providers ?? [])
+      .filter((provider) => this.isRealAgentProvider(provider.providerId))
+      .flatMap((provider) => provider.installations
+        .map((installation) => ({ providerId: provider.providerId, installation })));
   }
 
   cvAiInstallationKeyFor(
@@ -2728,6 +2790,7 @@ export class App implements OnInit, OnDestroy {
 
   selectCvAiInstallation(key: string): void {
     this.cvAiInstallationKey = key;
+    this.cvAiModelOverride = '';
     this.cvAiDisclosureConfirmed = false;
     this.cvAiApplyConfirmed = false;
     this.cvAiError = '';
@@ -3069,7 +3132,8 @@ export class App implements OnInit, OnDestroy {
     return {
       providerId: selected.providerId, runtimeTarget: selected.installation.runtimeTarget,
       ...(selected.installation.wslDistribution ? { wslDistribution: selected.installation.wslDistribution } : {}),
-      expectedVersion: selected.installation.version
+      expectedVersion: selected.installation.version,
+      ...(this.cvAiModelOverride.trim() ? { model: this.cvAiModelOverride.trim() } : {}),
     };
   }
 

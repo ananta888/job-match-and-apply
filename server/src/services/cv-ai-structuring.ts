@@ -176,6 +176,8 @@ export interface CvAiProviderSelection {
   runtimeTarget: Exclude<RuntimeTarget, 'container'>;
   wslDistribution?: string;
   expectedVersion: string;
+  /** Optional per-run model override; falls back to the stored profile model. */
+  model?: string;
 }
 
 export interface CvAiDisclosureConfirmation {
@@ -637,7 +639,8 @@ export class CvAiStructuringService {
     const request: AgentRunRequest = {
       provider: provider.runner.provider, task: prompt.task, workspaceRoot: this.dependencies.workspaceRoot,
       runtimeTarget: input.provider.runtimeTarget, wslDistribution: input.provider.wslDistribution,
-      sandbox: 'read-only', network: 'disabled', approvalMode: 'deny', model: provider.profile.model, limits,
+      sandbox: 'read-only', network: 'disabled', approvalMode: 'deny',
+      model: input.provider.model ?? provider.profile.model, limits,
       metadata: {
         workflowId: 'cv-ai-structuring', requiredRootMcpTools: [], cvAiStructuringRunId: id,
         providerToolMode: 'none', cvAiStructuringMode: mode,
@@ -720,7 +723,9 @@ export class CvAiStructuringService {
 
   private async resolveProvider(selection: CvAiProviderSelection): Promise<ResolvedProvider> {
     if (!selection || !SAFE_ID.test(selection.providerId) || !['windows', 'wsl', 'linux', 'darwin'].includes(selection.runtimeTarget)
-      || !selection.expectedVersion?.trim() || (selection.runtimeTarget === 'wsl') !== Boolean(selection.wslDistribution)) {
+      || !selection.expectedVersion?.trim() || (selection.runtimeTarget === 'wsl') !== Boolean(selection.wslDistribution)
+      || (selection.model !== undefined
+        && (typeof selection.model !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,191}$/.test(selection.model)))) {
       error('cv_ai_provider_selection_invalid', 400, 'preflight');
     }
     const runner = this.providers.get(selection.providerId);

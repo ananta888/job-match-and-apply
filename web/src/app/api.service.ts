@@ -1,7 +1,7 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
-import type { AtsCheckReport, AgentArtifactAdoptionResult, AgentArtifactContent, AgentArtifactRecord, AgentConfigProfile, AgentConfigProfileView, AgentOrchestrationConfirmationInput, AgentOrchestrationConflict, AgentOrchestrationConflictResolutionRequest, AgentOrchestrationCreateRequest, AgentOrchestrationRecord, AgentProvider, AgentQueueSnapshot, AgentRecoveryDecision, AgentRecoveryLease, AgentRecoveryResolution, AgentRecoverySnapshot, AgentRun, AgentRunEvent, AgentRunEventsPage, AgentRunPreflight, AgentRunRequest, AgentWorkflow, AppConfig, ApplicationCase, ApplicationDraft, ApplicationExportResult, ApplicationPipelineFinalizeResult, ApplicationProfileSetupStatus, ApplicationStyleProfileView, ArtifactRevision, CandidateMatchAnalysis, CandidateProfileSummary, CompanyCrm, CorrelatedMail, CvAiProviderSelection, CvAiStructuringOptions, CvAiStructuringPublicRun, CvAiStructuringSelection, CvFactOperation, CvImportRecord, CvImportSummary, CvRecognitionVersionList, CvTheme, DataInventory, EditableApplicationStyleProfile, IdentityProfile, JobDecision, JobInventoryCategory, JobInventoryView, JobMatch, JobSearchMcpRuntimeCandidate, JobSourceCapabilities, LanguageCheckResult, MailAccount, McpRuntimeStatus, ProfileImportPreview, SearchProfile, SearchRunSummary, SearchSchedule, SourceStatus } from './models';
+import type { AtsCheckReport, AgentArtifactAdoptionResult, AgentArtifactContent, AgentArtifactRecord, AgentConfigProfile, AgentConfigProfileView, AgentOrchestrationConfirmationInput, AgentOrchestrationConflict, AgentOrchestrationConflictResolutionRequest, AgentOrchestrationCreateRequest, AgentOrchestrationRecord, AgentProvider, AgentQueueSnapshot, AgentRecoveryDecision, AgentRecoveryLease, AgentRecoveryResolution, AgentRecoverySnapshot, AgentRun, AgentRunEvent, AgentRunEventsPage, AgentRunPreflight, AgentRunRequest, AgentWorkflow, AppConfig, ApplicationCase, ApplicationDraft, ApplicationExportResult, ApplicationPipelineFinalizeResult, ApplicationProfileSetupStatus, ApplicationStyleProfileView, ArtifactRevision, CandidateMatchAnalysis, CandidateProfileSummary, CompanyCrm, CorrelatedMail, CvAiProviderSelection, CvAiStructuringOptions, CvAiStructuringPublicRun, CvAiStructuringSelection, CvFactOperation, CvImportRecord, CvImportSummary, CvRecognitionVersionList, CvTheme, DataInventory, EditableApplicationStyleProfile, IdentityProfile, JobDecision, JobInventoryCategory, JobInventoryView, JobMatch, JobSearchMcpRuntimeCandidate, JobSourceCapabilities, LanguageCheckResult, MailAccount, McpRuntimeStatus, ProfileImportPreview, ProviderModelCatalog, SearchProfile, SearchRunSummary, SearchSchedule, SourceStatus } from './models';
 
 @Injectable({ providedIn: 'root' })
 export class ApiService {
@@ -255,6 +255,13 @@ export class ApiService {
   }
   agentConfigProfile(): Observable<AgentConfigProfileView> {
     return this.http.get<AgentConfigProfileView>('/api/agents/config-profile');
+  }
+  providerModels(providerId: string, runtimeTarget: string, wslDistribution?: string): Observable<ProviderModelCatalog> {
+    const params = new URLSearchParams({ runtimeTarget });
+    if (wslDistribution) params.set('wslDistribution', wslDistribution);
+    return this.http.get<ProviderModelCatalog>(
+      `/api/agents/providers/${encodeURIComponent(providerId)}/models?${params.toString()}`,
+    );
   }
   saveAgentConfigProfile(current: AgentConfigProfileView, profile: AgentConfigProfile): Observable<AgentConfigProfileView> {
     return this.http.put<AgentConfigProfileView>('/api/agents/config-profile', {

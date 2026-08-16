@@ -73,3 +73,9 @@ code { font-family: 'SFMono-Regular', Consolas, monospace; }
 .skip-link { position: fixed; left: 1rem; top: -5rem; z-index: 1000; padding: .75rem 1rem; background: #fff; color: #111; border: 2px solid currentColor; }
 .skip-link:focus { top: 1rem; }
 :focus-visible { outline: 3px solid #6d5ce7; outline-offset: 3px; }
+
+.agent-config-model{display:flex;flex-direction:column;gap:.25rem}
+.agent-config-model-input{display:flex;gap:.5rem}
+.agent-config-model-input input{flex:1 1 auto;min-width:0}
+.agent-config-model-hint{font-size:.8rem;opacity:.75}
+.agent-config-model-hint.error{opacity:1;color:#b00020}

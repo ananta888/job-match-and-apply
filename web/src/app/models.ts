@@ -670,6 +670,23 @@ export interface AgentProviderConfigProfile {
   model?: string;
 }
 
+export interface ModelCatalogEntry {
+  id: string;
+  label?: string;
+  note?: string;
+}
+
+export interface ProviderModelCatalog {
+  providerId: string;
+  runtimeTarget: AgentRuntimeTarget;
+  wslDistribution?: string;
+  source: 'codex-models-cache' | 'claude-stats-cache' | 'opencode-cli' | 'none';
+  models: ModelCatalogEntry[];
+  currentModel?: string;
+  supportsCustom: boolean;
+  note?: string;
+}
+
 export interface AgentConfigProfile {
   schemaVersion: 2;
   profileId: string;

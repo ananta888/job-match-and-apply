@@ -100,7 +100,9 @@ function validateProvider(value: unknown): AgentProviderProfile {
     || !['deny', 'explicit'].includes(String(input.approvalMode))) throw new Error('agent_config_provider_invalid');
   if (input.wslDistribution !== undefined && (input.runtimeTarget !== 'wsl' || typeof input.wslDistribution !== 'string'
     || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(input.wslDistribution))) throw new Error('agent_config_provider_invalid');
-  if (input.model !== undefined && (typeof input.model !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(input.model))) {
+  // Slashes are permitted so provider/slug model ids (e.g. opencode/big-pickle)
+  // are storable; this matches the runner's own model-argument charset.
+  if (input.model !== undefined && (typeof input.model !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,191}$/.test(input.model))) {
     throw new Error('agent_config_provider_invalid');
   }
   return structuredClone(input) as unknown as AgentProviderProfile;

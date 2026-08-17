@@ -80,7 +80,7 @@ describe('provider manifests', () => {
     expect(OPENCODE_MANIFEST.command.args).not.toContain('--dangerously-skip-permissions');
     expect(CLAUDE_CLI_MANIFEST.command.args).toContain('--safe-mode');
     expect(CLAUDE_CLI_MANIFEST.command.args).toContain('--strict-mcp-config');
-    expect(CLAUDE_CLI_MANIFEST.command.args).toContain('plan');
+    expect(CLAUDE_CLI_MANIFEST.command.args).toContain('acceptEdits');
     expect(CLAUDE_CLI_MANIFEST.command.promptTransport).toBe('stdin');
     expect(CLAUDE_CLI_MANIFEST.command.args.join(' ')).not.toContain('bypassPermissions');
     expect(CLAUDE_CLI_MANIFEST.command.args).not.toContain('--dangerously-skip-permissions');
@@ -156,7 +156,7 @@ describe('provider event mapping', () => {
 
   it('attests Claude tools exactly for the selected server-owned mode', async () => {
     const init = {
-      type: 'system', subtype: 'init', claude_code_version: '2.1.232', permissionMode: 'plan',
+      type: 'system', subtype: 'init', claude_code_version: '2.1.232', permissionMode: 'acceptEdits',
       mcp_servers: [], plugins: [], skills: [], slash_commands: [],
     };
     expect(mapClaudeStreamEvent({ ...init, tools: ['Read'] })[0]?.kind).toBe('heartbeat');

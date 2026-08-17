@@ -62,7 +62,7 @@ describe('exact provider conformance manifests', () => {
     expect(CLAUDE_CLI_MANIFEST.command).toEqual({
       args: [
         '--safe-mode', '-p', '--output-format', 'stream-json', '--verbose',
-        '--permission-mode', 'plan', '--tools', 'Read', '--disallowedTools', 'mcp__*',
+        '--permission-mode', 'acceptEdits', '--tools', 'Read', '--disallowedTools', 'mcp__*',
         '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}',
         '--disable-slash-commands', '--no-session-persistence',
       ],
@@ -76,7 +76,7 @@ describe('exact provider conformance manifests', () => {
       extensions: {
         pause: false,
         pauseSemantics: 'unsupported_cancel_only',
-        permissionMode: 'plan',
+        permissionMode: 'acceptEdits',
         builtinToolAllowlist: ['Read'],
         customizations: 'safe-mode-strict-empty-mcp-and-slash-commands-disabled',
       },
@@ -207,15 +207,15 @@ describe('exact provider event corpora', () => {
   it('validates the Claude 2.1.232 init proof and fails closed on broader runtime capabilities', () => {
     const valid = {
       type: 'system', subtype: 'init', session_id: 'session-synthetic', claude_code_version: '2.1.232',
-      permissionMode: 'plan', tools: ['Read'], mcp_servers: [], plugins: [], skills: [], slash_commands: [],
+      permissionMode: 'acceptEdits', tools: ['Read'], mcp_servers: [], plugins: [], skills: [], slash_commands: [],
     };
     expect(mapClaudeStreamEvent(valid)).toEqual([{
       kind: 'heartbeat',
-      data: { phase: 'initialized', sessionId: 'session-synthetic', providerVersion: '2.1.232', permissionMode: 'plan', tools: ['Read'] },
+      data: { phase: 'initialized', sessionId: 'session-synthetic', providerVersion: '2.1.232', permissionMode: 'acceptEdits', tools: ['Read'] },
     }]);
     // The pin also accepts the verified 2.1.233 line (identical narrow capability shape).
     expect(mapClaudeStreamEvent({ ...valid, claude_code_version: '2.1.233' })[0]).toMatchObject({
-      kind: 'heartbeat', data: { providerVersion: '2.1.233', permissionMode: 'plan', tools: ['Read'] },
+      kind: 'heartbeat', data: { providerVersion: '2.1.233', permissionMode: 'acceptEdits', tools: ['Read'] },
     });
     expect(mapClaudeStreamEvent({ ...valid, claude_code_version: '2.1.231' })[0]?.kind).toBe('error');
     expect(mapClaudeStreamEvent({ ...valid, tools: ['Read', 'Bash'] })).toEqual([{

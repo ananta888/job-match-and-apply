@@ -904,7 +904,7 @@ describe('CvAiStructuringService', () => {
     };
     const heartbeat: AgentEvent = {
       ...processEvent, sequence: 2, kind: 'heartbeat', data: {
-        phase: 'initialized', providerVersion: '2.1.232', permissionMode: 'plan', tools: [],
+        phase: 'initialized', providerVersion: '2.1.232', permissionMode: 'acceptEdits', tools: [],
       },
     };
     expect(checker.processAttestationMatches(claudeRecord, claudeCapabilities, [processEvent, heartbeat])).toBe(true);

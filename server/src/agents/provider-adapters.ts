@@ -88,7 +88,12 @@ export const CLAUDE_CLI_MANIFEST: AgentAdapterManifest = {
   command: {
     args: [
       '--safe-mode', '-p', '--output-format', 'stream-json', '--verbose',
-      '--permission-mode', 'plan', '--tools', 'Read', '--disallowedTools', 'mcp__*',
+      // Not 'plan': in plan mode the CLI treats a non-coding request as out of
+      // scope and answers with a refusal instead of the contracted JSON, which
+      // is what made cv-ai structuring fail every time. Nothing is loosened by
+      // acceptEdits here — no edit tool is granted, and the CV workflow strips
+      // even Read (see the zero-tools rewrite in generic-jsonl-adapter.ts).
+      '--permission-mode', 'acceptEdits', '--tools', 'Read', '--disallowedTools', 'mcp__*',
       '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}',
       '--disable-slash-commands', '--no-session-persistence'
     ],
@@ -100,7 +105,7 @@ export const CLAUDE_CLI_MANIFEST: AgentAdapterManifest = {
       networkControl: true, contractRequiresFixture: true,
       conformanceFixture: 'contracts/fixtures/v1/claude-cli-events.json',
       forbiddenArguments: ['--permission-mode=bypassPermissions', '--dangerously-skip-permissions'],
-      permissionMode: 'plan', builtinToolAllowlist: ['Read'],
+      permissionMode: 'acceptEdits', builtinToolAllowlist: ['Read'],
       customizations: 'safe-mode-strict-empty-mcp-and-slash-commands-disabled',
       pause: false, pauseSemantics: 'unsupported_cancel_only',
       externalSandbox: 'wsl-bubblewrap-v1', networkEnforcement: 'provider-tool-capability-policy',
@@ -291,7 +296,7 @@ export const mapClaudeStreamEvent: ProviderEventMapper = (value, context): Agent
       ? empty(event.tools)
       : Array.isArray(event.tools) && event.tools.length === 1 && event.tools[0] === 'Read';
     const conforms = (event.claude_code_version === '2.1.232' || event.claude_code_version === '2.1.233')
-      && event.permissionMode === 'plan' && exactTools
+      && event.permissionMode === 'acceptEdits' && exactTools
       && empty(event.mcp_servers) && empty(event.plugins) && empty(event.skills) && empty(event.slash_commands);
     if (!conforms) return [{ kind: 'error', data: {
       code: 'claude_runtime_conformance_mismatch',

@@ -9,7 +9,7 @@
     "runtimeTarget": "wsl",
     "argumentTemplate": [
       "--safe-mode", "-p", "--output-format", "stream-json", "--verbose",
-      "--permission-mode", "plan", "--tools", "Read", "--disallowedTools", "mcp__*",
+      "--permission-mode", "acceptEdits", "--tools", "Read", "--disallowedTools", "mcp__*",
       "--strict-mcp-config", "--mcp-config", "{\"mcpServers\":{}}",
       "--disable-slash-commands", "--no-session-persistence"
     ],
@@ -21,7 +21,7 @@
     "networkMechanism": "server-owned-read-only-tool-allowlist",
     "networkAccessClaim": "provider-control-plane-only",
     "approvalMode": "deny",
-    "providerPermissionMode": "plan",
+    "providerPermissionMode": "acceptEdits",
     "builtinToolAllowlist": ["Read"],
     "resume": false,
     "pause": false
@@ -34,7 +34,7 @@
       "session_id": "session-synthetic",
       "tools": ["Read"],
       "mcp_servers": [],
-      "permissionMode": "plan",
+      "permissionMode": "acceptEdits",
       "slash_commands": [],
       "claude_code_version": "2.1.232",
       "agents": ["claude"],

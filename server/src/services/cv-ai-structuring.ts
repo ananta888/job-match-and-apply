@@ -1263,7 +1263,7 @@ export class CvAiStructuringService {
     if (initialized.length !== 1) return false;
     const heartbeat = initialized[0]!.data as Record<string, unknown>;
     return (heartbeat.providerVersion === '2.1.232' || heartbeat.providerVersion === '2.1.233')
-      && heartbeat.permissionMode === 'plan'
+      && heartbeat.permissionMode === 'acceptEdits'
       && Array.isArray(heartbeat.tools) && heartbeat.tools.length === 0;
   }
 

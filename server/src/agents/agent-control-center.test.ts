@@ -72,6 +72,45 @@ describe('AgentControlCenter', () => {
     expect(provider.starts).toBe(1);
   });
 
+  it('negotiates capabilities with the needs of the run so a multi-transport provider answers consistently', async () => {
+    // A provider may offer several transports and report a different one per set
+    // of needs. The caller pins versions from the transport it preflighted; if
+    // this negotiation asks without those needs, the answer describes another
+    // transport and the adapter-version check fails the run before it starts.
+    // That is exactly how a zero-tools Codex run died with three events and no
+    // capabilities_negotiated.
+    const root = await workspace();
+    const inner = new FakeAgentProvider();
+    const asked: Array<Record<string, unknown> | undefined> = [];
+    const provider = {
+      provider: inner.provider,
+      discover: () => inner.discover(),
+      async capabilities(installation: Parameters<typeof inner.capabilities>[0], requirements?: Record<string, unknown>) {
+        asked.push(requirements);
+        const base = await inner.capabilities(installation);
+        return requirements?.serverOwnedNoTools
+          ? base
+          : { ...base, adapterVersion: '0.1.0-other-transport' };
+      },
+      start: (context: ProviderRunContext) => inner.start(context),
+      sendInput: (...args: Parameters<typeof inner.sendInput>) => inner.sendInput(...args),
+      resolveApproval: (...args: Parameters<typeof inner.resolveApproval>) => inner.resolveApproval(...args),
+      cancel: (...args: Parameters<typeof inner.cancel>) => inner.cancel(...args),
+      resume: (...args: Parameters<typeof inner.resume>) => inner.resume(...args),
+      dispose: () => inner.dispose(),
+    };
+    const center = new AgentControlCenter(new MemoryAgentRunStore(), [provider], { maxParallel: 1, maxParallelPerProvider: 1, allowedWorkspaceRoots: [root] });
+    const run = await center.enqueue({
+      ...request(root),
+      metadata: { expectedAdapterVersion: '1.0.0', providerToolMode: 'none', requiredRootMcpTools: [] },
+    });
+
+    expect(await waitForTerminal(center, run.id)).toBe('succeeded');
+    expect(asked).toEqual([expect.objectContaining({ serverOwnedNoTools: true, domainTools: false })]);
+    expect((await center.events(run.id)).map((event) => event.kind)).toContain('capabilities_negotiated');
+    expect((await center.get(run.id))?.capabilities?.adapterVersion).toBe('1.0.0');
+  });
+
   it('enforces global queueing and can cancel queued work', async () => {
     const root = await workspace(); const store = new MemoryAgentRunStore();
     const provider = new FakeAgentProvider({ steps: [{ delayMs: 100, kind: 'heartbeat', data: {} }] });

@@ -581,7 +581,16 @@ export class AgentControlCenter {
       if (expectedProviderVersion !== undefined && installation.version !== expectedProviderVersion) {
         throw new Error('expected_provider_version_mismatch');
       }
-      const capabilities = await provider.capabilities(installation);
+      const requiredTools = Array.isArray(run.request.metadata?.requiredRootMcpTools)
+        ? run.request.metadata.requiredRootMcpTools.filter((item): item is string => typeof item === 'string') : [];
+      // Same needs the caller used when it negotiated and pinned these versions.
+      // Asking without them let a provider with several transports answer with a
+      // different one here than at preflight, and the adapter-version check below
+      // then failed the run before it ever started.
+      const capabilities = await provider.capabilities(installation, {
+        serverOwnedNoTools: run.request.metadata?.providerToolMode === 'none',
+        domainTools: requiredTools.length > 0,
+      });
       assertAgentCapabilities(capabilities);
       if (capabilities.provider !== run.provider) throw new Error('Capability-Provider stimmt nicht mit dem Run ueberein.');
       if (expectedProviderVersion !== undefined && capabilities.providerVersion !== expectedProviderVersion) {
@@ -594,8 +603,6 @@ export class AgentControlCenter {
       await this.emit(runId, { kind: 'capabilities_negotiated', data: { capabilities } });
       this.active.set(runId, provider);
       const domainTools = await this.domainToolFactory?.({ run: structuredClone(run), installation: structuredClone(installation), capabilities: structuredClone(capabilities) });
-      const requiredTools = Array.isArray(run.request.metadata?.requiredRootMcpTools)
-        ? run.request.metadata.requiredRootMcpTools.filter((item): item is string => typeof item === 'string') : [];
       if (requiredTools.length && !domainTools) throw new Error('required_root_domain_tools_unavailable');
       if (domainTools) this.activeDomainTools.set(runId, domainTools);
       const handle = await provider.start({

@@ -154,6 +154,43 @@ describe('cross-repository contract fixtures', () => {
     expect(JSON.stringify(style)).not.toContain('local_server');
   });
 
+  it('contains experimental transports by structure rather than an operator toggle', async () => {
+    // A blanket "experimental is off by default" gated the transport instead of
+    // the risk, and because the app-server transport can never carry the
+    // server-owned zero-tools contract, having it on disabled CV structuring
+    // entirely. These rules are the replacement, so they are checked here
+    // instead of being prose nobody verifies.
+    const support = await contract('agent-provider-support.json') as {
+      experimentalTransports: Record<string, unknown>;
+      securityDefaultChanges: Array<{
+        date: string; containment: string[]; userMigration: string;
+        sandboxOrApprovalDefaultsChanged: boolean;
+      }>;
+      providers: Array<{ id: string; experimental?: boolean; selection?: string; featureFlag?: string }>;
+    };
+    expect(support).not.toHaveProperty('featureFlags');
+    expect(support.experimentalTransports).toMatchObject({
+      selection: 'requirement-driven',
+      mustDegradeToStableTransport: true,
+      mustFailClosedOnHealthOrIsolationDoubt: true,
+      mustBeServerOwned: true,
+      mustBeVisibleInApiAndUi: true,
+      mayNotBroadenSandboxOrApprovalDefaults: true,
+      mayNotRequireAnOperatorToggle: true,
+    });
+    const experimental = support.providers.filter((provider) => provider.experimental);
+    expect(experimental.length).toBeGreaterThan(0);
+    for (const provider of experimental) {
+      expect(provider).not.toHaveProperty('featureFlag');
+      expect(provider.selection).toBeTruthy();
+    }
+    const change = support.securityDefaultChanges.at(-1)!;
+    expect(Number.isFinite(Date.parse(change.date))).toBe(true);
+    expect(change.sandboxOrApprovalDefaultsChanged).toBe(false);
+    expect(change.containment.length).toBeGreaterThanOrEqual(3);
+    expect(change.userMigration).toContain('schema');
+  });
+
   it('publishes a fail-closed provider support and upgrade policy', async () => {
     const support = await contract('agent-provider-support.json') as {
       unknownVersionPolicy: string;

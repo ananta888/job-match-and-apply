@@ -1,7 +1,7 @@
 {
   "contract": "agent-provider-support",
   "contractVersion": "1.0",
-  "policyVersion": "2026-08-14",
+  "policyVersion": "2026-08-17",
   "unknownVersionPolicy": "block",
   "securityDefaultChangePolicy": "explicit_contract_major_and_user_migration",
   "deprecation": {
@@ -9,12 +9,32 @@
     "emergencySecurityNoticeDays": 0,
     "removalRequiresReplacementOrDocumentedNoFallback": true
   },
-  "featureFlags": {
-    "experimentalDefault": false,
+  "experimentalTransports": {
+    "selection": "requirement-driven",
+    "mustDegradeToStableTransport": true,
+    "mustFailClosedOnHealthOrIsolationDoubt": true,
     "mustBeServerOwned": true,
     "mustBeVisibleInApiAndUi": true,
-    "mayNotBroadenSandboxOrApprovalDefaults": true
+    "mayNotBroadenSandboxOrApprovalDefaults": true,
+    "mayNotRequireAnOperatorToggle": true
   },
+  "securityDefaultChanges": [
+    {
+      "date": "2026-08-17",
+      "change": "retired the CODEX_APP_SERVER_EXPERIMENTAL opt-in and features.codexAppServerExperimental",
+      "replaces": "experimentalDefault:false",
+      "rationale": "An operator toggle gated the transport rather than the risk. Because the app-server transport offers dynamic tools it can never carry the server-owned zero-tools contract, so the toggle silently disabled a finished feature: with it on, cv-ai structuring reported provider_zero_tools_not_supported and no Codex installation was usable at all. Containment is now structural instead of optional.",
+      "containment": [
+        "selection follows the requirements of each run, not a flag",
+        "a run needing the zero-tools contract is always served by the stable codex exec transport",
+        "an unallowlisted provider version degrades to codex exec",
+        "unverified user-config isolation and failed pre-turn health checks still fail closed and never degrade",
+        "the chosen transport, the app-server availability and the reason for not choosing it are reported in provider capabilities"
+      ],
+      "userMigration": "agent config profile schema 2 to 3 drops the retired field on load",
+      "sandboxOrApprovalDefaultsChanged": false
+    }
+  ],
   "providers": [
     {
       "id": "codex-exec",

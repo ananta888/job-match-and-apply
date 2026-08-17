@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 import {
   AGENT_CONTRACT_VERSION,
   type AgentCapabilities,
+  type AgentCapabilityRequirements,
   type AgentEventDraft,
   type AgentProviderInstallation,
   type AgentRunnerPort,
@@ -98,8 +99,6 @@ export interface CodexAppServerOptions {
   /** Conformance-only hook; production falls back until user config can be ignored. */
   userConfigIsolationVerified?: boolean;
 }
-
-export type CodexAppServerFeatureDecision = boolean | (() => boolean | Promise<boolean>);
 
 async function isolatedCodexHome(runId: string): Promise<{ path: string; dispose(): Promise<void> }> {
   const safeRun = runId.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 48) || 'run';
@@ -766,15 +765,29 @@ export class CodexAppServerAgentAdapter implements AgentRunnerPort {
   }
 }
 
-/** Selects App Server only when explicitly enabled; all pre-turn health failures fall back to codex exec. */
-export class FeatureFlaggedCodexAgentAdapter implements AgentRunnerPort {
+/** Why codex exec serves a run instead of the richer App Server transport. */
+export type CodexSelectionReason =
+  | 'server_owned_no_tools_required'
+  | 'version_not_allowlisted'
+  | 'user_config_isolation_unverified';
+
+/**
+ * Prefers the App Server transport and degrades to codex exec per run.
+ *
+ * Selection is driven by what the run needs and what the installation can
+ * actually do, never by a feature flag: the App Server offers dynamic tools and
+ * therefore cannot carry the server-owned zero-tools contract the private CV
+ * workflow requires, so those runs belong to codex exec. Every answer states
+ * which transport was chosen and why, so the choice is inspectable rather than
+ * inferred. All pre-turn health failures still fall back to codex exec.
+ */
+export class PreferredCodexAgentAdapter implements AgentRunnerPort {
   readonly provider: string;
   private readonly selected = new Map<string, AgentRunnerPort>();
 
   constructor(
     private readonly appServer: CodexAppServerAgentAdapter,
     private readonly fallback: AgentRunnerPort,
-    private readonly enabled: CodexAppServerFeatureDecision = process.env[CODEX_APP_SERVER_FEATURE_FLAG] === '1'
   ) {
     if (fallback.provider !== appServer.provider) throw new Error('Codex-Fallback muss dieselbe Provider-ID besitzen.');
     this.provider = fallback.provider;
@@ -782,28 +795,60 @@ export class FeatureFlaggedCodexAgentAdapter implements AgentRunnerPort {
 
   discover(): Promise<AgentProviderInstallation[]> { return this.fallback.discover(); }
 
-  private async isEnabled(): Promise<boolean> {
-    return typeof this.enabled === 'function' ? Boolean(await this.enabled()) : this.enabled;
+  /**
+   * The two conditions under which codex exec may serve a run silently. Missing
+   * user-config isolation is deliberately absent: capabilities advertise
+   * networkControl only for the App Server transport, so a selected run that
+   * cannot isolate config fails closed instead of quietly degrading.
+   */
+  private execRequired(
+    installation: AgentProviderInstallation,
+    requirements?: AgentCapabilityRequirements,
+  ): CodexSelectionReason | undefined {
+    if (requirements?.serverOwnedNoTools) return 'server_owned_no_tools_required';
+    if (!this.appServer.supports(installation)) return 'version_not_allowlisted';
+    return undefined;
   }
 
-  async capabilities(installation: AgentProviderInstallation): Promise<AgentCapabilities> {
-    const enabled = await this.isEnabled();
-    if (enabled && this.appServer.supports(installation) && this.appServer.hasVerifiedUserConfigIsolation()) {
-      return this.appServer.capabilities(installation);
-    }
-    const capabilities = await this.fallback.capabilities(installation);
+  /** Inspectable selection status for one installation and one set of needs. */
+  selection(
+    installation: AgentProviderInstallation,
+    requirements?: AgentCapabilityRequirements,
+  ): { transport: 'app-server' | 'exec'; appServerAvailable: boolean; reason?: CodexSelectionReason } {
+    const appServerAvailable = this.appServer.supports(installation)
+      && this.appServer.hasVerifiedUserConfigIsolation();
+    const reason = this.execRequired(installation, requirements)
+      ?? (this.appServer.hasVerifiedUserConfigIsolation() ? undefined : 'user_config_isolation_unverified');
+    return {
+      transport: reason === undefined ? 'app-server' : 'exec',
+      appServerAvailable,
+      ...(reason ? { reason } : {}),
+    };
+  }
+
+  async capabilities(
+    installation: AgentProviderInstallation,
+    requirements?: AgentCapabilityRequirements,
+  ): Promise<AgentCapabilities> {
+    const status = this.selection(installation, requirements);
+    const source = status.transport === 'app-server' ? this.appServer : this.fallback;
+    const capabilities = await source.capabilities(installation);
     return { ...capabilities, extensions: { ...capabilities.extensions,
-      appServerRequested: enabled, appServerSelected: false,
-      appServerFallbackReason: !enabled ? 'feature_flag_disabled'
-        : !this.appServer.supports(installation) ? 'version_not_allowlisted' : 'user_config_isolation_unverified'
+      appServerAvailable: status.appServerAvailable,
+      appServerSelected: status.transport === 'app-server',
+      ...(status.reason ? { appServerFallbackReason: status.reason } : {}),
     } };
   }
 
   async start(context: ProviderRunContext): Promise<AgentRunHandle> {
-    const enabled = await this.isEnabled();
-    if (!enabled || !this.appServer.supports(context.installation)) {
+    const reason = this.execRequired(context.installation, {
+      serverOwnedNoTools: context.request.metadata?.providerToolMode === 'none',
+    });
+    if (reason) {
       if (context.domainTools) throw new CodexAppServerHealthError('required_root_domain_tools_unavailable');
-      if (enabled) await context.emit({ kind: 'warning', data: { code: 'codex_app_server_fallback', reason: 'version_not_allowlisted', fallback: this.fallback.provider } });
+      await context.emit({ kind: 'warning', data: {
+        code: 'codex_app_server_fallback', reason, fallback: this.fallback.provider,
+      } });
       this.selected.set(context.runId, this.fallback);
       return this.fallback.start(context);
     }

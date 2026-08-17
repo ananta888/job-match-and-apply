@@ -243,11 +243,26 @@ export interface AgentRunHandle {
   readonly completion: Promise<{ state: Extract<AgentRunState, 'succeeded' | 'failed' | 'timed_out' | 'cancelled'>; failure?: AgentRunFailure }>;
 }
 
+/**
+ * What a caller needs from a run, so a provider offering several
+ * implementations reports the one that would actually serve it. Omitting this
+ * asks for the provider's preferred implementation.
+ */
+export interface AgentCapabilityRequirements {
+  /** The run needs the server-owned zero-tools contract (the private CV workflow). */
+  serverOwnedNoTools?: boolean;
+  /** The run needs server-provided dynamic domain tools. */
+  domainTools?: boolean;
+}
+
 /** Provider boundary. Domain/orchestration code only depends on this contract. */
 export interface AgentRunnerPort {
   readonly provider: string;
   discover(): Promise<AgentProviderInstallation[]>;
-  capabilities(installation: AgentProviderInstallation): Promise<AgentCapabilities>;
+  capabilities(
+    installation: AgentProviderInstallation,
+    requirements?: AgentCapabilityRequirements,
+  ): Promise<AgentCapabilities>;
   start(context: ProviderRunContext): Promise<AgentRunHandle>;
   sendInput(runId: string, input: string): Promise<void>;
   resolveApproval(runId: string, approvalId: string, decision: ApprovalDecision): Promise<void>;

@@ -440,8 +440,6 @@ export function createDefaultAgentApiDependencies(memory = false): AgentApiDepen
       outcome: { state: 'succeeded' }
     }, 'fake-interactive'),
     new CodexExecAgentAdapter(undefined, undefined, false, {
-      enabled: async () => process.env.CODEX_APP_SERVER_EXPERIMENTAL === '1'
-        || (await loadPersistentAgentProfile()).features.codexAppServerExperimental,
       // The adapter creates a run-local CODEX_HOME containing only auth.json;
       // user/project MCP and plugin configuration is therefore not inherited.
       userConfigIsolationVerified: true,

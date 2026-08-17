@@ -9,7 +9,7 @@ import {
   CODEX_APP_SERVER_FEATURE_FLAG,
   CODEX_APP_SERVER_MANIFEST,
   CodexAppServerAgentAdapter,
-  FeatureFlaggedCodexAgentAdapter,
+  PreferredCodexAgentAdapter,
   mapCodexAppServerNotification
 } from './codex-app-server-adapter.js';
 import { PROVIDER_RESOURCE_CEILINGS } from './generic-jsonl-adapter.js';
@@ -279,7 +279,7 @@ describe('Codex App Server experimental adapter', () => {
     const appSupervisor = { start(): SupervisedProcess { throw new Error('app-server must not spawn'); } };
     const app = new CodexAppServerAgentAdapter(appSupervisor);
     const fallback = new FallbackStub();
-    const adapter = new FeatureFlaggedCodexAgentAdapter(app, fallback, true);
+    const adapter = new PreferredCodexAgentAdapter(app, fallback);
     const events: AgentEventDraft[] = [];
     const unknown = { ...installation, version: 'codex-cli 9.99.0' };
     const handle = await adapter.start({ ...context(events), installation: unknown });
@@ -288,19 +288,41 @@ describe('Codex App Server experimental adapter', () => {
     expect(events).toContainEqual(expect.objectContaining({ kind: 'warning', data: expect.objectContaining({ code: 'codex_app_server_fallback', reason: 'version_not_allowlisted' }) }));
   });
 
-  it('keeps app-server disabled unless the feature flag is explicitly enabled', async () => {
+  it('routes a zero-tools run to codex exec although app-server is available, and says which and why', async () => {
+    // The App Server offers dynamic tools and so cannot carry the server-owned
+    // zero-tools contract. Preferring it unconditionally reported capabilities
+    // that blocked the private CV workflow outright.
     const appSupervisor = { start(): SupervisedProcess { throw new Error('app-server must not spawn'); } };
+    const app = new CodexAppServerAgentAdapter(appSupervisor, undefined, { userConfigIsolationVerified: true });
     const fallback = new FallbackStub();
-    const adapter = new FeatureFlaggedCodexAgentAdapter(new CodexAppServerAgentAdapter(appSupervisor), fallback, false);
-    const handle = await adapter.start(context([]));
+    const adapter = new PreferredCodexAgentAdapter(app, fallback);
+    const events: AgentEventDraft[] = [];
+    const base = context(events);
+    const handle = await adapter.start({
+      ...base,
+      request: { ...base.request, metadata: { ...base.request.metadata, workflowId: 'cv-ai-structuring', providerToolMode: 'none' } },
+    });
     expect((await handle.completion).state).toBe('succeeded');
     expect(fallback.starts).toBe(1);
+    expect(events).toContainEqual(expect.objectContaining({ kind: 'warning', data: expect.objectContaining({
+      code: 'codex_app_server_fallback', reason: 'server_owned_no_tools_required',
+    }) }));
+
+    expect(adapter.selection(installation, { serverOwnedNoTools: true })).toEqual({
+      transport: 'exec', appServerAvailable: true, reason: 'server_owned_no_tools_required',
+    });
+    expect(adapter.selection(installation)).toEqual({ transport: 'app-server', appServerAvailable: true });
+    const capabilities = await adapter.capabilities(installation, { serverOwnedNoTools: true });
+    expect(capabilities.extensions).toMatchObject({
+      appServerAvailable: true, appServerSelected: false,
+      appServerFallbackReason: 'server_owned_no_tools_required',
+    });
   });
 
   it('fails closed before spawn when the selected offline app-server cannot isolate user config', async () => {
     const appSupervisor = { start(): SupervisedProcess { throw new Error('unisolated app-server must not spawn'); } };
     const fallback = new FallbackStub(); const events: AgentEventDraft[] = [];
-    const adapter = new FeatureFlaggedCodexAgentAdapter(new CodexAppServerAgentAdapter(appSupervisor), fallback, true);
+    const adapter = new PreferredCodexAgentAdapter(new CodexAppServerAgentAdapter(appSupervisor), fallback);
     await expect(adapter.start(context(events))).rejects.toThrow('user_config_isolation_unverified');
     expect(fallback.starts).toBe(0);
   });
@@ -318,7 +340,7 @@ describe('Codex App Server experimental adapter', () => {
       return { completion: Promise.resolve(result('exit')), async writeInput() { throw new Error('stdio unavailable'); }, async cancel() {} };
     } };
     const fallback = new FallbackStub(); const events: AgentEventDraft[] = [];
-    const adapter = new FeatureFlaggedCodexAgentAdapter(new CodexAppServerAgentAdapter(failingSupervisor, undefined, { requestTimeoutMs: 50, userConfigIsolationVerified: true }), fallback, true);
+    const adapter = new PreferredCodexAgentAdapter(new CodexAppServerAgentAdapter(failingSupervisor, undefined, { requestTimeoutMs: 50, userConfigIsolationVerified: true }), fallback);
     await expect(adapter.start(context(events))).rejects.toThrow('stdio unavailable');
     expect(fallback.starts).toBe(0);
   });

@@ -24,6 +24,14 @@ const SAFE_AGENT_FAILURE_CODES = new Set([
   'exit', 'crash', 'signal', 'timeout', 'idle_timeout', 'output_limit', 'memory_limit',
   'child_process_limit', 'resource_probe_error', 'raw_log_error', 'spawn_error', 'agent_run_failed',
 ]);
+/**
+ * This workflow only ever runs with every model-callable tool removed, so a
+ * provider offering several transports must report the one that can actually
+ * carry that contract. Asking without this made Codex report its App Server
+ * transport, which offers dynamic tools and therefore blocked the provider
+ * outright with provider_zero_tools_not_supported.
+ */
+const CV_AI_CAPABILITY_REQUIREMENTS = Object.freeze({ serverOwnedNoTools: true as const });
 const ACTIVE_STATUSES = new Set(['queued', 'running', 'validating', 'cancel_requested', 'applying']);
 const TERMINAL_AGENT_STATES = new Set(['cancelled', 'failed', 'timed_out', 'succeeded']);
 
@@ -395,7 +403,7 @@ export class CvAiStructuringService {
         providerId: runner.provider,
         installations: await Promise.all(installations.map(async (installation) => {
           let capabilities: AgentCapabilities | undefined;
-          try { capabilities = installation.capabilities ?? await runner.capabilities(installation); } catch { /* blocker below */ }
+          try { capabilities = installation.capabilities ?? await runner.capabilities(installation, CV_AI_CAPABILITY_REQUIREMENTS); } catch { /* blocker below */ }
           const blockers = this.providerBlockers(installation, capabilities, profile);
           return {
             runtimeTarget: installation.runtimeTarget, wslDistribution: installation.distribution,
@@ -824,7 +832,7 @@ export class CvAiStructuringService {
       && entry.distribution === selection.wslDistribution && entry.version === selection.expectedVersion);
     if (!installation) error('installation_unavailable', 409, 'preflight');
     let capabilities: AgentCapabilities;
-    try { capabilities = installation.capabilities ?? await runner.capabilities(installation); }
+    try { capabilities = installation.capabilities ?? await runner.capabilities(installation, CV_AI_CAPABILITY_REQUIREMENTS); }
     catch { error('provider_capabilities_unavailable', 409, 'preflight'); }
     const blockers = this.providerBlockers(installation, capabilities, profile);
     if (blockers.length) error(blockers[0]!, 409, 'preflight');

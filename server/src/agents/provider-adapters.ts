@@ -1,5 +1,5 @@
-import type { AgentCapabilities, AgentEventDraft, AgentProviderInstallation, AgentRunnerPort, AgentRunHandle, ApprovalDecision, ProviderRunContext } from '../ports/agent-runner.js';
-import { CodexAppServerAgentAdapter, FeatureFlaggedCodexAgentAdapter, type CodexAppServerFeatureDecision, type CodexAppServerOptions } from './codex-app-server-adapter.js';
+import type { AgentCapabilities, AgentCapabilityRequirements, AgentEventDraft, AgentProviderInstallation, AgentRunnerPort, AgentRunHandle, ApprovalDecision, ProviderRunContext } from '../ports/agent-runner.js';
+import { CodexAppServerAgentAdapter, PreferredCodexAgentAdapter, type CodexAppServerOptions } from './codex-app-server-adapter.js';
 import {
   CODEX_CONFORMED_VERSION_PATTERN,
   CODEX_OFFLINE_CONFIG_ARGS,
@@ -334,14 +334,20 @@ export const mapClaudeStreamEvent: ProviderEventMapper = (value, context): Agent
 
 export class CodexExecAgentAdapter implements AgentRunnerPort {
   readonly provider = CODEX_EXEC_MANIFEST.id;
-  private readonly delegate: FeatureFlaggedCodexAgentAdapter;
-  constructor(supervisor = new ProcessSupervisor(), discovery = new AgentRuntimeDiscovery(), allowUntestedVersions = false, appServerOptions: CodexAppServerOptions & { enabled?: CodexAppServerFeatureDecision } = {}) {
+  private readonly delegate: PreferredCodexAgentAdapter;
+  constructor(supervisor = new ProcessSupervisor(), discovery = new AgentRuntimeDiscovery(), allowUntestedVersions = false, appServerOptions: CodexAppServerOptions = {}) {
     const fallback = new GenericJsonlAgentAdapter(CODEX_EXEC_MANIFEST, supervisor, discovery, mapCodexJsonlEvent, new Set(), allowUntestedVersions);
     const appServer = new CodexAppServerAgentAdapter(supervisor, discovery, appServerOptions);
-    this.delegate = new FeatureFlaggedCodexAgentAdapter(appServer, fallback, appServerOptions.enabled);
+    this.delegate = new PreferredCodexAgentAdapter(appServer, fallback);
   }
   discover(): Promise<AgentProviderInstallation[]> { return this.delegate.discover(); }
-  capabilities(installation: AgentProviderInstallation): Promise<AgentCapabilities> { return this.delegate.capabilities(installation); }
+  capabilities(installation: AgentProviderInstallation, requirements?: AgentCapabilityRequirements): Promise<AgentCapabilities> {
+    return this.delegate.capabilities(installation, requirements);
+  }
+  /** Exposes which Codex transport would serve a run, and why. */
+  selection(installation: AgentProviderInstallation, requirements?: AgentCapabilityRequirements): ReturnType<PreferredCodexAgentAdapter['selection']> {
+    return this.delegate.selection(installation, requirements);
+  }
   start(context: ProviderRunContext): Promise<AgentRunHandle> { return this.delegate.start(context); }
   sendInput(runId: string, input: string): Promise<void> { return this.delegate.sendInput(runId, input); }
   resolveApproval(runId: string, approvalId: string, decision: ApprovalDecision): Promise<void> { return this.delegate.resolveApproval(runId, approvalId, decision); }

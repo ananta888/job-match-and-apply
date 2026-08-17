@@ -49,7 +49,7 @@
       "fixture": "contracts/fixtures/v1/codex-app-server-events.json",
       "runtimeTargets": ["windows", "wsl", "linux", "darwin"],
       "experimental": true,
-      "featureFlag": "CODEX_APP_SERVER_EXPERIMENTAL",
+      "selection": "requirement-driven-prefer-app-server-degrade-to-exec",
       "productionSelection": "native_run_local_codex_home_with_pre_turn_fallback",
       "userConfigIsolation": "ephemeral-codex-home-auth-only",
       "dynamicToolsContract": "codex-app-server-item-tool-call-v1",

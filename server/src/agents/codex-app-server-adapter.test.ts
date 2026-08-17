@@ -6,7 +6,6 @@ import type {
   ApprovalDecision, ProviderRunContext
 } from '../ports/agent-runner.js';
 import {
-  CODEX_APP_SERVER_FEATURE_FLAG,
   CODEX_APP_SERVER_MANIFEST,
   CodexAppServerAgentAdapter,
   PreferredCodexAgentAdapter,
@@ -95,11 +94,14 @@ class FallbackStub implements AgentRunnerPort {
 }
 
 describe('Codex App Server experimental adapter', () => {
-  it('has a versioned, stdio-only and opt-in manifest', () => {
+  it('has a versioned, stdio-only manifest that names its fallback and no feature flag', () => {
     expect(CODEX_APP_SERVER_MANIFEST).toMatchObject({
       schemaVersion: '1.0', protocol: 'codex-app-server-jsonrpc-v2', transport: 'stdio-jsonl',
-      featureFlag: CODEX_APP_SERVER_FEATURE_FLAG, fallbackProviderId: 'codex-exec'
+      fallbackProviderId: 'codex-exec'
     });
+    // Selection follows what a run needs, so a flag in the manifest would only
+    // describe a gate that no longer exists.
+    expect(CODEX_APP_SERVER_MANIFEST).not.toHaveProperty('featureFlag');
     expect(CODEX_APP_SERVER_MANIFEST.commandArgs).toEqual([
       'app-server', '--strict-config',
       '-c', 'sandbox_workspace_write.network_access=false',

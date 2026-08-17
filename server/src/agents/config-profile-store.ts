@@ -3,7 +3,7 @@ import { lstat, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { isAbsolute, relative, resolve } from 'node:path';
 
 const SAFE_ID = /^[a-z][a-z0-9._-]{1,127}$/;
-const VERSION = 2 as const;
+const VERSION = 3 as const;
 const SECRET_KEY = /(?:^|[_-])(?:authorization|cookie|credential|password|passwd|secret|token|api[_-]?key|private[_-]?key)(?:$|[_-])/i;
 
 export interface AgentProviderProfile {
@@ -30,7 +30,6 @@ export interface AgentConfigProfile {
     maxCostMicros?: { amountMicros: number; currency: string };
   };
   features: {
-    codexAppServerExperimental: boolean;
     multiAgentExperimental: boolean;
     realtimeWebSocketExperimental: boolean;
     rawProviderLogs: boolean;
@@ -48,7 +47,7 @@ interface LegacyAgentConfigProfile {
 export interface AgentConfigLoadResult {
   profile: AgentConfigProfile;
   source: 'primary' | 'last_known_good';
-  migratedFrom?: 1;
+  migratedFrom?: 1 | 2;
   primaryError?: string;
 }
 
@@ -124,7 +123,7 @@ export function safeDefaultAgentConfigProfile(now = new Date()): AgentConfigProf
     ],
     budgets: { warningAtPercent: 80, maxTotalTokens: 100_000, maxToolCalls: 100, maxRunDurationMs: 30 * 60_000 },
     features: {
-      codexAppServerExperimental: false, multiAgentExperimental: true,
+      multiAgentExperimental: true,
       realtimeWebSocketExperimental: false, rawProviderLogs: false
     }
   };
@@ -147,7 +146,7 @@ export function validateAgentConfigProfile(value: unknown): AgentConfigProfile {
     throw new Error('agent_config_budget_invalid');
   }
   const features = input.features as Record<string, unknown>;
-  const featureNames = ['codexAppServerExperimental', 'multiAgentExperimental', 'realtimeWebSocketExperimental', 'rawProviderLogs'] as const;
+  const featureNames = ['multiAgentExperimental', 'realtimeWebSocketExperimental', 'rawProviderLogs'] as const;
   assertExactKeys(features, featureNames, 'agent_config_feature_unknown');
   if (featureNames.some((name) => typeof features[name] !== 'boolean')) throw new Error('agent_config_feature_invalid');
   return {
@@ -163,7 +162,21 @@ export function validateAgentConfigProfile(value: unknown): AgentConfigProfile {
   };
 }
 
-export function migrateAgentConfigProfile(value: unknown): { profile: AgentConfigProfile; migratedFrom?: 1 } {
+export function migrateAgentConfigProfile(value: unknown): { profile: AgentConfigProfile; migratedFrom?: 1 | 2 } {
+  // Version 2 carried features.codexAppServerExperimental. The Codex transport
+  // is now chosen from what a run needs rather than from a flag, so the field
+  // has no meaning; strict key validation would otherwise reject every stored
+  // profile. Everything else in a version 2 profile is already valid.
+  if (value && typeof value === 'object' && (value as { schemaVersion?: unknown }).schemaVersion === 2) {
+    assertNoSecretFields(value);
+    const previous = value as Record<string, unknown>;
+    const features = { ...(previous.features as Record<string, unknown> | undefined) };
+    delete features.codexAppServerExperimental;
+    return {
+      profile: validateAgentConfigProfile({ ...previous, schemaVersion: VERSION, features }),
+      migratedFrom: 2,
+    };
+  }
   if (value && typeof value === 'object' && (value as { schemaVersion?: unknown }).schemaVersion === 1) {
     assertNoSecretFields(value);
     const legacy = value as LegacyAgentConfigProfile;

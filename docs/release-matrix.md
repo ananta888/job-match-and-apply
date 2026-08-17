@@ -13,7 +13,7 @@ den [Integrationsverträgen](contracts.md).
 |---|---|---|---|---|---|
 | `fake` / `fake-interactive` | synthetischer Referenzpfad; kein externer CLI-Supporteintrag | lokaler Node-Prozess | konto- und netzwerkfreie Fixtures; keine realen Daten | `fake` prompt-only; `fake-interactive` demonstriert Rückfrage und zentrale Approvalpolicy ohne realen Seiteneffekt | standardmäßig nutzbar; Provider im lokalen Profil deaktivieren |
 | Codex Exec | `supported`, **exakt Codex `0.147.0`**, Adapter `1.0.0` | Windows, WSL, Linux, macOS | feste argv mit `--ignore-user-config --strict-config`, `web_search="disabled"` und `sandbox_workspace_write.network_access=false`; Prompt über stdin; Codex-Sandbox read-only oder Workspace-Write | prompt-only, keine Root-Dynamic-Tools; keine produktive interaktive Toolfreigabe | andere Versionen werden blockiert; im Profil deaktivieren oder auf read-only/deny begrenzen |
-| nativer Codex App Server | `experimental`, **exakt Codex `0.147.0`**, Adapter `0.1.0` | Windows, WSL, Linux, macOS | dieselben festen Offline-Overrides, runlokales `CODEX_HOME` mit höchstens `auth.json` und zusätzlich `SandboxPolicy.networkAccess:false`; Health/Isolation fail-closed | einzig unterstützter Pfad für workflow-, run- und fallgebundene Root-Dynamic-Tools und die zentrale Approvalkette | standardmäßig aus; bewusst per bestätigtem Angular-CAS-Profil `features.codexAppServerExperimental=true` oder Operator-Featureflag aktivieren; Rollback auf `false` und Provider/Preflight neu laden |
+| nativer Codex App Server | `experimental`, **exakt Codex `0.147.0`**, Adapter `0.1.0` | Windows, WSL, Linux, macOS | dieselben festen Offline-Overrides, runlokales `CODEX_HOME` mit höchstens `auth.json` und zusätzlich `SandboxPolicy.networkAccess:false`; Health/Isolation fail-closed | einzig unterstützter Pfad für workflow-, run- und fallgebundene Root-Dynamic-Tools und die zentrale Approvalkette | kein Featureflag; bedarfsabhängig bevorzugt, weicht auf Codex Exec aus, wenn ein Lauf den servereigenen Zero-Tools-Vertrag verlangt oder die Version nicht freigegeben ist; Health/Isolation weiterhin fail-closed |
 | OpenCode | `supported`, **exakt `1.14.41`**, Adapter `1.1.0` | ausschließlich WSL mit Bubblewrap | read-only; temporäres HOME/XDG; Provider-Control-Plane bleibt für den Modellaufruf erreichbar | prompt-only; keine Root-Tools, keine interaktive Approval-, Pause- oder Resume-Brücke | andere Versionen/Runtimes werden blockiert; im Profil deaktivieren oder wieder exakt `1.14.41` bereitstellen |
 | Claude Code | `supported`, **exakt `2.1.232 (Claude Code)`**, Adapter `1.1.0` | ausschließlich WSL mit Bubblewrap | read-only, Safe Mode, Permission Mode `plan`, Built-in `Read`; Provider-Control-Plane bleibt erreichbar | prompt-only; leerer MCP-Vertrag, keine Root-Tools, keine interaktive Approval-, Pause- oder Resume-Brücke | andere Versionen/Runtimes werden blockiert; im Profil deaktivieren oder wieder exakt `2.1.232` bereitstellen |
 
@@ -28,7 +28,7 @@ serverseitigen Preflight-Allowlist erhalten.
 | Bereich | Freigabestand | Verbindliche Grenze | Rollback/Deaktivierung |
 |---|---|---|---|
 | Agenten-Konfigurationsprofil | lokal produktiv verdrahtet: `GET/PUT /api/agents/config-profile`, atomarer CAS über `expectedUpdatedAt`, Last-known-good-Kopie | Angular zeigt Provider, Runtime, Sandbox, Offline-/Approvalmodus, Budget und Features; keine Secret-, Pfad-, Command- oder argv-Felder; CAS-Konflikte werden nicht automatisch wiederholt | bestätigter Reset auf Safe Default oder einzelne Provider/Features im CAS-Editor deaktivieren |
-| Codex App Server | experimentelles Feature, Safe Default `false` | eigenes Opt-in zusätzlich zur normalen Profilbestätigung; Providererkennung und Preflight werden danach erneuert | `codexAppServerExperimental=false`; bereits laufende Prozesse bewusst abbrechen |
+| Codex App Server | experimenteller Transport, bedarfsabhängige Auswahl ohne Flag | kein Opt-in mehr; Läufe mit Zero-Tools-Vertrag und nicht freigegebene Versionen gehen an Codex Exec | Auswahl folgt der Anforderung des Laufs; bereits laufende Prozesse bewusst abbrechen |
 | Multi-Agent-Orchestrierung | lokale, suggestion-only Workflows; Safe Default `multiAgentExperimental=true` | servereigener Scope, Digests, Budgets, Gates und Child-Runs; keine automatische externe Aktion | Feature im Profil auf `false`; neue Orchestrierungen werden blockiert, bestehende bewusst abbrechen |
 | Evidence-Pipeline | fünf getrennte Runs: Evidence → Author → ATS/Recruiter-Style → Finalizer | vor dem Finalizer nur das browserauflösbare Gate `user_input`; kein `review_complete`-Vor-Gate; abweichende Fan-in-Varianten benötigen eine revisions- und Variantendigest-gebundene Entscheidung | Orchestrierung revisionsgebunden abbrechen; kein teilweises Ergebnis als fachliche Revision behandeln |
 | `package_proposal` | strikt typisiertes `application-pipeline-package`, weiterhin `proposed` | Reihenfolge: Artefakt-Review → bestätigte Adoption → erneute lokale Pipeline → fachliche Vorschlagsrevision → Revisionsreview → exakte Fallfreigabe → `used` oder Export | vor Adoption ablehnen; danach die Vorschlagsrevision nicht freigeben/verwenden/exportieren |
@@ -77,8 +77,7 @@ npm-Cache:
 
 ```powershell
 $env:ALLOW_EXTERNAL_PORTALS='0'
-$env:CODEX_APP_SERVER_EXPERIMENTAL='0'
-$env:AGENT_REALTIME_WS='0'
+$env$env:AGENT_REALTIME_WS='0'
 npm.cmd ci --offline
 npm.cmd --prefix server ci --offline
 npm.cmd --prefix web ci --offline

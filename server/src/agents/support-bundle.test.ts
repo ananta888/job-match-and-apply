@@ -26,7 +26,7 @@ describe('agent support bundle', () => {
         basePriority: 0, effectivePriority: 1, waitMs: 20, blockedBy: []
       }] },
       recovery: [], telemetry: { generatedAt: '2026-08-14T00:00:00Z', queueDepth: 1, activeRuns: 0, totals: { started: 1, terminal: { succeeded: 0, failed: 1, timed_out: 0, cancelled: 0 }, approvals: 0, approvalWaitMs: 0, streamReconnects: 0, recoveries: 0 }, providerRuns: { fake: 1 } },
-      features: { codexAppServerExperimental: false, realtimeWebSocket: false },
+      features: { realtimeWebSocket: false },
       jobSearchMcp: { mode: 'demo', executionIsolation: 'trusted-host', runtimeStatus: 'demo' }
     });
     const serialized = JSON.stringify(bundle);

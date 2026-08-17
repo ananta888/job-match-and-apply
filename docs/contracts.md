@@ -160,8 +160,8 @@ exakte Fallfreigabe sowie `used` beziehungsweise Export für dieselbe Revisions-
 
 ## Provider-spezifische Verträge
 
-Der experimentelle Codex-App-Server-Vertrag `1.0` ist stdio-only und standardmäßig aus. Er wird
-über `CODEX_APP_SERVER_EXPERIMENTAL=1` oder das bestätigte persistente Agentenprofil aktiviert.
+Der experimentelle Codex-App-Server-Vertrag `1.0` ist stdio-only. Er wird bedarfsabhängig gewählt
+(`selection: requirement-driven-prefer-app-server-degrade-to-exec`), nicht per Featureflag.
 Sein Manifest liegt
 unter `contracts/v1/codex-app-server-manifest.json`, die freigegebene synthetische Ereignisfolge
 unter `contracts/fixtures/v1/codex-app-server-events.json`. Der Prozess erhält ein temporäres

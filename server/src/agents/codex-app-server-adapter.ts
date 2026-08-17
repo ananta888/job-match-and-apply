@@ -29,7 +29,6 @@ import {
   isConformedCodexVersion,
 } from './codex-offline-policy.js';
 
-export const CODEX_APP_SERVER_FEATURE_FLAG = 'CODEX_APP_SERVER_EXPERIMENTAL';
 
 /** Versioned, built-in manifest. Only stdio is allowed; no listener address is configurable. */
 export const CODEX_APP_SERVER_MANIFEST = Object.freeze({
@@ -40,7 +39,6 @@ export const CODEX_APP_SERVER_MANIFEST = Object.freeze({
   protocol: 'codex-app-server-jsonrpc-v2',
   maturity: 'experimental',
   transport: 'stdio-jsonl',
-  featureFlag: CODEX_APP_SERVER_FEATURE_FLAG,
   executableNames: ['codex'],
   versionArgs: ['--version'],
   testedVersionPatterns: [CODEX_CONFORMED_VERSION_PATTERN],
@@ -409,7 +407,6 @@ export class CodexAppServerAgentAdapter implements AgentRunnerPort {
         offlineConfigOverrides: CODEX_OFFLINE_CONFIG_ARGS,
         dynamicTools: true, dynamicToolsContract: 'codex-app-server-item-tool-call-v1',
         pause: false, pauseSemantics: 'unsupported_cancel_only',
-        featureFlag: CODEX_APP_SERVER_FEATURE_FLAG,
       }
     };
   }

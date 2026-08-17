@@ -195,10 +195,10 @@ function fixture(options: {
   const service = new CvAiStructuringService({
     store, imports, validation, agentRuns, purger, observability, providers: [provider(options.providerSupport)],
     configProfiles: { load: async () => ({ profile: {
-      schemaVersion: 2, profileId: 'safe-default', updatedAt: '2026-08-14T09:00:00.000Z',
+      schemaVersion: 3, profileId: 'safe-default', updatedAt: '2026-08-14T09:00:00.000Z',
       providers: [{ provider: 'fake', enabled: true, runtimeTarget: 'windows', sandbox: 'read-only', network: 'disabled', approvalMode: 'deny' }],
       budgets: { warningAtPercent: 80, maxRunDurationMs: 60_000 },
-      features: { codexAppServerExperimental: false, multiAgentExperimental: true, realtimeWebSocketExperimental: false, rawProviderLogs: false },
+      features: { multiAgentExperimental: true, realtimeWebSocketExperimental: false, rawProviderLogs: false },
     }, source: 'primary' }) },
     workspaceRoot: process.cwd(), now: options.now ?? (() => new Date('2026-08-14T10:00:00.000Z')),
     id: () => runIds[idIndex++]!, runTtlMs: 60_000,

@@ -72,9 +72,9 @@ ausgewähltes Workspace-Write; Userprofile und projektverwaltete MCP-/Plugin-Kon
 Agent Center gesperrt.
 
 Der Codex App Server ist ein experimenteller, servereigener stdio-Transport für dieselbe exakt
-freigegebene native Codex-Linie. Er ist standardmäßig aus und wird über das servereigene Flag
-`CODEX_APP_SERVER_EXPERIMENTAL=1` oder `features.codexAppServerExperimental` im bestätigten
-persistenten Agentenprofil aktiviert. Er verwendet ein runlokales `CODEX_HOME`, in das höchstens
+freigegebene native Codex-Linie. Er wird nicht per Flag geschaltet: bevorzugt wird der App Server, bedarfsabhängig weicht die
+Auswahl auf Codex Exec aus. Läufe mit servereigenem Zero-Tools-Vertrag gehen immer an Codex Exec,
+weil der App Server dynamische Tools anbietet und diese Zusage nicht tragen kann. Er verwendet ein runlokales `CODEX_HOME`, in das höchstens
 `auth.json`, aber keine Benutzerkonfiguration kopiert wird. `turn/start` erhält immer eine konkrete
 Codex-`SandboxPolicy`:
 

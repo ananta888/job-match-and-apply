@@ -11,7 +11,7 @@ export interface AgentSupportBundleInput {
   queue: AgentQueueDiagnostics;
   recovery: readonly AgentRecoveryDiagnostic[];
   telemetry: AgentTelemetrySnapshot;
-  features: { codexAppServerExperimental: boolean; realtimeWebSocket: boolean };
+  features: { realtimeWebSocket: boolean };
   jobSearchMcp: {
     mode: 'demo' | 'stdio';
     executionIsolation: 'trusted-host';

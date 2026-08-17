@@ -200,14 +200,14 @@ function fixture() {
     },
     providers: [fakeProvider()],
     configProfiles: { load: async () => ({ profile: {
-      schemaVersion: 2, profileId: 'cv-ai-api-test', updatedAt: '2026-08-14T09:00:00.000Z',
+      schemaVersion: 3, profileId: 'cv-ai-api-test', updatedAt: '2026-08-14T09:00:00.000Z',
       providers: [{
         provider: 'fake', enabled: true, runtimeTarget: 'windows', sandbox: 'read-only',
         network: 'disabled', approvalMode: 'deny',
       }],
       budgets: { warningAtPercent: 80, maxRunDurationMs: 60_000 },
       features: {
-        codexAppServerExperimental: false, multiAgentExperimental: true,
+        multiAgentExperimental: true,
         realtimeWebSocketExperimental: false, rawProviderLogs: false,
       },
     }, source: 'primary' as const }) },

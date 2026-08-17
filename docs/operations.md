@@ -112,9 +112,8 @@ den Modellaufruf erreichbar. Die feste Read-only-Policy entfernt Shell-, Schreib
 Subagent-Werkzeuge. Das ist ausdrücklich keine Netzwerk-Namespace-Sperre des gesamten
 Providerprozesses.
 
-Kontextgebundene Root-Freigaben sind für den mit
-`CODEX_APP_SERVER_EXPERIMENTAL=1` oder dem bestätigten Agentenprofil aktivierten nativen Codex App
-Server verdrahtet. Der
+Kontextgebundene Root-Freigaben sind für den nativen Codex App Server verdrahtet, der
+bedarfsabhängig ohne Featureflag ausgewählt wird. Der
 interaktive Fake demonstriert Approve/Deny und Rückfragen ohne Seiteneffekt; seine Freigaben laufen
 ebenfalls durch die zentrale Policy und einmalige parametergebundene Approval-Tokens. Providerzugänge
 werden über deren lokalen Login eingerichtet. API-Schlüssel, Tokens und
@@ -276,9 +275,10 @@ gelöscht werden kann. Das Journal speichert Referenzen nur gehasht, ist append-
 `fsync`-gesichert; es ist jedoch keine extern signierte oder manipulationssichere Audit-Chain.
 
 `GET/PUT /api/agents/config-profile` verwaltet ein versionsgebundenes, secret-freies Profil mit
-Compare-and-swap über `expectedUpdatedAt`, Last-known-good-Kopie und sicherem Reset. Das Feature
-`codexAppServerExperimental` wird beim Provider-Preflight und Start dynamisch berücksichtigt;
-einzelne Runwerte stammen weiterhin aus dem validierten Runrequest. Der produktiv verdrahtete
+Compare-and-swap über `expectedUpdatedAt`, Last-known-good-Kopie und sicherem Reset. Das Feld
+`codexAppServerExperimental` ist mit Schema 3 entfallen und wird beim Laden aus Version-2-Profilen
+still entfernt; die Codex-Transportwahl folgt jetzt den Anforderungen des Laufs. Einzelne Runwerte
+stammen weiterhin aus dem validierten Runrequest. Der produktiv verdrahtete
 Angular-CAS-Editor zeigt aktives Profil beziehungsweise Last-known-good-Quelle, Provider-Runtime,
 Sandbox, Offline-/Approvalmodus, Budgetgrenzen und Featureflags. Er bietet keine Secret-, Pfad-,
 Command- oder argv-Felder an, verlangt für den Codex App Server ein gesondertes Opt-in und erneuert

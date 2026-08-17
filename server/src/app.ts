@@ -1258,10 +1258,7 @@ export function createApp(
     response.json(createAgentSupportBundle({
       appVersion: '0.1.0', providers: providerInstallations, runs, queue: publicQueue, recovery,
       telemetry: { ...agentApi.telemetry.snapshot(), queueDepth: publicQueue.depth },
-      features: {
-        codexAppServerExperimental: process.env.CODEX_APP_SERVER_EXPERIMENTAL === '1',
-        realtimeWebSocket: Boolean(agentApi.realtimeTickets)
-      },
+      features: { realtimeWebSocket: Boolean(agentApi.realtimeTickets) },
       jobSearchMcp: {
         mode: config.mcp.mode, executionIsolation: 'trusted-host',
         runtimeStatus: config.mcp.mode === 'demo' ? 'demo' : 'configured_not_probed'

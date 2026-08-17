@@ -16,7 +16,6 @@ describe('AgentConfigProfileStore', () => {
       expect.objectContaining({ provider: 'claude-cli', enabled: true, runtimeTarget: 'wsl', sandbox: 'read-only', network: 'disabled' }),
     ]));
     expect(safe.features).toEqual({
-      codexAppServerExperimental: false,
       multiAgentExperimental: true,
       realtimeWebSocketExperimental: false,
       rawProviderLogs: false,
@@ -64,6 +63,31 @@ describe('AgentConfigProfileStore', () => {
       schemaVersion: 1, profileId: 'legacy', updatedAt: '2026-08-14T00:00:00Z', warningAtPercent: 75,
       providers: [{ provider: 'codex', enabled: false, runtimeTarget: 'windows', sandbox: 'read-only', network: 'disabled', approvalMode: 'deny' }]
     });
-    expect(migrated).toMatchObject({ migratedFrom: 1, profile: { schemaVersion: 2, budgets: { warningAtPercent: 75 }, features: { codexAppServerExperimental: false, multiAgentExperimental: true } } });
+    expect(migrated).toMatchObject({ migratedFrom: 1, profile: { schemaVersion: 3, budgets: { warningAtPercent: 75 }, features: { multiAgentExperimental: true } } });
+  });
+
+  it('drops the retired Codex app-server flag from a version 2 profile and keeps every other choice', () => {
+    // Key validation is exact, so a stored version 2 profile would otherwise be
+    // rejected outright as agent_config_feature_unknown.
+    const stored = {
+      schemaVersion: 2, profileId: 'operations', updatedAt: '2026-08-17T09:00:00Z',
+      providers: [{ provider: 'claude-cli', enabled: true, runtimeTarget: 'wsl', sandbox: 'read-only', network: 'disabled', approvalMode: 'deny' }],
+      budgets: { warningAtPercent: 80, maxTotalTokens: 100_000, maxToolCalls: 100, maxRunDurationMs: 1_800_000 },
+      features: {
+        codexAppServerExperimental: true, multiAgentExperimental: true,
+        realtimeWebSocketExperimental: false, rawProviderLogs: false,
+      },
+    };
+    const migrated = migrateAgentConfigProfile(stored);
+    expect(migrated.migratedFrom).toBe(2);
+    expect(migrated.profile.schemaVersion).toBe(3);
+    expect(migrated.profile.features).toEqual({
+      multiAgentExperimental: true, realtimeWebSocketExperimental: false, rawProviderLogs: false,
+    });
+    expect(migrated.profile).toMatchObject({
+      profileId: 'operations',
+      providers: [expect.objectContaining({ provider: 'claude-cli', runtimeTarget: 'wsl' })],
+      budgets: { warningAtPercent: 80 },
+    });
   });
 });

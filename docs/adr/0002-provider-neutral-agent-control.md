@@ -17,8 +17,8 @@ noch freie argv oder Environmentwerte. Provideradapter normalisieren ausschließ
 Protokolle; unbekannte Versionen werden fail-closed blockiert.
 
 Codex Exec bleibt der stabile JSONL-Transport. Der Codex App Server ist ein experimenteller,
-server-owned Opt-in über `CODEX_APP_SERVER_EXPERIMENTAL=1` oder das bestätigte persistente
-Agentenprofil. Er läuft stdio-only mit temporärem
+server-owned Transport ohne Featureflag: die Auswahl richtet sich danach, was ein Lauf braucht.
+Verlangt er den servereigenen Zero-Tools-Vertrag, bedient Codex Exec ihn, sonst der App Server. Er läuft stdio-only mit temporärem
 `CODEX_HOME`, `SandboxPolicy.networkAccess:false` und kann rungebundene Root-Domain-Tools als
 Dynamic Tools erhalten. Ein fehlgeschlagener Offline- oder Tool-Healthcheck darf nicht auf einen
 schwächeren Transport zurückfallen.

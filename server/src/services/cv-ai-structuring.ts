@@ -721,7 +721,14 @@ export class CvAiStructuringService {
     });
     const id = this.id(); assertUuid(id);
     const limits = {
-      wallTimeMs: 10 * 60_000, idleTimeMs: 2 * 60_000,
+      // This workflow is one single-shot turn with no tools, so a provider that
+      // batches its answer legitimately emits nothing until the turn is done.
+      // opencode does exactly that: measured against the real payload it sent
+      // step_start after 3.8 s and then stayed silent for 311 s before the
+      // answer. A two-minute idle ceiling killed every one of those runs as if
+      // the process had wedged. The idle timer now sits above that measured
+      // silence with margin; the ten-minute wall clock remains the real bound.
+      wallTimeMs: 10 * 60_000, idleTimeMs: 8 * 60_000,
       stdoutBytes: 768 * 1024, stderrBytes: 256 * 1024, totalOutputBytes: 1024 * 1024,
       // The schema-bound CV manifest is the provider stdin payload. Interactive
       // follow-up remains impossible because approval/input capabilities are denied.
@@ -732,6 +739,9 @@ export class CvAiStructuringService {
       const configured = (await this.dependencies.configProfiles.load()).profile.budgets.maxRunDurationMs;
       if (configured !== undefined) limits.wallTimeMs = Math.min(limits.wallTimeMs, configured);
     }
+    // An idle ceiling above the wall clock can never fire, which would leave the
+    // stated intent and the effective limit describing different things.
+    limits.idleTimeMs = Math.min(limits.idleTimeMs, limits.wallTimeMs);
     const request: AgentRunRequest = {
       provider: provider.runner.provider, task: prompt.task, workspaceRoot: this.dependencies.workspaceRoot,
       runtimeTarget: input.provider.runtimeTarget, wslDistribution: input.provider.wslDistribution,

@@ -91,6 +91,7 @@ class FakeRuns implements CvAiAgentRunPort {
 
 function fixture(options: {
   providerSupport?: AgentProviderInstallation['support']; now?: () => Date; allowSyntheticProviders?: boolean;
+  maxRunDurationMs?: number;
 } = {}) {
   const store = new MemoryCvAiStructuringRunStore();
   const agentRuns = new FakeRuns();
@@ -197,7 +198,7 @@ function fixture(options: {
     configProfiles: { load: async () => ({ profile: {
       schemaVersion: 3, profileId: 'safe-default', updatedAt: '2026-08-14T09:00:00.000Z',
       providers: [{ provider: 'fake', enabled: true, runtimeTarget: 'windows', sandbox: 'read-only', network: 'disabled', approvalMode: 'deny' }],
-      budgets: { warningAtPercent: 80, maxRunDurationMs: 60_000 },
+      budgets: { warningAtPercent: 80, maxRunDurationMs: options.maxRunDurationMs ?? 60_000 },
       features: { multiAgentExperimental: true, realtimeWebSocketExperimental: false, rawProviderLogs: false },
     }, source: 'primary' }) },
     workspaceRoot: process.cwd(), now: options.now ?? (() => new Date('2026-08-14T10:00:00.000Z')),
@@ -352,6 +353,27 @@ describe('CvAiStructuringService', () => {
     expect(agentRuns.requests[0]!.limits!.maxInputBytes).toBeGreaterThanOrEqual(
       Buffer.byteLength(agentRuns.requests[0]!.task, 'utf8'),
     );
+    // An idle ceiling above the wall clock could never fire. This profile
+    // tightens the run duration to 60 s, so the idle limit has to follow it down.
+    expect(agentRuns.requests[0]!.limits!.wallTimeMs).toBe(60_000);
+    expect(agentRuns.requests[0]!.limits!.idleTimeMs).toBe(60_000);
+  });
+
+  it('allows a provider to stay silent for a whole batched turn', async () => {
+    // One single-shot turn with no tools: a provider that batches its answer
+    // sends nothing until the turn ends. Measured against the real payload,
+    // opencode emitted step_start after 3.8 s and then nothing for 311 s. The
+    // former two-minute idle ceiling killed every such run as if the process had
+    // wedged, which is why opencode never once completed.
+    const { service, agentRuns } = fixture({ maxRunDurationMs: 30 * 60_000 });
+    await service.start({
+      cvImportId: importId, expectedCvImportRevision: 3, expectedCvImportSha256: 'a'.repeat(64),
+      provider: selection, disclosure, actor,
+    });
+    const limits = agentRuns.requests[0]!.limits!;
+    expect(limits.idleTimeMs).toBeGreaterThan(311_000);
+    expect(limits.wallTimeMs).toBe(10 * 60_000);
+    expect(limits.idleTimeMs).toBeLessThanOrEqual(limits.wallTimeMs!);
   });
 
   it('reassembles an answer the provider streamed as several text blocks', async () => {

@@ -50,6 +50,10 @@ describe('WslBubblewrapSandboxBoundary', () => {
       },
     });
     expect(config).not.toHaveProperty('permission');
+    // opencode 1.14.41 validates this env-injected config strictly and rejects
+    // $schema as an unrecognized key. Carrying it made every sandboxed opencode
+    // run die at startup with exit code 1, which surfaced only as 'crash'.
+    expect(config).not.toHaveProperty('$schema');
     expect(result.args).toContain('/home/synthetic/.local/share/opencode/auth.json');
   });
 

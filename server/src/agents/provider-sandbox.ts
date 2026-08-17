@@ -125,8 +125,13 @@ export const probeWslUserHome: WslUserHomeProbe = async (installation) => {
   return home;
 };
 
+// No $schema key: opencode 1.14.41 validates OPENCODE_CONFIG_CONTENT strictly
+// and rejects it as an unrecognized key, so every run died at startup with
+// "Configuration is invalid at OPENCODE_CONFIG_CONTENT" and exit code 1 — which
+// the adapter could only report as a generic crash. A config *file* may carry
+// $schema (see integrations/job-search-mcp/.opencode/opencode.json); the
+// env-injected content may not.
 const OPENCODE_READ_ONLY_CONFIG = JSON.stringify({
-  $schema: 'https://opencode.ai/config.json',
   share: 'disabled',
   autoupdate: false,
   plugin: [],

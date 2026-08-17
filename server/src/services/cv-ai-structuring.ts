@@ -196,12 +196,30 @@ export interface CvAiStructuringPublicRun extends Omit<CvAiStructuringRunRecord,
   proposal?: Omit<NonNullable<CvAiStructuringRunRecord['proposal']>, 'privateArtifact'>;
 }
 
+/**
+ * Content-free trace sink, structurally satisfied by AgentLocalObservability.
+ * Like that class it deliberately offers no message or detail parameter.
+ */
+export interface CvAiStructuringObservabilityPort {
+  record(input: {
+    level: 'debug' | 'info' | 'warn' | 'error';
+    component: string;
+    operation: string;
+    code: string;
+    runId?: string;
+    provider?: string;
+    eventSequence?: number;
+    errorClass?: string;
+  }): Promise<unknown>;
+}
+
 export interface CvAiStructuringServiceDependencies {
   store: CvAiStructuringRunStore;
   imports: CvAiStructuringImportPort;
   validation: CvAiStructuringValidationPort;
   agentRuns: CvAiAgentRunPort;
   purger: CvAiAgentRunPurger;
+  observability?: CvAiStructuringObservabilityPort;
   providers: readonly AgentRunnerPort[];
   configProfiles: { load(): Promise<AgentConfigLoadResult> };
   workspaceRoot: string;
@@ -275,6 +293,11 @@ export function extractProviderJsonObject(output: string): Readonly<Record<strin
 
 function error(code: string, statusCode: number, stage: CvAiStructuringError['stage'], retryable = false): never {
   throw new CvAiStructuringError(code, statusCode, stage, retryable);
+}
+
+/** The observability sink rejects anything outside `[a-z0-9_.:-]`, uppercase included. */
+function observabilityClass(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9_.:-]/g, '-').slice(0, 100);
 }
 
 function hash(value: string): string { return createHash('sha256').update(value, 'utf8').digest('hex'); }
@@ -900,11 +923,16 @@ export class CvAiStructuringService {
       // the tail. Joining in order reconstructs the answer and leaves the
       // single-block case byte-identical.
       const output = outputs.join('');
-      if (!output || Buffer.byteLength(output, 'utf8') > MAX_PROVIDER_OUTPUT_BYTES) {
+      const withinCeiling = Boolean(output) && Buffer.byteLength(output, 'utf8') <= MAX_PROVIDER_OUTPUT_BYTES;
+      const aiProposal = withinCeiling ? extractProviderJsonObject(output) : undefined;
+      if (!aiProposal) {
+        // Three paths reach this rejection — no message at all, an answer over
+        // the byte ceiling, or text carrying no object — and the raw run is
+        // purged moments later, so this is the only moment at which they can
+        // still be told apart. Counts and event kinds only; never the answer.
+        await this.recordProviderOutputShape(current, events, outputs, output);
         error('provider_output_not_strict_json', 502, 'validation');
       }
-      const aiProposal = extractProviderJsonObject(output)
-        ?? error('provider_output_not_strict_json', 502, 'validation');
       const source = await this.requireSource(current.cvImportId);
       if (source.sourceId !== current.binding.sourceId || source.sourceSha256 !== current.binding.sourceSha256
         || source.extractedTextSha256 !== current.binding.extractedTextSha256
@@ -1272,6 +1300,43 @@ export class CvAiStructuringService {
       catch { return record; }
     }
     return this.fail(record, { code, stage: 'agent', retryable: false });
+  }
+
+  /**
+   * Writes the shape of a rejected provider answer as counters, so that a
+   * single failed run answers which rejection path was taken without the
+   * answer, the prompt or any CV content leaving the process.
+   */
+  private async recordProviderOutputShape(
+    record: CvAiStructuringRunRecord,
+    events: readonly AgentEvent[],
+    outputs: readonly string[],
+    output: string,
+  ): Promise<void> {
+    const sink = this.dependencies.observability;
+    if (!sink) return;
+    const kinds = new Map<string, number>();
+    for (const event of events) kinds.set(event.kind, (kinds.get(event.kind) ?? 0) + 1);
+    const counters: Array<readonly [string, number]> = [
+      ['events_total', events.length],
+      ['message_events', kinds.get('agent_message_completed') ?? 0],
+      ['message_blocks_with_text', outputs.length],
+      ['output_bytes', Buffer.byteLength(output, 'utf8')],
+      ['open_braces', (output.match(/\{/g) ?? []).length],
+      ...[...kinds].map(([kind, count]) => [`kind.${observabilityClass(kind)}`, count] as const),
+    ];
+    const provider = /^[a-z][a-z0-9-]{0,63}$/.test(record.provider.id) ? record.provider.id : undefined;
+    for (const [errorClass, eventSequence] of counters) {
+      // Diagnosis is best effort: one unloggable value must not turn a
+      // diagnosable failure into a different, unrelated one.
+      try {
+        await sink.record({
+          level: 'warn', component: 'cv_ai_structuring', operation: 'provider_output_shape',
+          code: 'provider_output_not_strict_json', runId: record.agentRunId,
+          provider, errorClass, eventSequence,
+        });
+      } catch { /* the failure itself is already being reported */ }
+    }
   }
 
   private async purgeRawRun(runId: string): Promise<void> {

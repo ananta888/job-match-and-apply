@@ -871,6 +871,7 @@ export function createApp(
           for (const entry of deleted) agentApi.telemetry.forgetRun(entry.runId);
           return deleted;
         } },
+        observability: agentApi.observability,
         providers: agentApi.providers,
         configProfiles: agentApi.configProfiles ?? {
           load: async () => ({ profile: safeDefaultAgentConfigProfile(), source: 'primary' as const }),

@@ -10,7 +10,7 @@ import {
 import {
   CvAiStructuringError, CvAiStructuringService, extractProviderJsonObject, publicCvAiStructuringRun,
   type CvAiStructuringImportPort, type CvAiStructuringValidationPort,
-  type CvAiAgentRunPort, type CvAiAgentRunPurger,
+  type CvAiAgentRunPort, type CvAiAgentRunPurger, type CvAiStructuringObservabilityPort,
 } from './cv-ai-structuring.js';
 
 const digest = (value: string) => createHash('sha256').update(value, 'utf8').digest('hex');
@@ -98,6 +98,10 @@ function fixture(options: {
     deleteRuns: vi.fn(async (ids: readonly string[]) => ids.map((runId) => {
       agentRuns.runs.delete(runId); agentRuns.runEvents.delete(runId); return { runId, events: 1 };
     })),
+  };
+  const traces: Array<{ errorClass?: string; eventSequence?: number; code: string; operation: string }> = [];
+  const observability: CvAiStructuringObservabilityPort = {
+    record: vi.fn(async (input) => { traces.push(input); return input; }),
   };
   const baseProposalArtifact = { contract: 'cv-import-proposal', privateCanary: 'BASE-PRIVATE-CANARY' };
   let committedStage: { revision: number; sha256: string; facts: CvFact[] } | undefined;
@@ -189,7 +193,7 @@ function fixture(options: {
   };
   let idIndex = 0;
   const service = new CvAiStructuringService({
-    store, imports, validation, agentRuns, purger, providers: [provider(options.providerSupport)],
+    store, imports, validation, agentRuns, purger, observability, providers: [provider(options.providerSupport)],
     configProfiles: { load: async () => ({ profile: {
       schemaVersion: 2, profileId: 'safe-default', updatedAt: '2026-08-14T09:00:00.000Z',
       providers: [{ provider: 'fake', enabled: true, runtimeTarget: 'windows', sandbox: 'read-only', network: 'disabled', approvalMode: 'deny' }],
@@ -201,7 +205,7 @@ function fixture(options: {
     allowSyntheticProviders: options.allowSyntheticProviders ?? true,
   });
   return {
-    service, store, imports, validation, agentRuns, purger,
+    service, store, imports, validation, agentRuns, purger, traces,
     setImportCas(revision: number, sha256: string) {
       currentImportRevision = revision;
       currentImportSha256 = sha256;
@@ -627,6 +631,44 @@ describe('CvAiStructuringService', () => {
       expectedRunSha256: retried.sha256, confirmed: true, actor,
     });
     expect(agentRuns.cancelled).toContain(agentIds[1]);
+  });
+
+  it('records the shape of a rejected answer before the raw run is purged, without its content', async () => {
+    // Three paths end in provider_output_not_strict_json and the raw run is
+    // gone immediately afterwards, so a failed run used to say nothing about
+    // which one it took. These counters separate them from a single attempt.
+    const { service, agentRuns, purger, traces } = fixture();
+    const started = await service.start({
+      cvImportId: importId, expectedCvImportRevision: 3, expectedCvImportSha256: 'a'.repeat(64),
+      provider: selection, disclosure, actor,
+    });
+    const agentId = agentIds[0]!;
+    agentRuns.runs.set(agentId, { ...agentRuns.runs.get(agentId)!, state: 'succeeded' });
+    const prose = 'Ich kann das leider nicht strukturieren.';
+    agentRuns.runEvents.set(agentId, providerEvents(agentId, prose, [{
+      schemaVersion: '1.0', runId: agentId, sequence: 100, timestamp: '2026-08-14T10:00:09.500Z',
+      provider: 'fake', correlationId: 'synthetic', kind: 'rate_limit_event', data: {},
+    }]));
+
+    const failed = await service.get(importId, started.id);
+    expect(failed).toMatchObject({ status: 'failed', failure: { code: 'provider_output_not_strict_json' } });
+
+    const shape = new Map(traces
+      .filter((entry) => entry.operation === 'provider_output_shape')
+      .map((entry) => [entry.errorClass, entry.eventSequence]));
+    expect(shape.get('message_events')).toBe(1);
+    expect(shape.get('message_blocks_with_text')).toBe(1);
+    expect(shape.get('output_bytes')).toBe(Buffer.byteLength(prose, 'utf8'));
+    expect(shape.get('open_braces')).toBe(0);
+    expect(shape.get('events_total')).toBe(3);
+    expect(shape.get('kind.rate_limit_event')).toBe(1);
+    expect(shape.get('kind.process_started')).toBe(1);
+
+    // Diagnosis buys no retention: the raw run is still purged.
+    expect(purger.deleteRuns).toHaveBeenCalledWith([agentId]);
+    const written = JSON.stringify(traces);
+    expect(written).not.toContain(prose);
+    expect(written).not.toContain('SYNTHETIC ROLE');
   });
 
   it('upgrades a migrated failed run without a mode to the simple replacement flow on retry', async () => {

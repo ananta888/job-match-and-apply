@@ -671,6 +671,46 @@ describe('CvAiStructuringService', () => {
     expect(written).not.toContain('SYNTHETIC ROLE');
   });
 
+  it('records the exit code and stderr volume of a provider process that died', async () => {
+    // A bare 'crash' says only "exited non-zero". Without the exit code and
+    // how much the process wrote, a run that refused the request cannot be
+    // told from one that never got started, and the purge removes both.
+    const { service, agentRuns, traces } = fixture();
+    const started = await service.start({
+      cvImportId: importId, expectedCvImportRevision: 3, expectedCvImportSha256: 'a'.repeat(64),
+      provider: selection, disclosure, actor,
+    });
+    const agentId = agentIds[0]!;
+    const complaint = 'Credit balance is too low';
+    agentRuns.runEvents.set(agentId, [{
+      schemaVersion: '1.0', runId: agentId, sequence: 1, timestamp: '2026-08-14T10:00:09.000Z', provider: 'fake',
+      correlationId: 'synthetic', kind: 'warning', data: { code: 'provider_stderr', message: complaint },
+    }, {
+      schemaVersion: '1.0', runId: agentId, sequence: 2, timestamp: '2026-08-14T10:00:10.000Z', provider: 'fake',
+      correlationId: 'synthetic', kind: 'error', data: { code: 'crash', message: 'Providerprozess endete mit Code 1.', retryable: true },
+    }, {
+      schemaVersion: '1.0', runId: agentId, sequence: 3, timestamp: '2026-08-14T10:00:10.000Z', provider: 'fake',
+      correlationId: 'synthetic', kind: 'run_completed', data: { state: 'failed', exitCode: 1, termination: 'crash' },
+    }]);
+    agentRuns.runs.set(agentId, {
+      ...agentRuns.runs.get(agentId)!, state: 'failed', finishedAt: '2026-08-14T10:00:10.000Z',
+      failure: { code: 'crash', message: 'Providerprozess endete mit Code 1.', retryable: true },
+    });
+
+    const failed = await service.get(importId, started.id);
+    expect(failed).toMatchObject({ status: 'failed', failure: { code: 'crash', stage: 'agent' } });
+
+    const shape = new Map(traces
+      .filter((entry) => entry.operation === 'agent_failure_shape')
+      .map((entry) => [entry.errorClass, entry.eventSequence]));
+    expect(shape.get('exit_code')).toBe(1);
+    expect(shape.get('termination.crash')).toBe(1);
+    expect(shape.get('stderr_chunks')).toBe(1);
+    expect(shape.get('stderr_bytes')).toBe(Buffer.byteLength(complaint, 'utf8'));
+    expect(shape.get('message_events')).toBe(0);
+    expect(JSON.stringify(traces)).not.toContain(complaint);
+  });
+
   it('upgrades a migrated failed run without a mode to the simple replacement flow on retry', async () => {
     const { service, store, agentRuns } = fixture();
     const started = await service.start({

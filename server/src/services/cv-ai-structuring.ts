@@ -895,6 +895,10 @@ export class CvAiStructuringService {
     }
     if (agent.state === 'failed' || agent.state === 'timed_out') {
       const failure = await this.classifyAgentFailure(agent);
+      // The provider process died and the run is purged on the next line, so
+      // its exit code and the size of what it wrote survive nowhere else. A
+      // bare 'crash' says only "exited non-zero", which is not a diagnosis.
+      await this.recordAgentFailureShape(record, failure.code);
       try { await this.purgeRawRun(record.agentRunId); } catch { return record; }
       return this.fail(record, failure);
     }
@@ -1303,6 +1307,36 @@ export class CvAiStructuringService {
   }
 
   /**
+   * Counters for a provider process that died before producing an answer. The
+   * exit code and how much the process wrote to stderr separate a provider
+   * that refused the request from one that never started; both are lost to the
+   * purge otherwise. stderr text itself is counted, never written.
+   */
+  private async recordAgentFailureShape(record: CvAiStructuringRunRecord, failureCode: string): Promise<void> {
+    if (!this.dependencies.observability) return;
+    let events: readonly AgentEvent[];
+    try { events = await this.dependencies.agentRuns.events(record.agentRunId); }
+    catch { return; }
+    const data = (event: AgentEvent) => event.data as Record<string, unknown>;
+    const completed = events.filter((event) => event.kind === 'run_completed').map(data);
+    const stderr = events.filter((event) => event.kind === 'warning' && data(event).code === 'provider_stderr')
+      .map((event) => data(event).message)
+      .filter((value): value is string => typeof value === 'string');
+    const exitCode = completed.map((entry) => entry.exitCode).find((value) => Number.isSafeInteger(value)) as number | undefined;
+    const termination = completed.map((entry) => entry.termination).find((value): value is string => typeof value === 'string');
+    const counters: Array<readonly [string, number | undefined]> = [
+      ['events_total', events.length],
+      ['message_events', events.filter((event) => event.kind === 'agent_message_completed').length],
+      ['stderr_chunks', stderr.length],
+      ['stderr_bytes', stderr.reduce((total, chunk) => total + Buffer.byteLength(chunk, 'utf8'), 0)],
+      // Negative exit codes cannot be expressed by the sink's counter field.
+      ['exit_code', exitCode !== undefined && exitCode >= 0 ? exitCode : undefined],
+      [`termination.${observabilityClass(termination ?? 'unknown')}`, 1],
+    ];
+    await this.writeShape('agent_failure_shape', failureCode, record, counters, events);
+  }
+
+  /**
    * Writes the shape of a rejected provider answer as counters, so that a
    * single failed run answers which rejection path was taken without the
    * answer, the prompt or any CV content leaving the process.
@@ -1313,27 +1347,39 @@ export class CvAiStructuringService {
     outputs: readonly string[],
     output: string,
   ): Promise<void> {
+    if (!this.dependencies.observability) return;
+    const counters: Array<readonly [string, number]> = [
+      ['events_total', events.length],
+      ['message_events', events.filter((event) => event.kind === 'agent_message_completed').length],
+      ['message_blocks_with_text', outputs.length],
+      ['output_bytes', Buffer.byteLength(output, 'utf8')],
+      ['open_braces', (output.match(/\{/g) ?? []).length],
+    ];
+    await this.writeShape('provider_output_shape', 'provider_output_not_strict_json', record, counters, events);
+  }
+
+  /** One counter per entry plus one per observed event kind, as separate allowlisted records. */
+  private async writeShape(
+    operation: string,
+    code: string,
+    record: CvAiStructuringRunRecord,
+    counters: ReadonlyArray<readonly [string, number | undefined]>,
+    events: readonly AgentEvent[],
+  ): Promise<void> {
     const sink = this.dependencies.observability;
     if (!sink) return;
     const kinds = new Map<string, number>();
     for (const event of events) kinds.set(event.kind, (kinds.get(event.kind) ?? 0) + 1);
-    const counters: Array<readonly [string, number]> = [
-      ['events_total', events.length],
-      ['message_events', kinds.get('agent_message_completed') ?? 0],
-      ['message_blocks_with_text', outputs.length],
-      ['output_bytes', Buffer.byteLength(output, 'utf8')],
-      ['open_braces', (output.match(/\{/g) ?? []).length],
-      ...[...kinds].map(([kind, count]) => [`kind.${observabilityClass(kind)}`, count] as const),
-    ];
     const provider = /^[a-z][a-z0-9-]{0,63}$/.test(record.provider.id) ? record.provider.id : undefined;
-    for (const [errorClass, eventSequence] of counters) {
+    const all = [...counters, ...[...kinds].map(([kind, count]) => [`kind.${observabilityClass(kind)}`, count] as const)];
+    for (const [errorClass, eventSequence] of all) {
+      if (eventSequence === undefined) continue;
       // Diagnosis is best effort: one unloggable value must not turn a
       // diagnosable failure into a different, unrelated one.
       try {
         await sink.record({
-          level: 'warn', component: 'cv_ai_structuring', operation: 'provider_output_shape',
-          code: 'provider_output_not_strict_json', runId: record.agentRunId,
-          provider, errorClass, eventSequence,
+          level: 'warn', component: 'cv_ai_structuring', operation,
+          code, runId: record.agentRunId, provider, errorClass, eventSequence,
         });
       } catch { /* the failure itself is already being reported */ }
     }

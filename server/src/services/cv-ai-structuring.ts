@@ -229,6 +229,50 @@ export class CvAiStructuringError extends Error {
   ) { super(code); }
 }
 
+/**
+ * Peels the JSON object out of a provider answer.
+ *
+ * Demanding a bare object rejected answers that were perfectly valid, just
+ * wrapped: CLI providers routinely introduce the result in prose and put it in
+ * a ```json fence. Only the wrapper is tolerated here — the object itself is
+ * still parsed strictly and still has to pass the schema validation that
+ * follows, so nothing about what is accepted as a proposal changes.
+ */
+export function extractProviderJsonObject(output: string): Readonly<Record<string, unknown>> | undefined {
+  const asObject = (candidate: string): Readonly<Record<string, unknown>> | undefined => {
+    try {
+      const parsed = JSON.parse(candidate) as unknown;
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+        ? parsed as Readonly<Record<string, unknown>> : undefined;
+    } catch { return undefined; }
+  };
+  const direct = asObject(output.trim());
+  if (direct) return direct;
+  for (const fence of output.matchAll(/```(?:json|jsonc)?\s*\n?([\s\S]*?)```/gi)) {
+    const fenced = asObject((fence[1] ?? '').trim());
+    if (fenced) return fenced;
+  }
+  // Last resort: the first balanced {…} run, ignoring braces inside strings.
+  const start = output.indexOf('{');
+  if (start < 0) return undefined;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = start; index < output.length; index += 1) {
+    const char = output[index]!;
+    if (escaped) { escaped = false; continue; }
+    if (char === '\\' && inString) { escaped = true; continue; }
+    if (char === '"') { inString = !inString; continue; }
+    if (inString) continue;
+    if (char === '{') depth += 1;
+    else if (char === '}') {
+      depth -= 1;
+      if (depth === 0) return asObject(output.slice(start, index + 1));
+    }
+  }
+  return undefined;
+}
+
 function error(code: string, statusCode: number, stage: CvAiStructuringError['stage'], retryable = false): never {
   throw new CvAiStructuringError(code, statusCode, stage, retryable);
 }
@@ -849,16 +893,18 @@ export class CvAiStructuringService {
       const outputs = events.filter((event) => event.kind === 'agent_message_completed')
         .map((event) => (event.data as Record<string, unknown>).text)
         .filter((value): value is string => typeof value === 'string' && value.length > 0);
-      if (outputs.length !== 1 || Buffer.byteLength(outputs[0]!, 'utf8') > MAX_PROVIDER_OUTPUT_BYTES) {
+      // A provider may stream one answer as several text blocks: the Claude CLI
+      // emits an assistant event per block, so a long structure arrives in
+      // fragments and no single message holds the object. Demanding exactly one
+      // rejected those runs outright, and taking only the last one keeps just
+      // the tail. Joining in order reconstructs the answer and leaves the
+      // single-block case byte-identical.
+      const output = outputs.join('');
+      if (!output || Buffer.byteLength(output, 'utf8') > MAX_PROVIDER_OUTPUT_BYTES) {
         error('provider_output_not_strict_json', 502, 'validation');
       }
-      const output = outputs[0]!;
-      let aiProposal: Readonly<Record<string, unknown>>;
-      try {
-        const parsed = JSON.parse(output) as unknown;
-        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('not_object');
-        aiProposal = parsed as Readonly<Record<string, unknown>>;
-      } catch { error('provider_output_not_strict_json', 502, 'validation'); }
+      const aiProposal = extractProviderJsonObject(output)
+        ?? error('provider_output_not_strict_json', 502, 'validation');
       const source = await this.requireSource(current.cvImportId);
       if (source.sourceId !== current.binding.sourceId || source.sourceSha256 !== current.binding.sourceSha256
         || source.extractedTextSha256 !== current.binding.extractedTextSha256

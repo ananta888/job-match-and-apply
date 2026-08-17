@@ -56,7 +56,21 @@
         "content": [
           {
             "type": "text",
-            "text": "{\"contract\":\"ai-cv-structure-proposal\",\"contract_version\":\"1.0\"}"
+            "text": "{\"contract\":\"ai-cv-structure-pro"
+          }
+        ]
+      },
+      "session_id": "session-cv-zero-tools-synthetic"
+    },
+    {
+      "type": "assistant",
+      "message": {
+        "id": "msg_cv_zero_tools_synthetic_cont",
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "posal\",\"contract_version\":\"1.0\"}"
           }
         ]
       },

@@ -185,6 +185,15 @@ describe('provider event mapping', () => {
       kind: 'heartbeat', data: expect.objectContaining({ phase: 'initialized', tools: [] }),
     }));
     expect(mapped.some((event) => event.kind.startsWith('tool_'))).toBe(false);
+
+    // The CLI streams one assistant event per text block, so a long answer
+    // never arrives as a single message. The corpus has to contain that shape,
+    // otherwise a consumer requiring exactly one message passes here and fails
+    // against the real provider.
+    const completed = mapped.filter((event) => event.kind === 'agent_message_completed');
+    expect(completed.length).toBeGreaterThan(1);
+    const reassembled = completed.map((event) => (event.data as { text: string }).text).join('');
+    expect(JSON.parse(reassembled)).toMatchObject({ contract: 'ai-cv-structure-proposal' });
   });
 
   it('binds the OpenCode server-owned no-tools corpus to the deny-all agent argv without any tool call', async () => {

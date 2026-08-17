@@ -8,7 +8,7 @@ import {
   MemoryCvAiStructuringRunStore, sealCvAiStructuringRun, type CvAiStructuringSuggestion,
 } from './cv-ai-structuring-store.js';
 import {
-  CvAiStructuringError, CvAiStructuringService, publicCvAiStructuringRun,
+  CvAiStructuringError, CvAiStructuringService, extractProviderJsonObject, publicCvAiStructuringRun,
   type CvAiStructuringImportPort, type CvAiStructuringValidationPort,
   type CvAiAgentRunPort, type CvAiAgentRunPurger,
 } from './cv-ai-structuring.js';
@@ -259,6 +259,51 @@ async function leaveApplyingAfterCommittedStage(value = fixture()) {
   return readyValue;
 }
 
+describe('provider answer unwrapping', () => {
+  const proposal = { contract: 'ai-cv-structure-proposal', fields: [] };
+  const json = JSON.stringify(proposal);
+
+  it('accepts a bare object, unchanged', () => {
+    expect(extractProviderJsonObject(json)).toEqual(proposal);
+    expect(extractProviderJsonObject(`
+  ${json}  
+`)).toEqual(proposal);
+  });
+
+  it('accepts the shapes a CLI provider actually produces', () => {
+    // Reproduces the two failures observed with Claude CLI: a spoken preamble
+    // and a fenced block. Both were rejected as provider_output_not_strict_json.
+    expect(extractProviderJsonObject(
+      `Hier ist die Struktur des Lebenslaufs:
+
+\`\`\`json
+${json}
+\`\`\`
+`,
+    )).toEqual(proposal);
+    expect(extractProviderJsonObject(`\`\`\`
+${json}
+\`\`\``)).toEqual(proposal);
+    expect(extractProviderJsonObject(`Ergebnis:
+${json}
+Soll ich noch etwas anpassen?`)).toEqual(proposal);
+  });
+
+  it('keeps braces inside strings from truncating the object', () => {
+    const tricky = { note: 'ein } und ein \\" im Text', ok: true };
+    expect(extractProviderJsonObject(`Text
+${JSON.stringify(tricky)}
+Ende`)).toEqual(tricky);
+  });
+
+  it('still refuses answers that carry no object', () => {
+    expect(extractProviderJsonObject('Ich kann das leider nicht strukturieren.')).toBeUndefined();
+    expect(extractProviderJsonObject('[1, 2, 3]')).toBeUndefined();
+    expect(extractProviderJsonObject('```json\n{ kaputt \n```')).toBeUndefined();
+    expect(extractProviderJsonObject('')).toBeUndefined();
+  });
+});
+
 describe('CvAiStructuringService', () => {
   it('keeps the synthetic provider test-only unless the composition explicitly opts in', async () => {
     const blocked = fixture({ allowSyntheticProviders: false });
@@ -303,6 +348,42 @@ describe('CvAiStructuringService', () => {
     expect(agentRuns.requests[0]!.limits!.maxInputBytes).toBeGreaterThanOrEqual(
       Buffer.byteLength(agentRuns.requests[0]!.task, 'utf8'),
     );
+  });
+
+  it('reassembles an answer the provider streamed as several text blocks', async () => {
+    // The Claude CLI emits one assistant event per text block, so a long
+    // structure never arrives as a single message. Requiring exactly one
+    // rejected every such run with provider_output_not_strict_json, and taking
+    // only the last block would keep nothing but the tail.
+    const { service, agentRuns, validation } = fixture();
+    const started = await service.start({
+      cvImportId: importId, expectedCvImportRevision: 3, expectedCvImportSha256: 'a'.repeat(64),
+      provider: selection, disclosure, actor,
+    });
+    const agentId = agentIds[0]!;
+    agentRuns.runs.set(agentId, { ...agentRuns.runs.get(agentId)!, state: 'succeeded', finishedAt: '2026-08-14T10:00:10.000Z' });
+    const fragments = ['{"contract":', '"ai-cv-structure', '-proposal"}'];
+    agentRuns.runEvents.set(agentId, [
+      {
+        schemaVersion: '1.0', runId: agentId, sequence: 1, timestamp: '2026-08-14T10:00:09.000Z', provider: 'fake',
+        correlationId: 'synthetic', kind: 'process_started', data: {
+          runtimeTarget: 'windows', sandboxEnforcement: 'synthetic-no-tools-v1',
+          networkAccessClaim: 'provider-control-plane-only',
+        },
+      },
+      ...fragments.map((text, index) => ({
+        schemaVersion: '1.0' as const, runId: agentId, sequence: index + 2,
+        timestamp: '2026-08-14T10:00:10.000Z', provider: 'fake', correlationId: 'synthetic',
+        kind: 'agent_message_completed' as const, data: { text },
+      })),
+    ] as never);
+
+    const ready = await service.get(importId, started.id);
+    expect(ready).toMatchObject({ status: 'suggestions_ready' });
+    // The port must see the reassembled object, not a fragment.
+    expect(validation.validateProposal).toHaveBeenCalledWith(expect.objectContaining({
+      aiProposal: { contract: 'ai-cv-structure-proposal' },
+    }));
   });
 
   it('accepts exactly one JSON object, validates it through the submodule port, and purges the raw agent run before exposing suggestions', async () => {
@@ -521,7 +602,7 @@ describe('CvAiStructuringService', () => {
     expect(await value.store.get(started.id)).toEqual(stranded);
   });
 
-  it('fails closed on Markdown-wrapped output, supports explicit cancel, and retries from the current encrypted import only after fresh disclosure', async () => {
+  it('fails closed on an answer without any object, supports explicit cancel, and retries from the current encrypted import only after fresh disclosure', async () => {
     const { service, agentRuns } = fixture();
     const started = await service.start({
       cvImportId: importId, expectedCvImportRevision: 3, expectedCvImportSha256: 'a'.repeat(64),
@@ -529,7 +610,9 @@ describe('CvAiStructuringService', () => {
     });
     const agentId = agentIds[0]!;
     agentRuns.runs.set(agentId, { ...agentRuns.runs.get(agentId)!, state: 'succeeded' });
-    agentRuns.runEvents.set(agentId, providerEvents(agentId, '```json\n{}\n```'));
+    // Markdown wrapping is unwrapped now, so only an answer that carries no
+    // object at all still fails closed.
+    agentRuns.runEvents.set(agentId, providerEvents(agentId, 'Ich kann das leider nicht strukturieren.'));
     const failed = await service.get(importId, started.id);
     expect(failed).toMatchObject({ status: 'failed', failure: { code: 'provider_output_not_strict_json', stage: 'validation' } });
 

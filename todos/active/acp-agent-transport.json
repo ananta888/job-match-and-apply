@@ -1,0 +1,146 @@
+{
+  "$schema": "../todo.track.schema.json",
+  "version": 1,
+  "owner": "job-match-and-apply",
+  "track": "acp-agent-transport",
+  "created": "2026-08-17",
+  "updated": "2026-08-17",
+  "purpose": "Agent Client Protocol als experimentellen, servereigenen Transport hinter den bestehenden AgentRunnerPort legen, ohne Sandbox-, Evidence- oder Portalgrenzen zu lockern.",
+  "goal": "Ein ACP-Adapter spricht JSON-RPC 2.0 über stdio, mappt session/update auf kanonische Events, lehnt Datei- und Terminal-Clientmethoden fail-closed ab und ist mit einer synthetischen Fixture prüfbar.",
+  "status_scale": ["todo", "in_progress", "partial", "blocked", "done"],
+  "priority_scale": ["low", "medium", "high"],
+  "risk_scale": ["low", "medium", "high"],
+  "milestones": [
+    {
+      "id": "M1",
+      "title": "ACP-Vertrag und Mapper",
+      "task_ids": ["ACP-001", "ACP-002"],
+      "status": "done"
+    },
+    {
+      "id": "M2",
+      "title": "Adapter, Discovery und Verdrahtung",
+      "task_ids": ["ACP-003", "ACP-004"],
+      "status": "done"
+    },
+    {
+      "id": "M3",
+      "title": "Sicherheit, Doku und Supportmatrix",
+      "task_ids": ["ACP-005"],
+      "status": "done"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "ACP-001",
+      "title": "ACP-Nachrichten auf kanonische Agentenevents abbilden",
+      "status": "done",
+      "priority": "high",
+      "risk": "medium",
+      "progress_percent": 100,
+      "acceptance_criteria": [
+        "session/update-Textchunks, Toolcalls und Usage werden ohne Rohpfade als Secrets in Events übersetzt.",
+        "Unbekannte Methoden und Client-fs/terminal-Aufrufe werden fail-closed abgelehnt."
+      ],
+      "evidence": [
+        "server/src/agents/acp-protocol.ts",
+        "server/src/agents/acp-protocol.test.ts",
+        "contracts/v1/acp-session.schema.json"
+      ]
+    },
+    {
+      "id": "ACP-002",
+      "title": "Synthetische ACP-Fixture und Fake-CLI bereitstellen",
+      "status": "done",
+      "priority": "high",
+      "risk": "low",
+      "progress_percent": 100,
+      "acceptance_criteria": [
+        "Eine secret-freie Fixture replayt initialize, session/new, session/prompt und session/update.",
+        "Die Fake-CLI spricht nur NDJSON-JSON-RPC und braucht kein Netz."
+      ],
+      "evidence": [
+        "contracts/fixtures/v1/acp-events.json",
+        "server/src/agents/fixtures/fake-acp-cli.mjs",
+        "server/src/agents/acp-jsonrpc.ts"
+      ]
+    },
+    {
+      "id": "ACP-003",
+      "title": "AcpAgentAdapter als AgentRunnerPort verdrahten",
+      "status": "done",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 100,
+      "acceptance_criteria": [
+        "initialize, session/new mit leerer MCP-Liste und session/prompt laufen über den ProcessSupervisor.",
+        "session/cancel bricht den Lauf ab. Resume ist nicht unterstützt.",
+        "Ungetestete Binaries bleiben blockiert."
+      ],
+      "evidence": [
+        "server/src/agents/acp-adapter.ts",
+        "server/src/agents/acp-adapter.test.ts",
+        "server/src/app.ts createDefaultAgentApiDependencies"
+      ]
+    },
+    {
+      "id": "ACP-004",
+      "title": "Provider in API, Profildefaults und Supportmatrix aufnehmen",
+      "status": "done",
+      "priority": "medium",
+      "risk": "medium",
+      "progress_percent": 100,
+      "acceptance_criteria": [
+        "Der Provider acp erscheint in Discovery und Defaults als experimental.",
+        "Keine Root-Domain-Tools und kein CV-AI-Zero-Tools-Vertrag in dieser Version."
+      ],
+      "evidence": [
+        "contracts/v1/agent-provider-support.json",
+        "server/src/agents/config-profile-store.ts",
+        "server/src/agent-api.test.ts"
+      ]
+    },
+    {
+      "id": "ACP-005",
+      "title": "Grenzen dokumentieren und Tests ausführen",
+      "status": "done",
+      "priority": "medium",
+      "risk": "low",
+      "progress_percent": 100,
+      "acceptance_criteria": [
+        "Dokumentation nennt ACP als Transport, nicht als Ersatz der Policy.",
+        "Fokustests für Mapper, JSON-RPC und Adapter sind grün."
+      ],
+      "evidence": [
+        "docs/contracts.md",
+        "docs/agent-control-center.md",
+        "docs/release-matrix.md",
+        "Windows vitest: 49/49 in acp-adapter, acp-protocol, acp-jsonrpc, config-profile-store, contracts, agent-api"
+      ]
+    }
+  ],
+  "critical_path_tasks": ["ACP-001", "ACP-002", "ACP-003"],
+  "tasks_status_summary": {
+    "total": 5,
+    "by_status": { "todo": 0, "in_progress": 0, "partial": 0, "blocked": 0, "done": 5 },
+    "progress_percent_done": 100,
+    "by_priority": { "high": 3, "medium": 2, "low": 0 },
+    "by_risk": { "high": 1, "medium": 3, "low": 1 },
+    "critical_path": { "total": 3, "done": 3, "remaining": 0 },
+    "milestones": { "total": 3, "todo": 0, "in_progress": 0, "blocked": 0, "done": 3 }
+  },
+  "progress_summary": {
+    "state": "done",
+    "todo_remaining": 0,
+    "in_progress": 0,
+    "partial": 0,
+    "blocked": 0,
+    "done": 5
+  },
+  "summary_notes": [
+    "ACP bleibt experimentell und prompt-only. Datei-, Terminal- und MCP-Übergabe an den Agenten sind ausgeschlossen.",
+    "Nur die synthetische Fixture acp-synthetic 0.1.0 ist freigegeben. Reale CLIs wie codex-acp bleiben untested und blockiert.",
+    "ACP trägt keinen CV-KI-Zero-Tools-Vertrag und keine Root-Domain-Tools. WSL, Container, Workspace-Write und Netzwerk sind ausgeschlossen.",
+    "Bestehende lokale Profile erhalten den Provider beim Laden in-memory, ohne die gespeicherte Datei umzuschreiben."
+  ]
+}

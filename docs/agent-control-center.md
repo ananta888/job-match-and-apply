@@ -22,7 +22,7 @@ Agent Control Center (Express)
   │    ├── Codex Exec
   │    ├── Codex App Server mit Dynamic Tools
   │    ├── OpenCode 1.14.41 in WSL/Bubblewrap
-  │    └── Claude Code 2.1.232 in WSL/Bubblewrap
+  │    └── Claude Code 2.1.232–2.1.234 in WSL/Bubblewrap
   └── servereigene Root-Domain-Ports
        ├── Jobs, Bewerbungsfälle und Firmen
        ├── Mail-/Status-/Dokumentvorschläge
@@ -96,7 +96,7 @@ benötigtes Tool nicht verfügbar, startet der Run nicht.
 ### OpenCode und Claude Code
 
 OpenCode ist ausschließlich als WSL-Version `1.14.41`, Claude Code ausschließlich als WSL-Version
-`2.1.232 (Claude Code)` freigegeben. Unbekannte Versionen, native Windows-Ziele und fehlendes
+`2.1.232`–`2.1.234 (Claude Code)` freigegeben. Unbekannte Versionen, native Windows-Ziele und fehlendes
 Bubblewrap werden blockiert. Beide erhalten den Prompt über stdin und unterstützen in diesem
 Vertrag nur read-only, keine interaktive Approval-Brücke, Pause oder Resume.
 
@@ -114,6 +114,16 @@ MCP- und Subagent-Werkzeuge sind dagegen durch eine servereigene exakte Provider
 Diese Kontrolle ist eine Tool-/Capability-Grenze und keine Netzwerk-Namespace-Isolation des
 gesamten Providerprozesses. OpenCode und Claude erhalten aktuell keine Root-Domain-Tools; ihre
 Workflows arbeiten mit dem vom Server aufgebauten, begrenzten Promptkontext.
+
+### Agent Client Protocol
+
+ACP ist ein experimenteller, servereigener Transport hinter dem bestehenden `AgentRunnerPort`. Der
+Adapter spricht JSON-RPC 2.0 als NDJSON über stdio und mappt `session/update` auf die kanonischen
+Events. Datei- und Terminal-Clientmethoden werden nicht beworben und bei Anfrage abgelehnt. Es gibt
+keine Root-Domain-Tools, keine interaktive Approval-Brücke, kein Resume und keinen CV-KI-Zero-Tools-
+Vertrag. Ungetestete reale CLIs (`codex-acp`, `claude-agent-acp` und andere) bleiben blockiert; nur
+die secret-freie synthetische Fixture `acp-synthetic 0.1.0` ist prüfbar. ACP läuft in dieser Version
+nicht in WSL oder Containern und nur read-only mit `network: disabled`.
 
 ## Root-Domain-Tools
 

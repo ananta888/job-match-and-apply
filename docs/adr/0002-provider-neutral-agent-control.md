@@ -23,6 +23,11 @@ Verlangt er den servereigenen Zero-Tools-Vertrag, bedient Codex Exec ihn, sonst 
 Dynamic Tools erhalten. Ein fehlgeschlagener Offline- oder Tool-Healthcheck darf nicht auf einen
 schwächeren Transport zurückfallen.
 
+Der Agent Client Protocol-Adapter ist ein experimenteller JSON-RPC-2.0-stdio-Transport hinter
+demselben `AgentRunnerPort`. Er wirbt keine Datei- oder Terminal-Clientfähigkeiten an, übergibt
+keine MCP-Server und trägt keinen Zero-Tools- oder Root-Tool-Vertrag. Reale ACP-Binaries bleiben
+untested, bis eine secret-freie Conformance-Fixture und ein Versionspin vorliegen.
+
 OpenCode `1.14.41` und Claude Code `2.1.232` sind ausschließlich read-only in WSL/Bubblewrap
 freigegeben. Bubblewrap schützt Dateisystem und Prozessgrenzen; die Provider-Control-Plane bleibt
 für den Modellaufruf erreichbar. Modellaufrufbare Shell-, Schreib-, Web-, MCP- und

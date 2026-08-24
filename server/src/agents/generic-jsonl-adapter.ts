@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
-import { isAbsolute } from 'node:path';
+import { mkdir, rm } from 'node:fs/promises';
+import { isAbsolute, join } from 'node:path';
 import {
   AGENT_CONTRACT_VERSION,
   assertCompatibleAgentContract,
@@ -15,6 +16,7 @@ import {
 import { IncrementalJsonlParser, type JsonlBatch } from './jsonl-parser.js';
 import { DEFAULT_PROCESS_LIMITS, ProcessSupervisor, type ProcessResult, type SupervisedProcess } from './process-supervisor.js';
 import { assertTrustedHostJobMcpNotNestedInAgentSandbox, WslBubblewrapSandboxBoundary, type ExternalSandboxBoundary } from './provider-sandbox.js';
+import { recoverOpencodeAssistantText } from './opencode-session-recover.js';
 import { AgentRuntimeDiscovery, type ProviderDiscoveryDefinition } from './runtime-discovery.js';
 import {
   CODEX_OFFLINE_NETWORK_CONTRACT,
@@ -292,7 +294,15 @@ export class GenericJsonlAgentAdapter implements AgentRunnerPort {
     let networkEnforcement: string | undefined;
     let networkMechanism: string | undefined;
     let networkAccessClaim: string | undefined;
+    let recoverableHost: string | undefined;
     if (this.manifest.capabilities.extensions?.externalSandbox === 'wsl-bubblewrap-v1') {
+      if (this.provider === 'opencode') {
+        recoverableHost = join(request.workspaceRoot, '.oc-session');
+        await mkdir(recoverableHost, { recursive: true, mode: 0o700 });
+      }
+      const recoverableStateRoot = recoverableHost && installation.distribution
+        ? await this.discovery.windowsPathToWsl(recoverableHost, installation.distribution, installation.executable)
+        : undefined;
       const plan = await this.externalSandbox.plan({
         provider: this.provider as 'opencode' | 'claude-cli',
         installation,
@@ -300,7 +310,8 @@ export class GenericJsonlAgentAdapter implements AgentRunnerPort {
         providerArgs: args,
         workspaceRoot: workspace,
         sandbox: request.sandbox,
-        network: request.network
+        network: request.network,
+        ...(recoverableStateRoot ? { recoverableStateRoot } : {}),
       });
       executable = plan.executable;
       args = plan.args;
@@ -321,8 +332,10 @@ export class GenericJsonlAgentAdapter implements AgentRunnerPort {
     const parser = new IncrementalJsonlParser(this.manifest.maxJsonLineBytes);
     let emitQueue = Promise.resolve();
     let providerReportedError = false;
+    let sawCompletedMessage = false;
     const queue = (draft: AgentEventDraft): void => {
       if (draft.kind === 'error') providerReportedError = true;
+      if (draft.kind === 'agent_message_completed') sawCompletedMessage = true;
       emitQueue = emitQueue.then(() => context.emit(draft));
     };
     const consume = (batch: JsonlBatch): void => {
@@ -370,6 +383,11 @@ export class GenericJsonlAgentAdapter implements AgentRunnerPort {
       try {
         const result = await processHandle.completion;
         consume(parser.end());
+        if (recoverableHost && !sawCompletedMessage) {
+          const recovered = await recoverOpencodeAssistantText(recoverableHost);
+          if (recovered) queue({ kind: 'agent_message_completed', data: { text: recovered, recoveredFrom: 'opencode-session-store' } });
+        }
+        if (recoverableHost) await rm(recoverableHost, { recursive: true, force: true }).catch(() => undefined);
         const outcome = providerReportedError && result.termination === 'exit' && result.exitCode === 0
           ? { state: 'failed' as const, failure: { code: 'provider_reported_error', message: 'Provider meldete einen strukturierten Fehler.', retryable: false } }
           : this.outcome(result);
@@ -381,6 +399,7 @@ export class GenericJsonlAgentAdapter implements AgentRunnerPort {
         await emitQueue;
         return outcome;
       } finally {
+        if (recoverableHost) await rm(recoverableHost, { recursive: true, force: true }).catch(() => undefined);
         this.active.delete(context.runId);
         this.contexts.delete(context.runId);
       }

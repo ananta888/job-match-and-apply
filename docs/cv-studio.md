@@ -44,19 +44,20 @@ Sachverhalte: Der vollständige extrahierte Lebenslauftext wird an den ausgewäh
 übermittelt, und dessen Control-Plane kann dafür Netzwerk verwenden. Dieses Provider-Netzwerk ist
 vom deaktivierten Modell-Werkzeugnetz getrennt und wird nicht als Offline-Verarbeitung bezeichnet.
 
-Der Agentenlauf selbst läuft in einem isolierten, nur lesbaren Arbeitsbereich mit
-`approvalMode=deny`. Seine Allowlist für fachliche Root-MCP-Werkzeuge ist leer; zusätzlich werden
-die eingebauten Datei-, Shell-, Such- und sonstigen Providerwerkzeuge durch einen versionsgenauen,
-serverseitigen Zero-Tool-Vertrag deaktiviert. Meldet die Runtime dennoch ein Werkzeug oder fehlt die
-Sandbox-Attestation, wird der Lauf verworfen. Provider ohne diesen Zero-Tool-Vertrag erscheinen als
-nicht verfügbar. Insbesondere erhält der Lauf keinen Zugriff auf Job-Suche, CRM, Mail oder
-Bewerbungspipeline. Der Job-Search-MCP wird ihm nicht bereitgestellt und bleibt außerhalb jeder
-Agentensandbox.
+Der Agentenlauf selbst läuft mit `approvalMode=deny` in einem leeren Arbeitsverzeichnis unter
+`.application-work/cv-ai-structuring`. Das ist kein vollständiger Dateisystem-Käfig: OpenCode und
+Claude binden in Bubblewrap die Hostwurzel nur lesend, damit die CLI ihre Systembibliotheken findet;
+modellaufrufbare Datei-, Shell- und Suchwerkzeuge bleiben trotzdem durch den Zero-Tool-Vertrag
+entfernt. Meldet die Runtime dennoch ein Werkzeug oder fehlt die Sandbox-Attestation, wird der Lauf
+verworfen. Provider ohne diesen Zero-Tool-Vertrag erscheinen als nicht verfügbar. Insbesondere
+erhält der Lauf keinen Zugriff auf Job-Suche, CRM, Mail oder Bewerbungspipeline. Der Job-Search-MCP
+wird ihm nicht bereitgestellt und bleibt außerhalb jeder Agentensandbox.
 
-In dieser ersten Version ist dafür ausschließlich Claude Code `2.1.232` in der geprüften
-WSL-/Bubblewrap-Konfiguration freigegeben. OpenCode und Codex bleiben für die CV-KI-Strukturierung
-so lange blockiert, bis auch ihr leerer Runtime-Werkzeugsatz versionsgenau attestiert ist. Der
-deterministische Import und die manuelle Faktenprüfung funktionieren unabhängig davon lokal.
+Für die CV-KI-Strukturierung sind Claude Code `2.1.232`–`2.1.234` (WSL/Bubblewrap), OpenCode
+`1.14.41` (WSL/Bubblewrap) und Codex Exec `0.147.0` (servereigener Zero-Tools-Vertrag) freigegeben.
+Andere Versionen bleiben blockiert. Der experimentelle ACP-Transport besitzt keinen Zero-Tools-
+Vertrag und erscheint daher nicht als verfügbarer CV-KI-Provider. Der deterministische Import und die manuelle Faktenprüfung
+funktionieren unabhängig davon lokal.
 
 KI-Ergebnisse werden nur angenommen, wenn sie dem strikten, versionsgebundenen Vertrag entsprechen.
 Jeder nicht leere Feldvorschlag muss dabei exakt auf eine Textstelle der importierten Quelle mit
@@ -86,13 +87,19 @@ synthetische Fixtures und Fake-Provider. Sie senden keinen Lebenslauf an einen e
 
 ## Sechs Schritte
 
+Die Oberfläche nummeriert dieselben Gates als Import, Fakten, Schreibstil, Formatvorlage,
+Zielstelle und Agentenlauf & HTML. Die Fachschritte darunter:
+
 1. **Import:** PDF, DOCX, ODT oder HTML auswählen; Extraktion und deterministischen Fallback lokal
    erzeugen.
-2. **Erkennung:** den Fallback verwenden oder mit einer Gesamtzustimmung einen vollständigen
-   KI-Erkennungsstand aus der ursprünglichen Extraktion erzeugen; den gewünschten Stand auswählen.
-3. **Faktenfreigabe:** Stationen übersichtlich prüfen, nötige Werte korrigieren oder verwerfen und
-   den aktiven Stand einmal insgesamt bestätigen.
-4. **Darstellung:** das versionierte private Stilprofil und eine Formatvorlage wählen. Zwei Varianten
+2. **Fakten (Erkennung und Freigabe):** den deterministischen Fallback verwenden oder mit einer
+   Gesamtzustimmung einen vollständigen KI-Erkennungsstand aus der ursprünglichen Extraktion
+   erzeugen; den gewünschten Stand auswählen; Stationen prüfen, nötige Werte korrigieren oder
+   verwerfen und den aktiven Stand einmal insgesamt bestätigen. Die getrennte Profilübernahme
+   bleibt in diesem Schritt; ohne sie sind Schreibstil und die folgenden Schritte gesperrt.
+3. **Schreibstil:** das versionierte private Stilprofil lesen. Ohne lesbares Profil ist die
+   Formatvorlage nicht wählbar.
+4. **Formatvorlage:** eine Formatvorlage wählen. Zwei Varianten
    stehen zur Wahl: die geschlossene, einspaltige **ATS-Vorlage** (Vorlage, Schrift, Akzentfarbe, Abstand,
    Abschnittsreihenfolge) oder die aus dem Layout-Fingerprint abgeleitete **originalgetreue Vorlage**
    (Spalten, Platzierung und Farben des Originals). Beide zeigen eine Skelett-Vorschau mit Platzhaltern;

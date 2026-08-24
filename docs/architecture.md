@@ -43,7 +43,11 @@ Overrides, erhält ein runlokales `CODEX_HOME` mit höchstens `auth.json` und se
 Workspace-Write zusätzlich `SandboxPolicy.networkAccess:false`. Ein Offline-Health- oder
 Root-Tool-Fehler ist fail-closed.
 
-OpenCode `1.14.41` und Claude Code `2.1.232` laufen ausschließlich in WSL/Bubblewrap read-only.
+Der experimentelle Agent-Client-Protocol-Adapter spricht JSON-RPC 2.0 über stdio, lehnt Datei- und
+Terminal-Clientmethoden ab und ist nur als synthetische Fixture freigegeben. Er ersetzt keine
+bestehende Policy und trägt keinen Zero-Tools-Vertrag.
+
+OpenCode `1.14.41` und Claude Code `2.1.232`–`2.1.234` laufen ausschließlich in WSL/Bubblewrap read-only.
 Bubblewrap isoliert Dateisystem, PID, IPC und UTS und bindet nur die jeweilige Authdatei read-only
 in ein temporäres HOME. Die Provider-Control-Plane bleibt für den Modellaufruf erreichbar; die
 servereigene Providerpolicy entfernt dagegen modellaufrufbare Shell-, Schreib-, Web-, MCP- und
@@ -55,7 +59,7 @@ Normale Runs erhalten serverseitig zusammengesetzten Fachkontext. Der native Cod
 zusätzlich eine workflowabhängige Auswahl der Root-Domain-Tools als Dynamic Tools erhalten.
 Capability, Toolscope und erlaubte ApplicationCase-IDs sind intern an den Run gebunden; der Client
 erhält weder Capability- noch Approval-Token. OpenCode, Claude, Fake und der stabile Codex-Exec-
-Transport arbeiten ohne diese Root-Tool-Brücke mit begrenztem Promptkontext.
+Transport sowie der experimentelle ACP-Adapter arbeiten ohne diese Root-Tool-Brücke mit begrenztem Promptkontext.
 
 Der Root-Katalog enthält nur minimierte Reads, Analysen, Vorschläge und bestätigte lokale
 Domaincommands. Portal-Login, Mailversand, Bewerbungssubmission, freie Shell-/Dateioperationen und

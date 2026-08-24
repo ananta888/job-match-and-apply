@@ -25,7 +25,8 @@ und behalten ihre eigene Historie.
   Dokumenthistorie
 - expliziter IMAP-Abruf, manueller EML-Import und optionaler lokaler Nur-Empfang-SMTP-Dienst
 - lokales Agent Control Center für Codex CLI sowie die exakt geprüften WSL-Versionen OpenCode
-  `1.14.41` und Claude Code `2.1.232`
+  `1.14.41` und Claude Code `2.1.232`–`2.1.234`; experimenteller Agent-Client-Protocol-Transport
+  hinter demselben Runner-Port, derzeit nur als synthetische Fixture
 - lokal verdrahtete Fünf-Rollen-Orchestrierung für Evidence, Author, ATS, Recruiter/Style und Finalizer;
   alle fünf Rollen laufen ohne Browser-Zwischengate durch und der Finalizer liefert direkt eine
   sicher normalisierte HTML-Seite
@@ -62,8 +63,9 @@ bewusst niemals in einer Agenten-, Bubblewrap-, Container- oder Netzwerk-Sandbox
 sichtbaren StepStone-Login und die Portalverantwortung. Die Root-Anwendung ruft ihn über den
 MCP-Vertrag auf; Agenten erhalten nur normalisierte, als nicht vertrauenswürdig behandelte Daten
 oder – ausschließlich beim explizit aktivierten nativen Codex App Server – eng allowlistete,
-rungebundene Dynamic Tools. OpenCode `1.14.41`, Claude Code `2.1.232`, Fake und Codex Exec arbeiten
-prompt-only. Externe Portale bleiben unabhängig vom aktiven `stdio`-Modus
+rungebundene Dynamic Tools. OpenCode `1.14.41`, Claude Code `2.1.232`–`2.1.234`, Fake und Codex Exec arbeiten
+prompt-only. Der experimentelle ACP-Adapter ist ebenfalls prompt-only, ohne Root-Tools und ohne
+CV-KI-Zero-Tools-Vertrag. Externe Portale bleiben unabhängig vom aktiven `stdio`-Modus
 mit `ALLOW_EXTERNAL_PORTALS=0` gesperrt. Sie werden ausschließlich über die bestätigte
 Portalzugriffsaktion in **Quellen & MCP** freigegeben. **Sichtbaren Login öffnen** startet danach
 den Camoufox-Ablauf; Captchas, 2FA und Portalrichtlinien werden nicht umgangen.

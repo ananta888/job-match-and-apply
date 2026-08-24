@@ -28,8 +28,15 @@ describe('AgentRuntimeDiscovery', () => {
     expect(claude?.testedVersionPatterns.some((pattern) => pattern.test('2.1.232 (Claude Code)'))).toBe(true);
     expect(claude?.testedVersionPatterns.some((pattern) => pattern.test('2.1.233 (Claude Code)'))).toBe(true);
     expect(claude?.testedVersionPatterns.some((pattern) => pattern.test('2.1.231 (Claude Code)'))).toBe(false);
-    expect(claude?.testedVersionPatterns.some((pattern) => pattern.test('2.1.234 (Claude Code)'))).toBe(false);
+    expect(claude?.testedVersionPatterns.some((pattern) => pattern.test('2.1.234 (Claude Code)'))).toBe(true);
+    expect(claude?.testedVersionPatterns.some((pattern) => pattern.test('2.1.235 (Claude Code)'))).toBe(false);
     expect(claude?.testedVersionPatterns.some((pattern) => pattern.test('2.1.232'))).toBe(false);
+  });
+
+  it('marks only the synthetic ACP fixture version as supported', () => {
+    const acp = BUILTIN_PROVIDER_DISCOVERY.find((entry) => entry.provider === 'acp');
+    expect(acp?.testedVersionPatterns.some((pattern) => pattern.test('acp-synthetic 0.1.0'))).toBe(true);
+    expect(acp?.testedVersionPatterns.some((pattern) => pattern.test('codex-acp 0.1.0'))).toBe(false);
   });
 
   it('discovers WSL installations without shell interpolation and keeps untested versions visible', async () => {

@@ -223,7 +223,8 @@ describe('agent control API', () => {
       expect.objectContaining({ id: 'fake', available: true, installations: expect.arrayContaining([expect.objectContaining({ support: 'supported' })]) }),
       expect.objectContaining({ id: 'codex-exec' }),
       expect.objectContaining({ id: 'opencode' }),
-      expect.objectContaining({ id: 'claude-cli' })
+      expect.objectContaining({ id: 'claude-cli' }),
+      expect.objectContaining({ id: 'acp', experimental: true, available: false }),
     ]));
     expect(response.text).not.toMatch(/api[_-]?key|password|secret/i);
   });

@@ -21,7 +21,7 @@ Codex Exec `0.147.0` verwendet feste servereigene Argumente mit `--ignore-user-c
 --strict-config`, `web_search="disabled"` und `sandbox_workspace_write.network_access=false`.
 Der opt-in Codex App Server verwendet dieselben Overrides, erhält ein temporäres `CODEX_HOME` mit
 höchstens `auth.json` und setzt zusätzlich in seiner SandboxPolicy `networkAccess:false`.
-OpenCode `1.14.41` und Claude Code `2.1.232` laufen ausschließlich read-only in WSL/Bubblewrap.
+OpenCode `1.14.41` und Claude Code `2.1.232`–`2.1.234` laufen ausschließlich read-only in WSL/Bubblewrap.
 Bubblewrap isoliert Dateisystem, PID, IPC und UTS und bindet nur die jeweilige Authdatei read-only
 ein. Ihre Provider-Control-Plane bleibt online; modellaufrufbare Shell-, Schreib-, Web-, MCP- und
 Subagent-Werkzeuge sind durch eine feste servereigene Policy entfernt.
@@ -36,7 +36,7 @@ Subagent-Werkzeuge sind durch eine feste servereigene Policy entfernt.
 | Credential-Exfiltration | minimales Kindprozess-Environment, isolierte Config-Homes, read-only Authdateien, Redaction und Secret-/PII-Scan | Scan ist signaturbasiert; Redaction ist kein Vollständigkeitsnachweis |
 | Confused Deputy | signierte, ablaufende, widerrufbare Run-/Provider-/Tool-/Case-Capability; Client kann Tokens nicht liefern | Korrektheit der vom Composition Root injizierten schmalen Ports bleibt Trust Boundary |
 | Approval-Replay | HMAC-Queue mit Ablauf, Parameterhash, Zielbindung, Nonce und einmaligem Verbrauch; append-only, hashbasiertes Lifecycle-Journal ohne Token/Rohparameter | offene oder erteilte, noch nicht verbrauchte Authority wird nach Neustart widerrufen und muss neu angefordert werden |
-| Unkontrollierter Netzwerkzugriff | API lehnt `network:true` ab; Codex `0.147.0` erhält feste Offline-Overrides, der App Server zusätzlich `networkAccess:false`; OpenCode/Claude entfernen modellaufrufbare Netzwerk- und Shelltools | Provider-Control-Planes benötigen den Modelltransport; OpenCode/Claude besitzen keinen getrennten Network Namespace |
+| Unkontrollierter Netzwerkzugriff | API lehnt `network:true` ab; Codex `0.147.0` erhält feste Offline-Overrides, der App Server zusätzlich `networkAccess:false`; OpenCode/Claude entfernen modellaufrufbare Netzwerk- und Shelltools; ACP bewirbt keine `fs/*`- oder `terminal/*`-Clientmethoden und übergibt `mcpServers: []` | Provider-Control-Planes benötigen den Modelltransport; OpenCode/Claude besitzen keinen getrennten Network Namespace; reale ACP-CLIs sind noch untested |
 | Vermischung von Portal- und Agentensandbox | direkter Trusted-Host-Launch, wrapperfreier Vertrag, Projektconfig-Prüfung, isolierte Provider-Homes | gleichzeitige lokale Änderungen nach der Prüfung bleiben eine Host-Trust-Grenze |
 | Unkontrollierte externe Aktion | Root-Katalog enthält keinen Versand, Submit, Portal-Login, freie Shell-, Datei- oder Netztools | fehlerhafte Domainport-Implementierung bleibt serverseitige Trust Boundary |
 | Prozessflucht/Ressourcenerschöpfung | validierter Prozessbaum-Cancel, Grace Period, deep-first Force-Cleanup, Wall-/Idle-/Output-/Parallelitätslimits, Bubblewrap | Memory-/Kindprozess-Probes sind im normalen Produktstart nicht plattformspezifisch konfiguriert |

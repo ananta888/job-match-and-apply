@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { once } from 'node:events';
+import { resolve } from 'node:path';
 import JSZip from 'jszip';
+import PDFDocument from 'pdfkit';
 import {
-  classifyLayoutSection, defaultLayoutFingerprint, extractLayoutFingerprint,
+  assignPdfHeadingColumns, classifyLayoutSection, defaultLayoutFingerprint, extractLayoutFingerprint,
   sanitizeHexColor, validateLayoutFingerprint,
 } from './cv-layout-fingerprint.js';
 
@@ -48,6 +52,15 @@ describe('classifyLayoutSection', () => {
 });
 
 describe('extractLayoutFingerprint — HTML', () => {
+  it('reads the synthetic two-column fixture as a side/main layout', async () => {
+    const buffer = readFileSync(resolve(process.cwd(), '../contracts/fixtures/v1/synthetic-two-column-cv.html'));
+    const fingerprint = await extractLayoutFingerprint('text/html', buffer);
+    expect(fingerprint.columns).toBe(2);
+    const bySection = Object.fromEntries(fingerprint.sections.map((entry) => [entry.section, entry.column]));
+    expect(bySection.profile).toBe('side');
+    expect(bySection.employment).toBe('main');
+  });
+
   it('captures section order, colours and a two-column split from a styled CV', async () => {
     const buffer = html(
       `<div class="cv">
@@ -117,6 +130,66 @@ describe('extractLayoutFingerprint — DOCX/ODT', () => {
     expect(fingerprint.sourceFormat).toBe('odt');
     expect(fingerprint.sections.map((entry) => entry.section)).toEqual(['skill', 'language']);
     expect(fingerprint.palette.accent).toBe('#1d4ed8');
+  });
+});
+
+describe('assignPdfHeadingColumns', () => {
+  it('infers a two-column split when sidebar and main section groups both appear', () => {
+    const warnings: string[] = [];
+    const headings = assignPdfHeadingColumns([
+      { label: 'Profil', section: 'profile', column: 'main' },
+      { label: 'Kenntnisse', section: 'skill', column: 'main' },
+      { label: 'Berufserfahrung', section: 'employment', column: 'main' },
+      { label: 'Ausbildung', section: 'education', column: 'main' },
+    ], warnings);
+    expect(warnings).toContain('pdf_columns_inferred_from_section_mix');
+    expect(headings.find((hit) => hit.section === 'profile')?.column).toBe('side');
+    expect(headings.find((hit) => hit.section === 'skill')?.column).toBe('side');
+    expect(headings.find((hit) => hit.section === 'employment')?.column).toBe('main');
+    expect(headings.find((hit) => hit.section === 'education')?.column).toBe('main');
+  });
+
+  it('keeps a single column when only one typical group is present', () => {
+    const warnings: string[] = [];
+    const headings = assignPdfHeadingColumns([
+      { label: 'Berufserfahrung', section: 'employment', column: 'main' },
+      { label: 'Ausbildung', section: 'education', column: 'main' },
+    ], warnings);
+    expect(warnings).not.toContain('pdf_columns_inferred_from_section_mix');
+    expect(headings.every((hit) => hit.column === 'main')).toBe(true);
+  });
+});
+
+async function syntheticTwoColumnPdf(): Promise<Buffer> {
+  const doc = new PDFDocument({ size: 'A4', margin: 36 });
+  const chunks: Buffer[] = [];
+  doc.on('data', (chunk: Buffer) => chunks.push(chunk));
+  const finished = once(doc, 'end');
+  doc.fontSize(16).text('Profil');
+  doc.fontSize(11).text('Synthetic Candidate');
+  doc.moveDown();
+  doc.fontSize(16).text('Kenntnisse');
+  doc.fontSize(11).text('TypeScript');
+  doc.moveDown();
+  doc.fontSize(16).text('Berufserfahrung');
+  doc.fontSize(11).text('Software Engineer');
+  doc.moveDown();
+  doc.fontSize(16).text('Ausbildung');
+  doc.fontSize(11).text('Synthetic University');
+  doc.end();
+  await finished;
+  return Buffer.concat(chunks);
+}
+
+describe('extractLayoutFingerprint — PDF', () => {
+  it('infers two columns from a synthetic PDF that mixes sidebar and main headings', async () => {
+    const fingerprint = await extractLayoutFingerprint('application/pdf', await syntheticTwoColumnPdf());
+    expect(fingerprint.sourceFormat).toBe('pdf');
+    expect(fingerprint.columns).toBe(2);
+    expect(fingerprint.warnings).toContain('pdf_columns_inferred_from_section_mix');
+    const bySection = Object.fromEntries(fingerprint.sections.map((entry) => [entry.section, entry.column]));
+    expect(bySection.profile).toBe('side');
+    expect(bySection.employment).toBe('main');
   });
 });
 

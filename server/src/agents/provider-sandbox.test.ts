@@ -57,6 +57,26 @@ describe('WslBubblewrapSandboxBoundary', () => {
     expect(result.args).toContain('/home/synthetic/.local/share/opencode/auth.json');
   });
 
+  it('binds only an empty recoverable OpenCode store, not the workspace, for read-only session recovery', async () => {
+    const boundary = new WslBubblewrapSandboxBoundary(async () => true, async () => '/home/synthetic');
+    const result = await boundary.plan({
+      provider: 'opencode',
+      installation,
+      providerExecutable: '/usr/local/bin/opencode',
+      providerArgs: ['run', '--format', 'json'],
+      workspaceRoot: '/mnt/c/work',
+      sandbox: 'read-only',
+      network: 'disabled',
+      recoverableStateRoot: '/mnt/c/work/.oc-session',
+    });
+    const bind = result.args.indexOf('--bind');
+    expect(result.args.slice(bind, bind + 3)).toEqual([
+      '--bind', '/mnt/c/work/.oc-session', '/tmp/agent-home/.local/share/opencode',
+    ]);
+    expect(result.args.filter((value) => value === '--bind')).toHaveLength(1);
+    expect(result.args).toContain('/home/synthetic/.local/share/opencode/auth.json');
+  });
+
   it('binds only the selected workspace for workspace-write', async () => {
     const boundary = new WslBubblewrapSandboxBoundary(async () => true, async () => '/home/synthetic');
     const result = await boundary.plan({

@@ -1,0 +1,774 @@
+{
+  "$schema": "../todo.track.schema.json",
+  "version": 1,
+  "owner": "job-match-and-apply",
+  "track": "cv-studio-real-pdf-walkthrough",
+  "created": "2026-08-17",
+  "updated": "2026-08-24",
+  "purpose": "Den Lebenslauf-Studio-Pfad inklusive optionaler KI-Strukturierung und der Multi-Agenten-Kette anhand einer lokalen Referenz-PDF durchspielen, Probleme ohne Personendaten dokumentieren und einfache Fehler direkt beheben.",
+  "goal": "Jeder der sechs Studio-Schritte sowie der Evidence-Workflow ist gegen die laufende lokale App gemessen. Gefundene Produktfehler stehen im Track, einfache Fehler sind behoben und verifiziert, Personendaten bleiben außerhalb von Git und Todos.",
+  "status_scale": [
+    "todo",
+    "in_progress",
+    "partial",
+    "blocked",
+    "done"
+  ],
+  "priority_scale": [
+    "low",
+    "medium",
+    "high"
+  ],
+  "risk_scale": [
+    "low",
+    "medium",
+    "high"
+  ],
+  "planning_policy": {
+    "root_scope": "Integrations-API, Angular-Lebenslauf-Studio, Agentenadapter, Root-Todos und lokale Verifikation.",
+    "submodule_scope": "Extraktions- und Evidence-Verträge bleiben im Bewerbungs-Submodule; Root ändert dort nichts ohne eigenen Submodule-Commit.",
+    "data_policy": "Die Referenz-PDF, extrahierter Klartext, Claims und Profile bleiben unversioniert. Todos enthalten nur Zählungen, Fehlerklassen, Hashes und technische Befunde.",
+    "external_action_policy": "Kein Mailversand, kein Portal-Submit, keine Finalisierung mit Inkognito. KI-Läufe nur nach ausdrücklicher Produktzustimmung des lokalen Nutzers in diesem Auftrag."
+  },
+  "non_goals": [
+    "Keine Personendaten, keine PDF und keine extrahierten Lebenslauftexte in Git oder Todos.",
+    "Keine Lockerung der Evidence Policy und kein Erfinden von Kandidatenfakten.",
+    "Kein Umgehen der Inkognito-Sperre für Fallfreigabe, used oder Export.",
+    "Kein automatisches Anheben von Provider-Versionspins ohne Vertrag und Fixture."
+  ],
+  "milestones": [
+    {
+      "id": "M1",
+      "title": "Laufzeit und Ausgangslage",
+      "task_ids": [
+        "CVW-001",
+        "CVW-002",
+        "CVW-003"
+      ],
+      "status": "in_progress"
+    },
+    {
+      "id": "M2",
+      "title": "Import und deterministische Erkennung",
+      "task_ids": [
+        "CVW-004",
+        "CVW-005",
+        "CVW-006",
+        "CVW-022"
+      ],
+      "status": "done"
+    },
+    {
+      "id": "M3",
+      "title": "Optionale KI-Strukturierung",
+      "task_ids": [
+        "CVW-007",
+        "CVW-008",
+        "CVW-009",
+        "CVW-019",
+        "CVW-020",
+        "CVW-021",
+        "CVW-023",
+        "CVW-024"
+      ],
+      "status": "in_progress"
+    },
+    {
+      "id": "M4",
+      "title": "Faktenfreigabe, Adoption und Snapshots",
+      "task_ids": [
+        "CVW-010",
+        "CVW-011"
+      ],
+      "status": "todo"
+    },
+    {
+      "id": "M5",
+      "title": "Schreibstil, Formatvorlage und ATS-Check",
+      "task_ids": [
+        "CVW-012",
+        "CVW-013",
+        "CVW-014"
+      ],
+      "status": "in_progress"
+    },
+    {
+      "id": "M6",
+      "title": "Zielstelle und Identität",
+      "task_ids": [
+        "CVW-015"
+      ],
+      "status": "in_progress"
+    },
+    {
+      "id": "M7",
+      "title": "Multi-Agenten-Kette bis zum sichtbaren Ergebnis",
+      "task_ids": [
+        "CVW-016",
+        "CVW-017",
+        "CVW-018",
+        "CVW-031"
+      ],
+      "status": "in_progress"
+    },
+    {
+      "id": "M8",
+      "title": "Einfache Fehler, Doku und Trackpflege",
+      "task_ids": [
+        "CVW-025",
+        "CVW-026",
+        "CVW-027",
+        "CVW-028",
+        "CVW-029",
+        "CVW-030"
+      ],
+      "status": "done"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "CVW-001",
+      "title": "WSL- und Windows-Startpfade trennen",
+      "type": "runtime",
+      "status": "partial",
+      "priority": "high",
+      "risk": "medium",
+      "progress_percent": 50,
+      "acceptance_criteria": [
+        "Dokumentiert ist, welcher Host npm run dev zuverlässig startet.",
+        "Der WSL-Pfad scheitert nachvollziehbar an Node- und esbuild-Plattform, nicht an Fachcode.",
+        "Ein reproduzierbarer Startbefehl für die Verifikation existiert."
+      ],
+      "verification_evidence": [
+        "WSL Node 22.22.2 und win32-esbuild verhindern npm run dev unter WSL.",
+        "Windows Node 22.22.3 startet tsx und ng serve."
+      ]
+    },
+    {
+      "id": "CVW-002",
+      "title": "Lokale API und Angular für den Durchlauf nutzen",
+      "type": "runtime",
+      "status": "done",
+      "priority": "high",
+      "risk": "medium",
+      "progress_percent": 100,
+      "dependencies": [
+        "CVW-001"
+      ],
+      "acceptance_criteria": [
+        "GET /api/health antwortet 200.",
+        "Die Angular-Oberfläche ist im Browser erreichbar.",
+        "Ein zweiter npm-run-dev-Start blockiert nicht still die bestehende Instanz."
+      ],
+      "verification_evidence": [
+        "API 127.0.0.1:3000 /api/health 200.",
+        "Angular ist über http://localhost:4201 und http://[::1]:4201 erreichbar; 127.0.0.1:4201 IPv4 nicht, weil ng nur ::1 bindet."
+      ]
+    },
+    {
+      "id": "CVW-003",
+      "title": "Profile, Provider und vorhandene Bewerbungsfälle ohne Personendaten aufnehmen",
+      "type": "verification",
+      "status": "done",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 100,
+      "dependencies": [
+        "CVW-002"
+      ],
+      "acceptance_criteria": [
+        "Setup-Status, Stilprofil-Lesbarkeit und Providerinstallationen sind gemessen.",
+        "Vorhandene CV-Fälle und Identitätsmodi sind gezählt, ohne Kontaktdaten in Todos.",
+        "Bekannt ist, ob die Multi-Agenten-Kette an Claims oder Inkognito scheitern wird."
+      ],
+      "verification_evidence": [
+        "Profile vorhanden, containsCandidateFacts true, Stilprofil lesbar.",
+        "Nur Inkognito-Identität aktiv. 3 Fälle, davon 2 CV, alle incognito.",
+        "Claude 2.1.234 untested. Codex 0.147.0 und OpenCode 1.14.41 ready für CV-AI."
+      ]
+    },
+    {
+      "id": "CVW-004",
+      "title": "Referenz-PDF über den CV-Importvertrag neu einlesen",
+      "type": "verification",
+      "status": "done",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 100,
+      "dependencies": [
+        "CVW-002"
+      ],
+      "acceptance_criteria": [
+        "POST /api/cv-imports mit der lokalen PDF erzeugt einen neuen Import.",
+        "Uploadbytes werden nach der Extraktion nicht dauerhaft gespeichert.",
+        "Keine PDF und kein Klartext gelangen nach Git oder in diesen Track."
+      ],
+      "verification_evidence": [
+        "POST /api/cv-imports 201, Import 21222e8b-1660-480f-b360-125017ed4775, 75612 Bytes, Upload-Retention upload_deleted_after_local_extraction."
+      ]
+    },
+    {
+      "id": "CVW-005",
+      "title": "Deterministische Erkennung zählen und mit der bekannten Mehrspalten-Referenz vergleichen",
+      "type": "verification",
+      "status": "done",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 100,
+      "dependencies": [
+        "CVW-004"
+      ],
+      "acceptance_criteria": [
+        "Fakten-, Stations- und Kategoriezahlen sind ohne Feldinhalte festgehalten.",
+        "Warnungen und Konflikte sind als Codes oder gekürzte technische Texte erfasst.",
+        "Abweichungen gegenüber der bekannten Zielgröße (12 Stationen, 10 Arbeitgeber) sind benannt."
+      ],
+      "verification_evidence": [
+        "222 Fakten, 109 Records, 12 Employment-Stationen, 10 Arbeitgeberfelder, 4 Zertifikate, 3 Ausbildungsrecords, 64 Skills, 25 Rohfakten.",
+        "Zwei Employment-Records ohne company-Feld. Eine PDF-Warnung pdf_passive_best_effort."
+      ]
+    },
+    {
+      "id": "CVW-006",
+      "title": "Layout-Fingerprint der zweispaltigen PDF prüfen",
+      "type": "verification",
+      "status": "done",
+      "priority": "medium",
+      "risk": "medium",
+      "progress_percent": 100,
+      "dependencies": [
+        "CVW-004"
+      ],
+      "acceptance_criteria": [
+        "Ein Fingerprint existiert und nennt Spaltenzahl sowie Konfidenz.",
+        "Die originalgetreue Vorlage ist nur bei vorhandenem Fingerprint wählbar.",
+        "PDF-Näherungsgrenzen sind sichtbar, falls die Konfidenz niedrig ist."
+      ],
+      "verification_evidence": [
+        "Fingerprint vorhanden: sourceFormat pdf, columns 1, confidence low, Warnung pdf_colours_not_extracted.",
+        "Die Referenz-PDF ist zweispaltig; die PDF-Näherung erkennt das nicht."
+      ]
+    },
+    {
+      "id": "CVW-007",
+      "title": "KI-Strukturierungsoptionen und Providerblockaden messen",
+      "type": "verification",
+      "status": "done",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 100,
+      "dependencies": [
+        "CVW-004"
+      ],
+      "acceptance_criteria": [
+        "GET ai-structuring/options listet Installationen mit ready/blockers.",
+        "Claude, OpenCode und Codex sind getrennt ausgewiesen.",
+        "Ein nicht verfügbarer Provider kann nicht gestartet werden."
+      ],
+      "verification_evidence": [
+        "Codex windows ready. OpenCode 1.14.41 wsl ready. Claude 2.1.234 installation_not_supported. Fake synthetisch gesperrt."
+      ]
+    },
+    {
+      "id": "CVW-008",
+      "title": "KI-Erkennungsstand mit verfügbarem Zero-Tools-Provider erzeugen",
+      "type": "verification",
+      "status": "done",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 100,
+      "dependencies": [
+        "CVW-007"
+      ],
+      "acceptance_criteria": [
+        "Ein Lauf startet nur nach Disclosure-Vertrag und gebundenem Import-Hash.",
+        "Der Lauf bleibt aus normalen Agentenlisten ausgeblendet.",
+        "Erfolg oder Fehlerklasse inklusive Shape-Zählern ist festgehalten."
+      ],
+      "verification_evidence": [
+        "2026-08-18 Codex 304ff4fa… applied: Envelope-Normalisierung plus Prompt-Binding, 76 pending KI-Fakten, Importrevision 2.",
+        "OpenCode 38a4dc5b… und 25ba8e8f… erreichen den Vertrag, scheitern an out_of_source_value.",
+        "Claude efece0ed… nach Prompt-Fix nicht mehr provider_output_not_strict_json, sondern out_of_source_value. Vorher 41183 Bytes/333 Klammern, Objekt abgeschnitten."
+      ]
+    },
+    {
+      "id": "CVW-009",
+      "title": "KI-Stand gegen den deterministischen Stand vergleichen",
+      "type": "verification",
+      "status": "partial",
+      "priority": "high",
+      "risk": "medium",
+      "progress_percent": 40,
+      "dependencies": [
+        "CVW-008"
+      ],
+      "acceptance_criteria": [
+        "Beide Stände bleiben auswählbar.",
+        "Faktenzahlen und Warnungen sind ohne Inhalte verglichen.",
+        "Ein Standwechsel bestätigt keine Fakten."
+      ],
+      "verification_evidence": [
+        "Deterministischer Stand: 222 pending Fakten. Codex-KI-Stand: 76 pending, 0 confirmed. Standwechsel nicht in der UI durchgeklickt."
+      ]
+    },
+    {
+      "id": "CVW-010",
+      "title": "Aktiven Erkennungsstand gesamt bestätigen",
+      "type": "verification",
+      "status": "todo",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 0,
+      "dependencies": [
+        "CVW-005"
+      ],
+      "acceptance_criteria": [
+        "Die Gesamtbestätigung setzt offene Fakten des aktiven Stands auf confirmed.",
+        "Sie adoptiert nichts ins CandidateProfile.",
+        "Einzelkorrekturen bleiben revisionsgebunden möglich."
+      ]
+    },
+    {
+      "id": "CVW-011",
+      "title": "Profilübernahme, Widerruf und Snapshots durchspielen",
+      "type": "verification",
+      "status": "todo",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 0,
+      "dependencies": [
+        "CVW-010"
+      ],
+      "acceptance_criteria": [
+        "Adoption übernimmt nur bestätigte Fakten oder erklärt eine Dublette.",
+        "Revoke und optional Restore sind gegen den Vertrag geprüft.",
+        "Nach Adoption ist der Import unveränderlich, soweit der Vertrag das verlangt."
+      ]
+    },
+    {
+      "id": "CVW-012",
+      "title": "Schreibstilprofil im Studio-Schritt 3 lesen",
+      "type": "verification",
+      "status": "partial",
+      "priority": "medium",
+      "risk": "medium",
+      "progress_percent": 60,
+      "dependencies": [
+        "CVW-011"
+      ],
+      "acceptance_criteria": [
+        "Ein unlesbares Stilprofil wird nicht verschluckt.",
+        "Revision und SHA-256 sind sichtbar.",
+        "Ohne Stilprofil ist der Weitergang zu Schritt 4 gesperrt."
+      ],
+      "verification_evidence": [
+        "GET style-profile erfolgreich: Sprache de, Ton direct, Revision 0. Studio-Schritt 3 in der UI noch nicht durchklickt."
+      ]
+    },
+    {
+      "id": "CVW-013",
+      "title": "ATS-Vorlage speichern und lokalen ATS-Check ausführen",
+      "type": "verification",
+      "status": "partial",
+      "priority": "medium",
+      "risk": "medium",
+      "progress_percent": 70,
+      "dependencies": [
+        "CVW-012"
+      ],
+      "acceptance_criteria": [
+        "ATS-Vorlage speichert nur geschlossene Theme-Felder.",
+        "Der ATS-Check vergibt keinen erfundenen Score.",
+        "Parser-Round-Trip und Lint sind als Zählungen festgehalten."
+      ],
+      "verification_evidence": [
+        "ATS-Check theme-preview: 6 pass, 0 warn, 0 fail, parseable. Parser sieht Skelett (2 experience, 2 education, 4 skills), keinen ATS-Score.",
+        "Theme-Preview 200, 1681 Zeichen Platzhalter. Vorlage noch nicht persistiert, damit der KI-CAS nicht bricht."
+      ]
+    },
+    {
+      "id": "CVW-014",
+      "title": "Originalgetreue Vorlage und Vorschau prüfen",
+      "type": "verification",
+      "status": "todo",
+      "priority": "medium",
+      "risk": "medium",
+      "progress_percent": 0,
+      "dependencies": [
+        "CVW-006",
+        "CVW-012"
+      ],
+      "acceptance_criteria": [
+        "Die Originalvariante nutzt nur den Fingerprint.",
+        "Freies HTML/CSS bleibt ausgeschlossen.",
+        "Die Skelett-Vorschau enthält keine importierten Klartextfakten als Bewerbungsdokument."
+      ]
+    },
+    {
+      "id": "CVW-015",
+      "title": "CV-Bewerbungsfall und Identitätsmodus für den Agentenlauf festlegen",
+      "type": "verification",
+      "status": "partial",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 50,
+      "dependencies": [
+        "CVW-011"
+      ],
+      "acceptance_criteria": [
+        "Es existiert ein Fall vom Typ Lebenslauf.",
+        "Inkognito-Folgen für Freigabe und Export sind vor dem Start sichtbar.",
+        "Kein Suchpräferenzwert wird als Evidence verwendet."
+      ],
+      "verification_evidence": [
+        "Zwei CV-Fälle vorhanden, beide identityMode incognito. Keine reale Identität im lokalen Config. Finalisierung bleibt gesperrt."
+      ]
+    },
+    {
+      "id": "CVW-016",
+      "title": "Workflow evidence-application-package starten",
+      "type": "verification",
+      "status": "todo",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 0,
+      "dependencies": [
+        "CVW-015"
+      ],
+      "acceptance_criteria": [
+        "Der Start verlangt mindestens einen belegten Claim.",
+        "Provider und Runtime sind versionsgenau supported.",
+        "Knoten Evidence, Author, ATS, Recruiter/Style und Finalizer entstehen."
+      ]
+    },
+    {
+      "id": "CVW-017",
+      "title": "Automatischen Finalizer ohne Browser-Zwischengate abwarten",
+      "type": "verification",
+      "status": "todo",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 0,
+      "dependencies": [
+        "CVW-016"
+      ],
+      "acceptance_criteria": [
+        "Evidence, Author, ATS, Recruiter/Style und Finalizer laufen nach einem Start ohne user_input-Zwischengate.",
+        "Das Finalizer-Ergebnis ist final_html und kein JSON-Paket.",
+        "Fehler, Abbrüche oder Kontingentlimits sind als Fehlerklasse festgehalten."
+      ]
+    },
+    {
+      "id": "CVW-018",
+      "title": "Finales HTML nach dem fünften Agenten direkt anzeigen",
+      "type": "verification",
+      "status": "todo",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 0,
+      "dependencies": [
+        "CVW-017"
+      ],
+      "acceptance_criteria": [
+        "Bei Inkognito ist die direkt sichtbare HTML-Seite deutlich als nicht verwendbar markiert.",
+        "Bei realer Identität benötigt die Anzeige weder Review, Adoption noch Fallfreigabe.",
+        "Die hashgebundene HTML-Seite erscheint automatisch im CV-Studio und Agent Center."
+      ]
+    },
+    {
+      "id": "CVW-019",
+      "title": "Claude rate_limit_event nicht mehr als unknown_claude_event behandeln",
+      "type": "provider",
+      "status": "done",
+      "priority": "high",
+      "risk": "medium",
+      "progress_percent": 100,
+      "acceptance_criteria": [
+        "rate_limit_event wird auf provider_rate_limit abgebildet.",
+        "Die Fixture enthält das Ereignis.",
+        "Ein Kontingentlimit erscheint nicht mehr als unbekannte Eventart."
+      ],
+      "verification_evidence": [
+        "provider-adapters.ts mappt rate_limit_event auf provider_rate_limit. In diesem Durchlauf nicht erneut als unknown_claude_event gesehen."
+      ]
+    },
+    {
+      "id": "CVW-020",
+      "title": "Provider-Exit wegen Kontingent als crash enttarnen",
+      "type": "provider",
+      "status": "done",
+      "priority": "high",
+      "risk": "medium",
+      "progress_percent": 100,
+      "dependencies": [
+        "CVW-019"
+      ],
+      "acceptance_criteria": [
+        "Ein Nicht-Null-Exit nach rate_limit oder Session-Limit wird nicht nur als crash angezeigt.",
+        "Exit-Code und stderr-Volumen bleiben erhalten.",
+        "Die öffentliche CV-AI-Fehlermeldung nennt die Fehlerklasse verständlich."
+      ],
+      "verification_evidence": [
+        "classifyAgentFailure mappt Session-Limit- und Kontingenttexte sowie provider_rate_limit-Events auf provider_rate_limit statt crash.",
+        "Unit-Test classifies a non-zero exit after a session-limit warning as provider_rate_limit.",
+        "cvAiPublicErrorDetail erklärt Kontingent verständlich."
+      ]
+    },
+    {
+      "id": "CVW-021",
+      "title": "Isolationszusage des CV-AI-Workspace prüfen",
+      "type": "security",
+      "status": "done",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 100,
+      "acceptance_criteria": [
+        "Gemessen ist, ob der Provider-Prozess Repo-Kontext außerhalb des Prompts sieht.",
+        "Entweder ist die Isolation belegt oder die Doku korrigiert die Zusage.",
+        "Kein Lebenslauftext wird dafür unverschlüsselt ins Repo geschrieben."
+      ],
+      "verification_evidence": [
+        "docs/cv-studio.md beschreibt den leeren Arbeitsordner und den Bubblewrap --ro-bind / / korrekt: kein vollständiger Dateisystem-Käfig, aber Zero-Tools."
+      ]
+    },
+    {
+      "id": "CVW-022",
+      "title": "Anonymisierte Mehrspalten-PDF-Fixture nachziehen",
+      "type": "test",
+      "status": "done",
+      "priority": "high",
+      "risk": "medium",
+      "progress_percent": 100,
+      "acceptance_criteria": [
+        "Eine synthetische oder anonymisierte zweispaltige Fixture liegt im Testinventar.",
+        "Sie enthält keine echten Personendaten.",
+        "Mindestens ein Vertragstest sichert Spaltenreihenfolge und Stationszählung."
+      ],
+      "verification_evidence": [
+        "contracts/fixtures/v1/synthetic-two-column-cv.html plus Layout-Fingerprint-Test.",
+        "Zusätzlich synthetisches PDF im Layout-Test ohne Personendaten."
+      ]
+    },
+    {
+      "id": "CVW-023",
+      "title": "extractProviderJsonObject vor einem Merge entscheiden",
+      "type": "policy",
+      "status": "done",
+      "priority": "medium",
+      "risk": "medium",
+      "progress_percent": 100,
+      "acceptance_criteria": [
+        "Entweder bleibt der Parser als bewusste Toleranz mit Test, oder er wird fail-closed zurückgebaut.",
+        "Die Entscheidung ist im Track oder in der Handover-Datei festgehalten.",
+        "Kein Merge nach main ohne diese Entscheidung."
+      ],
+      "verification_evidence": [
+        "Handover Abschnitt 6: extractProviderJsonObject bleibt als bewusste Toleranz; die Objektvalidierung bleibt fail-closed."
+      ]
+    },
+    {
+      "id": "CVW-024",
+      "title": "Installierte OpenCode-Version gegen den Supportpin halten",
+      "type": "provider",
+      "status": "done",
+      "priority": "medium",
+      "risk": "medium",
+      "progress_percent": 100,
+      "acceptance_criteria": [
+        "Die effektive OpenCode-Installation ist in options/providers sichtbar.",
+        "1.18.18 bleibt blockiert, solange der Pin 1.14.41 lautet.",
+        "Kein stilles Freischalten ohne Fixture und Supportmatrix."
+      ],
+      "verification_evidence": [
+        "Die App findet OpenCode 1.14.41 supported/ready. Die WSL-PATH-Binary 1.18.18 ist nicht die von der App verwendete Installation."
+      ]
+    },
+    {
+      "id": "CVW-025",
+      "title": "Angular-Devserver auf IPv4-Loopback erreichbar machen",
+      "type": "runtime",
+      "status": "done",
+      "priority": "medium",
+      "risk": "low",
+      "progress_percent": 100,
+      "dependencies": [
+        "CVW-002"
+      ],
+      "acceptance_criteria": [
+        "http://127.0.0.1:4201 erreicht dieselbe App wie localhost.",
+        "Dokumentiert ist, ob ng serve nur an ::1 bindet.",
+        "E2E-baseURL und manuelle Verifikation nutzen denselben Host."
+      ],
+      "verification_evidence": [
+        "web/package.json start verwendet --host 127.0.0.1. Ein bereits laufender ng-Prozess muss neu gestartet werden, damit IPv4 greift."
+      ]
+    },
+    {
+      "id": "CVW-026",
+      "title": "Studio-Schritte in Doku und UI angleichen",
+      "type": "docs",
+      "status": "done",
+      "priority": "low",
+      "risk": "low",
+      "progress_percent": 100,
+      "acceptance_criteria": [
+        "docs/cv-studio.md und die UI-Schrittlabels beschreiben dieselbe Reihenfolge.",
+        "Insbesondere Erkennung versus Fakten versus Schreibstil sind nicht vertauscht.",
+        "cvStepAvailable bleibt zur Doku konsistent."
+      ],
+      "verification_evidence": [
+        "docs/cv-studio.md nennt dieselben sechs UI-Gates und erklärt, dass Erkennung und Freigabe in Schritt Fakten liegen."
+      ]
+    },
+    {
+      "id": "CVW-027",
+      "title": "Release-Matrix-Submodule-Pin an den Branch-Gitlink angleichen",
+      "type": "docs",
+      "status": "done",
+      "priority": "low",
+      "risk": "low",
+      "progress_percent": 100,
+      "acceptance_criteria": [
+        "docs/release-matrix.md nennt denselben Gitlink wie der aktuelle Root-Index oder kennzeichnet den Drift.",
+        "Keine Branchbezeichnung ersetzt den Commit-Pin."
+      ],
+      "verification_evidence": [
+        "docs/release-matrix.md pinnt bewerbungs-schreib-assistent auf cb8459849431046c5405c93eb1cee96dccd7d75f."
+      ]
+    },
+    {
+      "id": "CVW-028",
+      "title": "Unversionierten Windows-Cache-Pfad aus dem Arbeitsbaum halten",
+      "type": "hygiene",
+      "status": "done",
+      "priority": "low",
+      "risk": "low",
+      "progress_percent": 100,
+      "acceptance_criteria": [
+        "%SystemDrive%/ bleibt unversioniert und wird nicht committed.",
+        "gitignore oder lokale Aufräumregel verhindert ein erneutes Einsammeln.",
+        "git status zeigt den Pfad nach der Bereinigung nicht mehr als neues Produktartefakt."
+      ],
+      "verification_evidence": [
+        ".gitignore enthält %SystemDrive%/."
+      ]
+    },
+    {
+      "id": "CVW-029",
+      "title": "Während des Durchlaufs gefundene einfache Produktfehler beheben",
+      "type": "fix",
+      "status": "done",
+      "priority": "high",
+      "risk": "medium",
+      "progress_percent": 100,
+      "acceptance_criteria": [
+        "Jeder behobene Fehler hat einen reproduzierbaren Test oder einen gezielten API-Nachweis.",
+        "Keine Evidence-, Sandbox- oder Versionspin-Lockerung als stiller Fix.",
+        "Die Änderung ist im Track mit Datei und Verifikation vermerkt."
+      ],
+      "verification_evidence": [
+        "Claude-Pin 2.1.232–2.1.234 in Supportmatrix, Discovery, Conformance und Doku.",
+        "PDF-Spaltenheuristik assignPdfHeadingColumns inkl. Tests.",
+        "Firma auf der Folgelinie im Submodule-Extractor inkl. Unittest.",
+        "Kontingent nicht mehr als crash; Isolationsdoku korrigiert; Fixture und Release-Pin."
+      ]
+    },
+    {
+      "id": "CVW-030",
+      "title": "Track, Handover und redigierte Laufakte konsistent halten",
+      "type": "docs",
+      "status": "done",
+      "priority": "medium",
+      "risk": "low",
+      "progress_percent": 100,
+      "acceptance_criteria": [
+        "Dieser Track bleibt schema- und integritätsvalide.",
+        "Zusammenfassungen und Fortschritte stimmen mit den Taskstatus überein.",
+        "Laufakten unter .application-work enthalten keine unnötigen Klartext-Personendaten in Dateinamen außerhalb der lokalen Umgebung."
+      ],
+      "verification_evidence": [
+        "Track nach den Fixes schema-valide nachgezogen."
+      ]
+    },
+    {
+      "id": "CVW-031",
+      "title": "Fünf-Agenten-Lauf direkt als finale HTML-Seite ausgeben",
+      "type": "fix",
+      "status": "done",
+      "priority": "high",
+      "risk": "medium",
+      "progress_percent": 100,
+      "acceptance_criteria": [
+        "Der aktuelle Evidence-Workflow läuft ohne user_input- oder Fan-in-Zwischenfreigabe durch alle fünf Rollen.",
+        "Der fünfte Agent liefert ein vollständiges HTML5-Dokument als final_html statt eines JSON-Pakets.",
+        "Agent Center und CV-Studio zeigen die SHA-256-gebundene Seite automatisch in einer leeren iframe-Sandbox an.",
+        "Skripte, Formulare, Navigation, Eventhandler und externe Ressourcen überleben die serverseitige Normalisierung nicht."
+      ],
+      "verification_evidence": [
+        "server: application-result-html, application-orchestration-service und agent-orchestration-api Tests.",
+        "web: 61 App-Tests sowie fokussierte Playwright-Läufe für Agent Center und CV-Studio.",
+        "Windows-Builds von server und web erfolgreich."
+      ]
+    }
+  ],
+  "critical_path_tasks": [
+    "CVW-002",
+    "CVW-004",
+    "CVW-005",
+    "CVW-008",
+    "CVW-011",
+    "CVW-015",
+    "CVW-016",
+    "CVW-018",
+    "CVW-029"
+  ],
+  "tasks_status_summary": {
+    "total": 31,
+    "by_status": {
+      "todo": 6,
+      "in_progress": 0,
+      "partial": 5,
+      "blocked": 0,
+      "done": 20
+    },
+    "progress_percent_done": 73.23,
+    "by_priority": {
+      "high": 20,
+      "medium": 8,
+      "low": 3
+    },
+    "by_risk": {
+      "high": 12,
+      "medium": 14,
+      "low": 5
+    },
+    "critical_path": {
+      "total": 9,
+      "done": 5,
+      "remaining": 4
+    },
+    "milestones": {
+      "total": 8,
+      "todo": 1,
+      "in_progress": 5,
+      "blocked": 0,
+      "done": 2
+    }
+  },
+  "progress_summary": {
+    "state": "in_progress",
+    "todo_remaining": 6,
+    "in_progress": 0,
+    "partial": 5,
+    "blocked": 0,
+    "done": 20
+  },
+  "summary_notes": [
+    "Produktfehler aus dem PDF-Durchlauf sind behoben oder bewusst dokumentiert.",
+    "Claude 2.1.234 ist vertraglich gepinnt. Kontingent erscheint als provider_rate_limit.",
+    "PDF-Zweispaltigkeit wird aus der Abschnittsmischung abgeleitet. Firmen auf der Folgelinie werden übernommen.",
+    "Faktenbestätigung, Adoption und Multi-Agenten-Kette bleiben ein separater Nutzdurchlauf.",
+    "2026-08-18: Codex-KI-Strukturierung applied. OpenCode/Claude liefern JSON, Evidence-Gate bleibt out_of_source_value.",
+    "2026-08-24: Evidence-Workflow 1.1.0 läuft ohne Browser-Zwischengate und zeigt final_html nach dem fünften Agenten automatisch an."
+  ]
+}

@@ -67,6 +67,7 @@ import { MemoryAgentRunStore, JsonAgentRunStore } from './agents/run-store.js';
 import { EncryptedAgentRunStore } from './agents/encrypted-run-store.js';
 import { FakeAgentProvider } from './agents/fake-agent-provider.js';
 import { ClaudeCliAgentAdapter, CodexExecAgentAdapter, OpenCodeAgentAdapter } from './agents/provider-adapters.js';
+import { AcpAgentAdapter } from './agents/acp-adapter.js';
 import { APPLICATION_AGENT_WORKFLOWS } from './agents/application-workflows.js';
 import { AgentTelemetry } from './agents/telemetry.js';
 import { PromptAssembler, ScopedContextBuilder, TaskTemplateRegistry, registerBuiltinTaskTemplates, type ContextSource } from './agents/security-context.js';
@@ -272,6 +273,9 @@ function cvAiPublicErrorDetail(code: string): string {
     'capability_version_mismatch'].includes(code)) {
     return 'Die ausgewählte Providerinstallation ist für die sichere CV-Strukturierung nicht verfügbar oder nicht exakt freigegeben.';
   }
+  if (code === 'provider_rate_limit') {
+    return 'Der Provider hat das Laufzeit- oder Sitzungskontingent erreicht. Der Lauf wurde ohne Faktenübernahme beendet und kann nach dem Reset erneut versucht werden.';
+  }
   if (code === 'provider_output_not_strict_json' || code === 'cv_ai_validation_failed'
     || code === 'cv_ai_validated_binding_mismatch') {
     return 'Der Provider hat keinen exakt vertragsgebundenen CV-Strukturvorschlag geliefert. Der Lauf wurde ohne Faktenübernahme beendet.';
@@ -445,7 +449,9 @@ export function createDefaultAgentApiDependencies(memory = false): AgentApiDepen
       // user/project MCP and plugin configuration is therefore not inherited.
       userConfigIsolationVerified: true,
     }),
-    new OpenCodeAgentAdapter(), new ClaudeCliAgentAdapter()
+    new OpenCodeAgentAdapter(),
+    new ClaudeCliAgentAdapter(),
+    new AcpAgentAdapter(),
   ];
   const runToolCalls = new Map<string, number>();
   const budgetStops = new Set<string>();
@@ -1128,8 +1134,11 @@ export function createApp(
 
   const providerNames: Record<string, string> = {
     fake: 'Synthetischer Offline-Agent', 'fake-interactive': 'Interaktiver Offline-Agent',
-    'codex-exec': 'Codex CLI', opencode: 'OpenCode', 'claude-cli': 'Claude CLI'
+    'codex-exec': 'Codex CLI', opencode: 'OpenCode', 'claude-cli': 'Claude CLI',
+    acp: 'Agent Client Protocol',
   };
+  const capabilitiesAreExperimental = (capabilities?: { extensions?: Readonly<Record<string, unknown>> }) =>
+    capabilities?.extensions?.experimental === true || capabilities?.extensions?.maturity === 'experimental';
   type AgentProviderInstallationView = {
     runtimeTarget: RuntimeTarget; distribution?: string; version?: string;
     adapterVersion?: string; executable: string; support: string; authStatus?: string; note?: string;
@@ -1147,7 +1156,20 @@ export function createApp(
         const installations = await provider.discover();
         const preferred = installations.find((item) => item.runtimeTarget === localRuntimeTarget() && item.support === 'supported')
           ?? installations.find((item) => item.support === 'supported') ?? installations[0];
-        if (!preferred) return { id: provider.provider, name: providerNames[provider.provider] ?? provider.provider, available: false, note: 'CLI nicht gefunden; es wurde nichts automatisch installiert.' };
+        if (!preferred) {
+          let experimental = false;
+          try {
+            experimental = capabilitiesAreExperimental(await provider.capabilities({
+              provider: provider.provider, runtimeTarget: localRuntimeTarget(),
+              executable: process.execPath, support: 'unavailable',
+            }));
+          } catch { /* Adapter kann sich ohne Installation nicht beschreiben. */ }
+          return {
+            id: provider.provider, name: providerNames[provider.provider] ?? provider.provider,
+            available: false, experimental,
+            note: 'CLI nicht gefunden; es wurde nichts automatisch installiert.',
+          };
+        }
         const capabilities = preferred.capabilities ?? await provider.capabilities(preferred);
         const available = installations.some((item) => item.support === 'supported');
         return {
@@ -1159,7 +1181,7 @@ export function createApp(
             workspaceModes: capabilities.sandboxPolicies.flatMap((policy) => policy === 'read-only' ? ['read_only'] : policy === 'workspace-write' ? ['workspace_write'] : []),
             rootDomainTools: capabilities.extensions?.dynamicTools === true,
           },
-          experimental: provider.provider === 'codex-exec' && capabilities.extensions?.maturity === 'experimental',
+          experimental: capabilitiesAreExperimental(capabilities),
           fallbackProviderId: provider.provider === 'codex-exec' ? 'codex-exec' : undefined,
           installations: installations.map((item) => ({
             runtimeTarget: item.runtimeTarget, distribution: item.distribution, version: item.version,

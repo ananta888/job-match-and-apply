@@ -1477,6 +1477,12 @@ export class App implements OnInit, OnDestroy {
   selectedAgentWorkflow(): AgentWorkflow | undefined { return this.agentWorkflows.find((item) => item.id === this.agentRunForm.workflowId); }
   agentProviderSupportsNetwork(): boolean { return false; }
   agentProviderName(providerId: string): string { return this.agentProviders.find((item) => item.id === providerId)?.name ?? providerId; }
+  agentProviderStatusLabel(provider: AgentProvider): string {
+    if (provider.experimental) {
+      return provider.fallbackProviderId ? 'Experimentell · exec-Fallback' : 'Experimentell';
+    }
+    return provider.available ? 'Bereit' : 'Nicht verfügbar';
+  }
   /** Synthetic offline test providers are never surfaced in the UI. */
   isRealAgentProvider(providerId: string): boolean { return providerId !== 'fake' && providerId !== 'fake-interactive'; }
   visibleAgentConfigProviders(profile: AgentConfigProfile): AgentProviderConfigProfile[] {

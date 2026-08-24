@@ -17,6 +17,10 @@ Credentials oder Approval-/Capability-Tokens bestimmen.
 5. Das Conformance-Kit benötigt keine echte Authentifizierung und kein Netzwerk. Erst danach darf
    die Supportmatrix eine konkrete Version als `supported` ausweisen.
 
+ACP folgt demselben Pfad als experimenteller JSON-RPC-stdio-Transport: Mapper, secret-freie
+Fixture und fail-closed Clientfähigkeiten zuerst; erst ein späterer Versionspin darf eine reale
+CLI als `supported` ausweisen.
+
 OpenCode und Claude erhalten aktuell ausschließlich serverseitig normalisierten Promptkontext.
 Eine Root-Tool-Brücke erfordert je Provider einen neuen versionsgenauen Injektionsvertrag. Native
 Codex-App-Server-Runs können nach expliziter Profilaktivierung servereigene Dynamic Tools erhalten.

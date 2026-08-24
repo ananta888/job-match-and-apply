@@ -58,7 +58,7 @@ describe('exact provider conformance manifests', () => {
 
   it('allowlists only Claude Code 2.1.232 with a read-only plan-mode tool allowlist', () => {
     expect(CLAUDE_CLI_MANIFEST.adapterVersion).toBe('1.1.0');
-    expect(CLAUDE_CLI_MANIFEST.testedVersionPatterns).toEqual(['^2\\.1\\.23[23] \\(Claude Code\\)$']);
+    expect(CLAUDE_CLI_MANIFEST.testedVersionPatterns).toEqual(['^2\\.1\\.23[2-4] \\(Claude Code\\)$']);
     expect(CLAUDE_CLI_MANIFEST.command).toEqual({
       args: [
         '--safe-mode', '-p', '--output-format', 'stream-json', '--verbose',
@@ -202,6 +202,15 @@ describe('exact provider event corpora', () => {
     expect(mapOpenCodeJsonEvent({ type: 'error', error: { name: 'SyntheticError', data: { message: 'synthetic failure' } } })).toEqual([{
       kind: 'error', data: { code: 'SyntheticError', message: 'synthetic failure', retryable: false },
     }]);
+    expect(mapOpenCodeJsonEvent({
+      type: 'part_updated',
+      part: { type: 'text', text: '{"contract":"ai-cv-structure-proposal"}' },
+    })).toEqual([{
+      kind: 'agent_message_completed', data: { text: '{"contract":"ai-cv-structure-proposal"}' },
+    }]);
+    expect(mapOpenCodeJsonEvent({
+      contract: 'ai-cv-structure-proposal', contract_version: '1.0', employment: [],
+    })[0]).toMatchObject({ kind: 'agent_message_completed' });
   });
 
   it('validates the Claude 2.1.232 init proof and fails closed on broader runtime capabilities', () => {
@@ -213,9 +222,12 @@ describe('exact provider event corpora', () => {
       kind: 'heartbeat',
       data: { phase: 'initialized', sessionId: 'session-synthetic', providerVersion: '2.1.232', permissionMode: 'acceptEdits', tools: ['Read'] },
     }]);
-    // The pin also accepts the verified 2.1.233 line (identical narrow capability shape).
+    // The pin also accepts the verified 2.1.233 and 2.1.234 lines (identical narrow capability shape).
     expect(mapClaudeStreamEvent({ ...valid, claude_code_version: '2.1.233' })[0]).toMatchObject({
       kind: 'heartbeat', data: { providerVersion: '2.1.233', permissionMode: 'acceptEdits', tools: ['Read'] },
+    });
+    expect(mapClaudeStreamEvent({ ...valid, claude_code_version: '2.1.234' })[0]).toMatchObject({
+      kind: 'heartbeat', data: { providerVersion: '2.1.234', permissionMode: 'acceptEdits', tools: ['Read'] },
     });
     expect(mapClaudeStreamEvent({ ...valid, claude_code_version: '2.1.231' })[0]?.kind).toBe('error');
     expect(mapClaudeStreamEvent({ ...valid, tools: ['Read', 'Bash'] })).toEqual([{

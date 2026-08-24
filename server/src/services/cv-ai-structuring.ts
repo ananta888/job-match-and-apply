@@ -22,6 +22,7 @@ const SAFE_AGENT_FAILURE_CODES = new Set([
   'provider_reported_error', 'claude_runtime_conformance_mismatch', 'invalid_claude_event',
   'invalid_provider_event_shape', 'invalid_json', 'line_too_large', 'truncated_tail',
   'exit', 'crash', 'signal', 'timeout', 'idle_timeout', 'output_limit', 'memory_limit',
+  'provider_rate_limit',
   'child_process_limit', 'resource_probe_error', 'raw_log_error', 'spawn_error', 'agent_run_failed',
 ]);
 /**
@@ -264,39 +265,90 @@ export class CvAiStructuringError extends Error {
  * still parsed strictly and still has to pass the schema validation that
  * follows, so nothing about what is accepted as a proposal changes.
  */
-export function extractProviderJsonObject(output: string): Readonly<Record<string, unknown>> | undefined {
-  const asObject = (candidate: string): Readonly<Record<string, unknown>> | undefined => {
-    try {
-      const parsed = JSON.parse(candidate) as unknown;
-      return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-        ? parsed as Readonly<Record<string, unknown>> : undefined;
-    } catch { return undefined; }
-  };
-  const direct = asObject(output.trim());
-  if (direct) return direct;
-  for (const fence of output.matchAll(/```(?:json|jsonc)?\s*\n?([\s\S]*?)```/gi)) {
-    const fenced = asObject((fence[1] ?? '').trim());
-    if (fenced) return fenced;
-  }
-  // Last resort: the first balanced {…} run, ignoring braces inside strings.
-  const start = output.indexOf('{');
-  if (start < 0) return undefined;
+const AI_STRUCTURE_COLLECTIONS = ['sections', 'employment', 'education', 'projects', 'skills', 'languages'] as const;
+
+export interface AiStructureBinding {
+  source_id: string;
+  source_sha256: string;
+  text_sha256: string;
+  base_proposal_sha256: string;
+}
+
+function asJsonObject(candidate: string): Readonly<Record<string, unknown>> | undefined {
+  try {
+    const parsed = JSON.parse(candidate) as unknown;
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as Readonly<Record<string, unknown>> : undefined;
+  } catch { return undefined; }
+}
+
+function preferAiStructure(candidates: ReadonlyArray<Readonly<Record<string, unknown>>>): Readonly<Record<string, unknown>> | undefined {
+  return candidates.find((candidate) => candidate.contract === 'ai-cv-structure-proposal') ?? candidates[0];
+}
+
+function collectBalancedObjects(output: string): Readonly<Record<string, unknown>>[] {
+  const found: Readonly<Record<string, unknown>>[] = [];
   let depth = 0;
+  let start = -1;
   let inString = false;
   let escaped = false;
-  for (let index = start; index < output.length; index += 1) {
+  for (let index = 0; index < output.length; index += 1) {
     const char = output[index]!;
     if (escaped) { escaped = false; continue; }
     if (char === '\\' && inString) { escaped = true; continue; }
     if (char === '"') { inString = !inString; continue; }
     if (inString) continue;
-    if (char === '{') depth += 1;
-    else if (char === '}') {
+    if (char === '{') {
+      if (depth === 0) start = index;
+      depth += 1;
+    } else if (char === '}') {
       depth -= 1;
-      if (depth === 0) return asObject(output.slice(start, index + 1));
+      if (depth === 0 && start >= 0) {
+        const parsed = asJsonObject(output.slice(start, index + 1));
+        if (parsed) found.push(parsed);
+        start = -1;
+      }
     }
   }
-  return undefined;
+  return found;
+}
+
+export function extractProviderJsonObject(output: string): Readonly<Record<string, unknown>> | undefined {
+  const candidates: Readonly<Record<string, unknown>>[] = [];
+  const direct = asJsonObject(output.trim());
+  if (direct) candidates.push(direct);
+  for (const fence of output.matchAll(/```(?:json|jsonc)?\s*\n?([\s\S]*?)```/gi)) {
+    const fenced = asJsonObject((fence[1] ?? '').trim());
+    if (fenced) candidates.push(fenced);
+  }
+  candidates.push(...collectBalancedObjects(output));
+  return preferAiStructure(candidates);
+}
+
+/**
+ * Adds only the closed envelope the CV contract requires. Field values stay
+ * untouched; missing collections become empty arrays; unknown root keys drop.
+ */
+export function looksLikeAiStructureProposal(value: Readonly<Record<string, unknown>>): boolean {
+  if (value.contract === 'ai-cv-structure-proposal') return true;
+  if (value.ai_proposal && typeof value.ai_proposal === 'object' && !Array.isArray(value.ai_proposal)) return true;
+  return AI_STRUCTURE_COLLECTIONS.some((key) => Array.isArray(value[key]));
+}
+
+export function normalizeAiStructureProposal(
+  value: Readonly<Record<string, unknown>>,
+  binding: AiStructureBinding,
+): Readonly<Record<string, unknown>> {
+  const nested = value.ai_proposal;
+  const body = nested && typeof nested === 'object' && !Array.isArray(nested) && value.contract !== 'ai-cv-structure-proposal'
+    ? nested as Record<string, unknown> : value;
+  return {
+    contract: 'ai-cv-structure-proposal',
+    contract_version: '1.0',
+    status: 'unverified',
+    binding: { ...binding },
+    ...Object.fromEntries(AI_STRUCTURE_COLLECTIONS.map((key) => [key, Array.isArray(body[key]) ? body[key] : []])),
+  };
 }
 
 function error(code: string, statusCode: number, stage: CvAiStructuringError['stage'], retryable = false): never {
@@ -318,6 +370,18 @@ function assertDisclosure(value: CvAiDisclosureConfirmation): void {
   if (!value || value.version !== '1.0' || value.confirmed !== true || value.sendExtractedCvTextToProvider !== true
     || value.acknowledgeProviderControlPlaneNetwork !== true) error('cv_ai_disclosure_required', 409, 'preflight');
 }
+function looksLikeProviderQuota(text: string): boolean {
+  return /session limit|rate[_ ]limit|credit balance|too many requests|you've hit your|quota/i.test(text);
+}
+
+function eventsIndicateProviderQuota(events: readonly AgentEvent[]): boolean {
+  return events.some((event) => {
+    const data = event.data as Record<string, unknown>;
+    if (data.code === 'provider_rate_limit') return true;
+    return typeof data.message === 'string' && looksLikeProviderQuota(data.message);
+  });
+}
+
 function effectiveMode(mode: CvAiStructuringMode | undefined): CvAiStructuringMode {
   return mode ?? 'review_suggestions';
 }
@@ -927,6 +991,7 @@ export class CvAiStructuringService {
 
     let current = record;
     if (current.status !== 'validating') current = await this.save(current, { status: 'validating' }, { action: 'provider_completed' });
+    let parsedProposal: Readonly<Record<string, unknown>> | undefined;
     try {
       const events = await this.dependencies.agentRuns.events(current.agentRunId);
       if (events.some((event) => /^(?:tool(?:_|$)|approval(?:_|$)|(?:user_)?input(?:_|$))/.test(event.kind))) {
@@ -946,7 +1011,14 @@ export class CvAiStructuringService {
       // single-block case byte-identical.
       const output = outputs.join('');
       const withinCeiling = Boolean(output) && Buffer.byteLength(output, 'utf8') <= MAX_PROVIDER_OUTPUT_BYTES;
-      const aiProposal = withinCeiling ? extractProviderJsonObject(output) : undefined;
+      const extracted = withinCeiling ? extractProviderJsonObject(output) : undefined;
+      const aiProposal = extracted && looksLikeAiStructureProposal(extracted) ? normalizeAiStructureProposal(extracted, {
+        source_id: current.binding.sourceId,
+        source_sha256: current.binding.sourceSha256,
+        text_sha256: current.binding.extractedTextSha256,
+        base_proposal_sha256: current.binding.baseProposalSha256,
+      }) : undefined;
+      parsedProposal = extracted;
       if (!aiProposal) {
         // Three paths reach this rejection — no message at all, an answer over
         // the byte ceiling, or text carrying no object — and the raw run is
@@ -983,9 +1055,11 @@ export class CvAiStructuringService {
       catch { error('agent_run_purge_failed', 503, 'retention', true); }
       return validatedRecord;
     } catch (caught) {
+      const failure = safeFailure(caught, 'cv_ai_validation_failed', 'validation');
+      if (parsedProposal) await this.recordValidationStructureShape(current, parsedProposal, failure.code);
       try { await this.purgeRawRun(current.agentRunId); }
       catch { return current; }
-      return this.fail(current, safeFailure(caught, 'cv_ai_validation_failed', 'validation'));
+      return this.fail(current, failure);
     }
   }
 
@@ -1280,7 +1354,9 @@ export class CvAiStructuringService {
       && (event.data as Record<string, unknown>).phase === 'initialized');
     if (initialized.length !== 1) return false;
     const heartbeat = initialized[0]!.data as Record<string, unknown>;
-    return (heartbeat.providerVersion === '2.1.232' || heartbeat.providerVersion === '2.1.233')
+    return (heartbeat.providerVersion === '2.1.232'
+      || heartbeat.providerVersion === '2.1.233'
+      || heartbeat.providerVersion === '2.1.234')
       && heartbeat.permissionMode === 'acceptEdits'
       && Array.isArray(heartbeat.tools) && heartbeat.tools.length === 0;
   }
@@ -1294,6 +1370,9 @@ export class CvAiStructuringService {
     let eventCode: string | undefined;
     try {
       const events = await this.dependencies.agentRuns.events(agent.id);
+      if (eventsIndicateProviderQuota(events)) {
+        return { code: 'provider_rate_limit', stage: 'agent', retryable: true };
+      }
       eventCode = events.filter((event) => event.kind === 'error').map((event) => {
         const value = (event.data as Record<string, unknown>).code;
         return typeof value === 'string' && SAFE_AGENT_FAILURE_CODES.has(value) ? value : undefined;
@@ -1366,14 +1445,38 @@ export class CvAiStructuringService {
     output: string,
   ): Promise<void> {
     if (!this.dependencies.observability) return;
+    const warningCodes = events
+      .filter((event) => event.kind === 'warning')
+      .map((event) => (event.data as Record<string, unknown>).code)
+      .filter((value): value is string => typeof value === 'string');
     const counters: Array<readonly [string, number]> = [
       ['events_total', events.length],
       ['message_events', events.filter((event) => event.kind === 'agent_message_completed').length],
       ['message_blocks_with_text', outputs.length],
       ['output_bytes', Buffer.byteLength(output, 'utf8')],
       ['open_braces', (output.match(/\{/g) ?? []).length],
+      ...[...new Set(warningCodes)].map((code) => [`warn.${observabilityClass(code)}`, warningCodes.filter((value) => value === code).length] as const),
     ];
     await this.writeShape('provider_output_shape', 'provider_output_not_strict_json', record, counters, events);
+  }
+
+  /**
+   * After a parseable object fails the closed CV contract, keep only allowlisted
+   * top-level key names. Values, quotes and paths never leave the process.
+   */
+  private async recordValidationStructureShape(
+    record: CvAiStructuringRunRecord,
+    proposal: Readonly<Record<string, unknown>>,
+    failureCode: string,
+  ): Promise<void> {
+    if (!this.dependencies.observability) return;
+    const keys = Object.keys(proposal).filter((key) => /^[a-z][a-z0-9_]{0,40}$/.test(key)).slice(0, 24);
+    const counters: Array<readonly [string, number]> = [
+      ['keys_total', Object.keys(proposal).length],
+      ['keys_logged', keys.length],
+      ...keys.map((key) => [`key.${key}`, 1] as const),
+    ];
+    await this.writeShape('provider_validation_shape', failureCode, record, counters, []);
   }
 
   /** One counter per entry plus one per observed event kind, as separate allowlisted records. */

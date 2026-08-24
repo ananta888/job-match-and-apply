@@ -223,6 +223,32 @@ describe('cross-repository contract fixtures', () => {
     ]));
   });
 
+  it('publishes ACP as an experimental prompt-only transport without zero-tools', async () => {
+    const [support, schema] = await Promise.all([
+      contract('agent-provider-support.json') as Promise<{
+        providers: Array<Record<string, unknown>>;
+      }>,
+      contract('acp-session.schema.json'),
+    ]);
+    const acp = support.providers.find((provider) => provider.id === 'acp');
+    expect(acp).toEqual(expect.objectContaining({
+      status: 'experimental',
+      experimental: true,
+      selection: 'explicit-provider-id-only-never-cv-ai-never-root-tools',
+      resume: false,
+      mcpServers: [],
+      fsClientMethods: false,
+      terminalClientMethods: false,
+    }));
+    expect(acp).not.toHaveProperty('serverOwnedNoTools');
+    expect(acp).not.toHaveProperty('featureFlag');
+    expect(schema).toMatchObject({
+      $schema: 'https://json-schema.org/draft/2020-12/schema',
+      additionalProperties: false,
+    });
+    expect((schema.properties as Record<string, unknown>).mcpServers).toMatchObject({ maxItems: 0 });
+  });
+
   it('publishes a synthetic, versioned cross-provider quality gold contract', async () => {
     const [schema, gold] = await Promise.all([
       contract('agent-quality-eval.schema.json'), fixture('synthetic-agent-quality-gold.json')

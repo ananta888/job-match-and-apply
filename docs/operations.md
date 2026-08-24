@@ -101,8 +101,10 @@ aktualisiert sie jedoch nie ungefragt. Der Status erscheint in der Agentenansich
 WSL-Runtime und Distribution an. Vor dem Start wird eine Installation explizit ausgewählt; der
 Server akzeptiert nur eine dazu passende, unterstützte Runtime und verlangt bei WSL die
 Distribution. Ein frei eingegebener Executable-Pfad bleibt ausgeschlossen. OpenCode ist nur in
-Version `1.14.41`, Claude Code nur in Version `2.1.232 (Claude Code)` und jeweils ausschließlich
+Version `1.14.41`, Claude Code nur in Version `2.1.232`–`2.1.234 (Claude Code)` und jeweils ausschließlich
 als WSL-Runtime freigegeben. Andere Versionen und Runtimeziele bleiben fail-closed blockiert.
+Der experimentelle ACP-Transport erscheint in Discovery und Profil, startet aber nur mit der
+synthetischen Fixture `acp-synthetic 0.1.0`; reale ACP-CLIs bleiben untested.
 
 Neue Runs verwenden `read-only` und `network: disabled`; Requests mit `network:true` lehnt die API
 vollständig ab. Workspace-Schreibrechte sind nur bei Providern auswählbar, deren Manifest diesen
@@ -214,7 +216,7 @@ Vor einem Start ruft Angular `POST /api/agent-runs/preflight` mit demselben stri
 Run-Entwurf auf. Die Antwort ist `Cache-Control: no-store`, echoet weder Prompt noch IDs, Pfade
 oder Inhalte und startet weder Agent noch Job-Search-MCP. Sie nennt serverseitig erkannte Runtime,
 effektiven Workspacezugriff, Datenkategorien, Limits, Netzwerkpolicy und die vollständige
-provider- und workflowabhängige Root-MCP-Tool-Allowlist. Sie ist für OpenCode, Claude, Fake und
+provider- und workflowabhängige Root-MCP-Tool-Allowlist. Sie ist für OpenCode, Claude, Fake, ACP und
 den stabilen Codex-Exec-Transport leer; beim aktivierten nativen Codex App Server enthält sie nur die benötigten
 Domainwerkzeuge. Beim Workflow `guided-job-analysis` ist ausdrücklich sichtbar,
 dass `job-search-mcp` erst beim eigentlichen Start auf dem Trusted Host läuft und der Agent nur

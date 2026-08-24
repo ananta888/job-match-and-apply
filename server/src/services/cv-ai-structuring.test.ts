@@ -8,10 +8,12 @@ import {
   MemoryCvAiStructuringRunStore, sealCvAiStructuringRun, type CvAiStructuringSuggestion,
 } from './cv-ai-structuring-store.js';
 import {
-  CvAiStructuringError, CvAiStructuringService, extractProviderJsonObject, publicCvAiStructuringRun,
+  CvAiStructuringError, CvAiStructuringService, extractProviderJsonObject, normalizeAiStructureProposal,
+  publicCvAiStructuringRun,
   type CvAiStructuringImportPort, type CvAiStructuringValidationPort,
   type CvAiAgentRunPort, type CvAiAgentRunPurger, type CvAiStructuringObservabilityPort,
 } from './cv-ai-structuring.js';
+import { SafeHttpError } from './safe-http-error.js';
 
 const digest = (value: string) => createHash('sha256').update(value, 'utf8').digest('hex');
 const importId = '22222222-2222-4222-8222-222222222222';
@@ -307,6 +309,44 @@ Ende`)).toEqual(tricky);
     expect(extractProviderJsonObject('```json\n{ kaputt \n```')).toBeUndefined();
     expect(extractProviderJsonObject('')).toBeUndefined();
   });
+
+  it('prefers the contract object when the answer also repeats the schema', () => {
+    const schema = { $schema: 'https://example.invalid/schema', type: 'object' };
+    expect(extractProviderJsonObject(`${JSON.stringify(schema)}\n${json}`)).toEqual(proposal);
+  });
+});
+
+describe('AI envelope normalization', () => {
+  const binding = {
+    source_id: 'source-cv-0123456789abcdef',
+    source_sha256: 'a'.repeat(64),
+    text_sha256: 'b'.repeat(64),
+    base_proposal_sha256: 'c'.repeat(64),
+  };
+
+  it('adds the closed envelope and drops unknown root keys without touching collections', () => {
+    expect(normalizeAiStructureProposal({
+      extra: 'must-drop',
+      employment: [{ role: { value: 'SYNTHETIC ROLE' } }],
+    }, binding)).toEqual({
+      contract: 'ai-cv-structure-proposal',
+      contract_version: '1.0',
+      status: 'unverified',
+      binding,
+      sections: [],
+      employment: [{ role: { value: 'SYNTHETIC ROLE' } }],
+      education: [],
+      projects: [],
+      skills: [],
+      languages: [],
+    });
+  });
+
+  it('unwraps a nested ai_proposal object', () => {
+    expect(normalizeAiStructureProposal({
+      ai_proposal: { skills: [{ value: 'SYNTHETIC' }] },
+    }, binding).skills).toEqual([{ value: 'SYNTHETIC' }]);
+  });
 });
 
 describe('CvAiStructuringService', () => {
@@ -408,7 +448,7 @@ describe('CvAiStructuringService', () => {
     expect(ready).toMatchObject({ status: 'suggestions_ready' });
     // The port must see the reassembled object, not a fragment.
     expect(validation.validateProposal).toHaveBeenCalledWith(expect.objectContaining({
-      aiProposal: { contract: 'ai-cv-structure-proposal' },
+      aiProposal: expect.objectContaining({ contract: 'ai-cv-structure-proposal', status: 'unverified' }),
     }));
   });
 
@@ -693,6 +733,40 @@ describe('CvAiStructuringService', () => {
     expect(written).not.toContain('SYNTHETIC ROLE');
   });
 
+  it('records allowlisted top-level keys when a parseable answer fails the CV contract', async () => {
+    const { service, agentRuns, validation, traces, purger } = fixture();
+    vi.mocked(validation.validateProposal).mockRejectedValueOnce(new SafeHttpError({
+      statusCode: 422, errorCode: 'invalid_ai_structure', stage: 'cv_skill_contract',
+      publicDetail: 'Der KI-Strukturvorschlag ist nicht exakt an die importierte CV-Quelle gebunden.',
+    }));
+    const started = await service.start({
+      cvImportId: importId, expectedCvImportRevision: 3, expectedCvImportSha256: 'a'.repeat(64),
+      provider: selection, disclosure, actor,
+    });
+    const agentId = agentIds[0]!;
+    const secret = 'SECRET-CANDIDATE-FACT';
+    agentRuns.runs.set(agentId, { ...agentRuns.runs.get(agentId)!, state: 'succeeded' });
+    agentRuns.runEvents.set(agentId, providerEvents(agentId, JSON.stringify({
+      contract: 'wrong-contract', extra: secret, ai_proposal: {},
+    })));
+
+    const failed = await service.get(importId, started.id);
+    expect(failed).toMatchObject({ status: 'failed', failure: { code: 'invalid_ai_structure', stage: 'validation' } });
+
+    const shape = new Map(traces
+      .filter((entry) => entry.operation === 'provider_validation_shape')
+      .map((entry) => [entry.errorClass, entry.eventSequence]));
+    expect(shape.get('keys_total')).toBe(3);
+    expect(shape.get('keys_logged')).toBe(3);
+    expect(shape.get('key.contract')).toBe(1);
+    expect(shape.get('key.extra')).toBe(1);
+    expect(shape.get('key.ai_proposal')).toBe(1);
+    expect(purger.deleteRuns).toHaveBeenCalledWith([agentId]);
+    const written = JSON.stringify(traces);
+    expect(written).not.toContain(secret);
+    expect(written).not.toContain('wrong-contract');
+  });
+
   it('records the exit code and stderr volume of a provider process that died', async () => {
     // A bare 'crash' says only "exited non-zero". Without the exit code and
     // how much the process wrote, a run that refused the request cannot be
@@ -703,7 +777,7 @@ describe('CvAiStructuringService', () => {
       provider: selection, disclosure, actor,
     });
     const agentId = agentIds[0]!;
-    const complaint = 'Credit balance is too low';
+    const complaint = 'Provider process aborted after an internal fault.';
     agentRuns.runEvents.set(agentId, [{
       schemaVersion: '1.0', runId: agentId, sequence: 1, timestamp: '2026-08-14T10:00:09.000Z', provider: 'fake',
       correlationId: 'synthetic', kind: 'warning', data: { code: 'provider_stderr', message: complaint },
@@ -731,6 +805,31 @@ describe('CvAiStructuringService', () => {
     expect(shape.get('stderr_bytes')).toBe(Buffer.byteLength(complaint, 'utf8'));
     expect(shape.get('message_events')).toBe(0);
     expect(JSON.stringify(traces)).not.toContain(complaint);
+  });
+
+  it('classifies a non-zero exit after a session-limit warning as provider_rate_limit', async () => {
+    const { service, agentRuns } = fixture();
+    const started = await service.start({
+      cvImportId: importId, expectedCvImportRevision: 3, expectedCvImportSha256: 'a'.repeat(64),
+      provider: selection, disclosure, actor,
+    });
+    const agentId = agentIds[0]!;
+    agentRuns.runEvents.set(agentId, [{
+      schemaVersion: '1.0', runId: agentId, sequence: 1, timestamp: '2026-08-14T10:00:09.000Z', provider: 'fake',
+      correlationId: 'synthetic', kind: 'warning', data: { code: 'provider_stderr', message: "You've hit your session limit" },
+    }, {
+      schemaVersion: '1.0', runId: agentId, sequence: 2, timestamp: '2026-08-14T10:00:10.000Z', provider: 'fake',
+      correlationId: 'synthetic', kind: 'error', data: { code: 'crash', message: 'Providerprozess endete mit Code 1.', retryable: true },
+    }]);
+    agentRuns.runs.set(agentId, {
+      ...agentRuns.runs.get(agentId)!, state: 'failed', finishedAt: '2026-08-14T10:00:10.000Z',
+      failure: { code: 'crash', message: 'Providerprozess endete mit Code 1.', retryable: true },
+    });
+
+    const failed = await service.get(importId, started.id);
+    expect(failed).toMatchObject({
+      status: 'failed', failure: { code: 'provider_rate_limit', stage: 'agent', retryable: true },
+    });
   });
 
   it('upgrades a migrated failed run without a mode to the simple replacement flow on retry', async () => {

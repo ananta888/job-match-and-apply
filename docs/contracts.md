@@ -171,12 +171,22 @@ einem angenommenen Turn schlagen unbekannte Ereignisse oder Bindungen den Run fe
 einen zweiten Providerlauf zu wiederholen.
 
 OpenCode ist exakt als WSL-Version `1.14.41`, Claude Code exakt als WSL-Version
-`2.1.232 (Claude Code)` freigegeben. Beide Verträge sind read-only und verlangen Bubblewrap.
+`2.1.232`–`2.1.234 (Claude Code)` freigegeben. Beide Verträge sind read-only und verlangen Bubblewrap.
 Provider-Control-Plane-Netzwerk bleibt verfügbar, während die servereigene Toolpolicy
 modellaufrufbare Shell-, Schreib-, Web-, MCP- und Subagent-Fähigkeiten entfernt. OpenCode erlaubt
 nur `read`, `glob`, `grep` und `list`; Claude verwendet Safe Mode, Permission Mode `plan`, nur
 `Read`, einen strikt leeren MCP-Vertrag, deaktivierte Slash Commands und keine Sessionpersistenz.
 Diese Provider besitzen derzeit keine Root-Domain-Tool- oder interaktive Approval-Brücke.
+
+Der experimentelle Agent-Client-Protocol-Transport `acp` ist JSON-RPC 2.0 über stdio
+(`initialize`, `session/new`, `session/prompt`, `session/update`, `session/cancel`). Er wird nur
+gewählt, wenn ein Lauf ausdrücklich `provider=acp` setzt; er ersetzt weder Codex Exec noch OpenCode
+oder Claude und trägt keinen servereigenen Zero-Tools-Vertrag. `session/new` übergibt immer
+`mcpServers: []`. Clientmethoden `fs/*` und `terminal/*` sowie `session/request_permission` werden
+fail-closed abgelehnt. Freigegeben ist in dieser Version nur die synthetische Fixture
+`acp-synthetic 0.1.0`; reale ACP-Binaries bleiben untested und blockiert. WSL, Container,
+Workspace-Write und Netzwerk sind ausgeschlossen. Schema:
+`contracts/v1/acp-session.schema.json`, Fixture: `contracts/fixtures/v1/acp-events.json`.
 
 Das Agenten-Konfigurationsprofil wird über `GET/PUT /api/agents/config-profile` ohne Cache und ohne
 Secret-, Pfad-, Command- oder argv-Felder veröffentlicht. `PUT` ist bestätigt und verwendet

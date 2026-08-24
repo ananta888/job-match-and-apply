@@ -326,9 +326,11 @@ Markdown-Zäunen und Prosa. Das war Hypothese 1 und **nicht** die Ursache.
 Es kehrt eine bewusst gesetzte Fail-closed-Zusage um; der Test hieß ursprünglich
 „fails closed on Markdown-wrapped output" und musste umbenannt werden.
 
-Der Nutzer wollte es vorerst behalten. **Rückbau ist gut vertretbar** — die
-eigentliche Reparatur (`outputs.join('')`) hängt nicht daran. Vor einem Merge nach
-`main` sollte das entschieden werden.
+Der Nutzer wollte es vorerst behalten. Entscheidung 2026-08-17: **behalten**.
+OpenCode lieferte in diesem Durchlauf gar kein Objekt; Codex lieferte eines, das
+der Vertrag als `invalid_ai_structure` ablehnte. Der Parser ändert also weder die
+Ursache noch die Fail-closed-Validierung des Objekts. Rückbau bleibt möglich,
+ist aber kein Merge-Blocker.
 
 ---
 

@@ -1,0 +1,54 @@
+{
+  "provider": "acp",
+  "providerVersion": "acp-synthetic 0.1.0",
+  "versionOutput": "acp-synthetic 0.1.0",
+  "activation": "experimental_synthetic_fixture_only",
+  "fixtureKind": "synthetic-exact-contract-corpus",
+  "capturedAt": "2026-08-17",
+  "conformance": {
+    "runtimeTarget": "linux",
+    "argumentTemplate": [],
+    "promptTransport": "jsonrpc-stdio",
+    "structuredTransport": "acp-jsonrpc-2.0",
+    "protocolVersion": 1,
+    "sandboxBackend": "none-prompt-only",
+    "networkIsolation": "client-capabilities-omit-fs-and-terminal",
+    "networkAccessClaim": "provider-control-plane-only",
+    "approvalMode": "deny",
+    "mcpServers": [],
+    "resume": false,
+    "pause": false
+  },
+  "events": [
+    {
+      "jsonrpc": "2.0",
+      "id": 0,
+      "method": "initialize",
+      "params": {
+        "protocolVersion": 1,
+        "clientCapabilities": { "fs": { "readTextFile": false, "writeTextFile": false }, "terminal": false }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "id": 0,
+      "result": {
+        "protocolVersion": 1,
+        "agentCapabilities": { "loadSession": false },
+        "agentInfo": { "name": "acp-synthetic", "version": "0.1.0" },
+        "authMethods": []
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "sess-synthetic",
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": { "type": "text", "text": "synthetic acp result" }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://job-match-and-apply.local/contracts/v1/acp-session.schema.json",
+  "title": "ACP session mapping contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract", "contractVersion", "protocolVersion", "clientCapabilities", "forbiddenClientMethods", "mcpServers"],
+  "properties": {
+    "contract": { "const": "acp-session" },
+    "contractVersion": { "const": "1.0" },
+    "protocolVersion": { "const": 1 },
+    "clientCapabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fs", "terminal"],
+      "properties": {
+        "fs": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["readTextFile", "writeTextFile"],
+          "properties": {
+            "readTextFile": { "const": false },
+            "writeTextFile": { "const": false }
+          }
+        },
+        "terminal": { "const": false }
+      }
+    },
+    "forbiddenClientMethods": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "pattern": "^(fs|terminal)/[a-z0-9_]+$" }
+    },
+    "mcpServers": { "type": "array", "maxItems": 0 }
+  }
+}

@@ -120,6 +120,7 @@ export function safeDefaultAgentConfigProfile(now = new Date()): AgentConfigProf
       { provider: 'codex-exec', enabled: true, runtimeTarget: localTarget, sandbox: 'read-only', network: 'disabled', approvalMode: 'explicit' },
       { provider: 'opencode', enabled: true, runtimeTarget: 'wsl', sandbox: 'read-only', network: 'disabled', approvalMode: 'deny' },
       { provider: 'claude-cli', enabled: true, runtimeTarget: 'wsl', sandbox: 'read-only', network: 'disabled', approvalMode: 'deny' },
+      { provider: 'acp', enabled: true, runtimeTarget: localTarget, sandbox: 'read-only', network: 'disabled', approvalMode: 'deny' },
     ],
     budgets: { warningAtPercent: 80, maxTotalTokens: 100_000, maxToolCalls: 100, maxRunDurationMs: 30 * 60_000 },
     features: {
@@ -160,6 +161,14 @@ export function validateAgentConfigProfile(value: unknown): AgentConfigProfile {
     },
     features: Object.fromEntries(featureNames.map((name) => [name, features[name]])) as unknown as AgentConfigProfile['features']
   };
+}
+
+export function mergeMissingDefaultAgentProviders(profile: AgentConfigProfile): AgentConfigProfile {
+  const defaults = safeDefaultAgentConfigProfile(new Date(profile.updatedAt));
+  const known = new Set(profile.providers.map((entry) => entry.provider));
+  const missing = defaults.providers.filter((entry) => !known.has(entry.provider));
+  if (!missing.length) return profile;
+  return { ...profile, providers: [...profile.providers, ...missing.map((entry) => structuredClone(entry))] };
 }
 
 export function migrateAgentConfigProfile(value: unknown): { profile: AgentConfigProfile; migratedFrom?: 1 | 2 } {
@@ -205,11 +214,16 @@ export class AgentConfigProfileStore {
   async load(): Promise<AgentConfigLoadResult> {
     try {
       const migrated = migrateAgentConfigProfile(await this.read(this.primary));
-      return { ...migrated, source: 'primary' };
+      return { ...migrated, profile: mergeMissingDefaultAgentProviders(migrated.profile), source: 'primary' };
     } catch (primaryError) {
       try {
         const migrated = migrateAgentConfigProfile(await this.read(this.lastGood));
-        return { ...migrated, source: 'last_known_good', primaryError: primaryError instanceof Error ? primaryError.message : String(primaryError) };
+        return {
+          ...migrated,
+          profile: mergeMissingDefaultAgentProviders(migrated.profile),
+          source: 'last_known_good',
+          primaryError: primaryError instanceof Error ? primaryError.message : String(primaryError),
+        };
       } catch {
         throw primaryError;
       }

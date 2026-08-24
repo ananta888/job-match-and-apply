@@ -1185,7 +1185,7 @@
         <section class="agent-provider-grid" aria-label="Agenten-Provider">
           @for (provider of agentProviders; track provider.id) {
             <article class="panel source-card agent-provider" [class.unavailable]="!provider.available">
-              <div class="source-card-head"><span class="source-logo big">{{ provider.name.slice(0, 2) }}</span><span class="status" [class.ok]="provider.available">{{ provider.experimental ? 'Experimentell · exec-Fallback' : (provider.available ? 'Bereit' : 'Nicht verfügbar') }}</span></div>
+              <div class="source-card-head"><span class="source-logo big">{{ provider.name.slice(0, 2) }}</span><span class="status" [class.ok]="provider.available">{{ agentProviderStatusLabel(provider) }}</span></div>
               <h3>{{ provider.name }}</h3><p>{{ provider.note || 'Adapter wurde erkannt und kann kontrollierte Runs ausführen.' }}</p>
               <div class="source-meta"><span>{{ provider.version || 'Version unbekannt' }}</span><span>{{ provider.transport || 'lokaler Prozess' }}</span><span>Auth: {{ provider.authStatus || 'unbekannt' }}</span></div>
               <div class="agent-installation-list">

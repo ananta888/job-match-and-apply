@@ -14,6 +14,7 @@ describe('AgentConfigProfileStore', () => {
       expect.objectContaining({ provider: 'codex-exec', enabled: true, sandbox: 'read-only', network: 'disabled', approvalMode: 'explicit' }),
       expect.objectContaining({ provider: 'opencode', enabled: true, runtimeTarget: 'wsl', sandbox: 'read-only', network: 'disabled' }),
       expect.objectContaining({ provider: 'claude-cli', enabled: true, runtimeTarget: 'wsl', sandbox: 'read-only', network: 'disabled' }),
+      expect.objectContaining({ provider: 'acp', enabled: true, sandbox: 'read-only', network: 'disabled', approvalMode: 'deny' }),
     ]));
     expect(safe.features).toEqual({
       multiAgentExperimental: true,
@@ -89,5 +90,20 @@ describe('AgentConfigProfileStore', () => {
       providers: [expect.objectContaining({ provider: 'claude-cli', runtimeTarget: 'wsl' })],
       budgets: { warningAtPercent: 80 },
     });
+  });
+
+  it('adds newly published default providers on load without rewriting the stored file', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'agent-config-'));
+    const store = new AgentConfigProfileStore(root);
+    const baseline = safeDefaultAgentConfigProfile(new Date('2026-08-17T00:00:00Z'));
+    const withoutAcp = {
+      ...baseline,
+      providers: baseline.providers.filter((entry) => entry.provider !== 'acp'),
+    };
+    await store.save(withoutAcp);
+    const loaded = await new AgentConfigProfileStore(root).load();
+    expect(loaded.profile.providers.some((entry) => entry.provider === 'acp' && entry.enabled)).toBe(true);
+    const disk = JSON.parse(await readFile(join(root, 'profile.json'), 'utf8')) as AgentConfigProfile;
+    expect(disk.providers.some((entry) => entry.provider === 'acp')).toBe(false);
   });
 });

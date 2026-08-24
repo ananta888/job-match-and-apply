@@ -65,6 +65,7 @@ export const OPENCODE_MANIFEST: AgentAdapterManifest = {
     args: ['run', '--pure', '--agent', 'job-match-read-only', '--format', 'json', '--dir', '{workspace}'],
     promptTransport: 'stdin', modelArgs: ['--model', '{model}']
   },
+  maxJsonLineBytes: 4 * 1024 * 1024,
   capabilities: {
     ...baseCapabilities, structuredOutput: true, supportedRuntimeTargets: ['wsl'],
     extensions: {
@@ -84,7 +85,7 @@ export const OPENCODE_MANIFEST: AgentAdapterManifest = {
 export const CLAUDE_CLI_MANIFEST: AgentAdapterManifest = {
   schemaVersion: '1.0', id: 'claude-cli', displayName: 'Claude CLI', adapterVersion: '1.1.0',
   protocol: 'claude-stream-json', trust: 'builtin', enabled: true,
-  executableNames: ['claude'], versionArgs: ['--version'], testedVersionPatterns: ['^2\\.1\\.23[23] \\(Claude Code\\)$'],
+  executableNames: ['claude'], versionArgs: ['--version'], testedVersionPatterns: ['^2\\.1\\.23[2-4] \\(Claude Code\\)$'],
   command: {
     args: [
       '--safe-mode', '-p', '--output-format', 'stream-json', '--verbose',
@@ -190,10 +191,13 @@ export const mapCodexJsonlEvent: ProviderEventMapper = (value): AgentEventDraft[
 
 export const mapOpenCodeJsonEvent: ProviderEventMapper = (value): AgentEventDraft[] => {
   const event = object(value); const type = typeof event?.type === 'string' ? event.type : undefined;
+  if (event && event.contract === 'ai-cv-structure-proposal') {
+    return [{ kind: 'agent_message_completed', data: { text: JSON.stringify(event) } }];
+  }
   if (!event || !type) return [{ kind: 'warning', data: { code: 'invalid_opencode_event' } }];
   const part = object(event.part ?? event.message ?? event.data);
   const text = textFromContent(part?.text ?? event.text ?? part?.content);
-  if (type === 'text' || type.includes('message')) {
+  if (type === 'text' || type.includes('message') || part?.type === 'text') {
     return text ? [{ kind: type.includes('delta') ? 'agent_message_delta' : 'agent_message_completed', data: { text } }] : [];
   }
   if (type === 'step_start') return [{ kind: 'heartbeat', data: { phase: 'step_started', sessionId: event.sessionID, itemId: part?.id } }];
@@ -295,7 +299,9 @@ export const mapClaudeStreamEvent: ProviderEventMapper = (value, context): Agent
     const exactTools = zeroToolsMode
       ? empty(event.tools)
       : Array.isArray(event.tools) && event.tools.length === 1 && event.tools[0] === 'Read';
-    const conforms = (event.claude_code_version === '2.1.232' || event.claude_code_version === '2.1.233')
+    const conforms = (event.claude_code_version === '2.1.232'
+      || event.claude_code_version === '2.1.233'
+      || event.claude_code_version === '2.1.234')
       && event.permissionMode === 'acceptEdits' && exactTools
       && empty(event.mcp_servers) && empty(event.plugins) && empty(event.skills) && empty(event.slash_commands);
     if (!conforms) return [{ kind: 'error', data: {

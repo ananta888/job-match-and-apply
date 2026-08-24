@@ -61,6 +61,8 @@ export interface ExternalSandboxLaunchRequest {
   workspaceRoot: string;
   sandbox: SandboxPolicy;
   network: 'disabled' | 'restricted' | 'enabled';
+  /** WSL path of a host-created empty directory. OpenCode may write session files there. */
+  recoverableStateRoot?: string;
 }
 
 export interface ExternalSandboxLaunchPlan {
@@ -200,6 +202,16 @@ export class WslBubblewrapSandboxBoundary implements ExternalSandboxBoundary {
       bubblewrapArgs.push(
         '--dir', '/tmp/agent-home/.local', '--dir', '/tmp/agent-home/.local/share',
         '--dir', '/tmp/agent-home/.local/share/opencode',
+      );
+      if (request.recoverableStateRoot) {
+        if (!posix.isAbsolute(request.recoverableStateRoot) || request.recoverableStateRoot.includes('\0')) {
+          throw new Error('external_sandbox_argument_invalid');
+        }
+        bubblewrapArgs.push(
+          '--bind', request.recoverableStateRoot, '/tmp/agent-home/.local/share/opencode',
+        );
+      }
+      bubblewrapArgs.push(
         '--ro-bind-try', posix.join(userHome, '.local/share/opencode/auth.json'), '/tmp/agent-home/.local/share/opencode/auth.json',
         '--setenv', 'XDG_DATA_HOME', '/tmp/agent-home/.local/share',
         '--setenv', 'OPENCODE_DISABLE_PROJECT_CONFIG', 'true',

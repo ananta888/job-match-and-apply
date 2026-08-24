@@ -106,7 +106,7 @@
       "adapterVersion": "1.1.0",
       "protocolVersion": "1.0",
       "status": "supported",
-      "testedVersionPatterns": ["^2\\.1\\.23[23] \\(Claude Code\\)$"],
+      "testedVersionPatterns": ["^2\\.1\\.23[2-4] \\(Claude Code\\)$"],
       "fixture": "contracts/fixtures/v1/claude-cli-events.json",
       "runtimeTargets": ["wsl"],
       "experimental": false,
@@ -118,6 +118,29 @@
       "pause": false,
       "networkEnforcement": "provider-tool-capability-policy",
       "networkAccessClaim": "provider-control-plane-only"
+    },
+    {
+      "id": "acp",
+      "adapterVersion": "0.1.0",
+      "protocolVersion": "1",
+      "status": "experimental",
+      "testedVersionPatterns": ["^acp-synthetic 0\\.1\\.0$"],
+      "fixture": "contracts/fixtures/v1/acp-events.json",
+      "runtimeTargets": ["windows", "linux", "darwin"],
+      "experimental": true,
+      "selection": "explicit-provider-id-only-never-cv-ai-never-root-tools",
+      "supportedProfiles": ["read_only_prompt_only"],
+      "promptTransport": "jsonrpc-stdio",
+      "structuredTransport": "acp-jsonrpc-2.0",
+      "approvalMode": "deny",
+      "resume": false,
+      "pause": false,
+      "networkControl": true,
+      "networkAccessClaim": "provider-control-plane-only",
+      "mcpServers": [],
+      "fsClientMethods": false,
+      "terminalClientMethods": false,
+      "sandboxBoundary": "none-prompt-only"
     }
   ],
   "upgradeChecklist": [

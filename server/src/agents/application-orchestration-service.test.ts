@@ -24,7 +24,6 @@ const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
 
 function hash(value: string): string { return createHash('sha256').update(value).digest('hex'); }
-const HASH = /^[a-f0-9]{64}$/;
 async function temporaryRoot(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), 'application-orchestration-'));
   roots.push(root);
@@ -60,17 +59,7 @@ const inputResolver: ApplicationOrchestrationInputResolver = {
 };
 const confirmationReference = (prefix: 'r' | 'u'): string => `${prefix.repeat(32)}.${'s'.repeat(43)}`;
 
-const pipelinePackage = JSON.stringify({
-  annotatedContent: '# Synthetic application\n\nEvidence-backed synthetic content.',
-  iterationManifest: [
-    'schema_version: 1', 'mode: rigorous', 'execution: independent_agents', 'cycle: 1', 'passes:',
-    '  - id: evidence-pass', '    role: evidence_reviewer', '    independent_context: true', '    input_revision: job', '    output_revision: evidence', '    findings: []',
-    '  - id: author-pass', '    role: author', '    independent_context: true', '    input_revision: evidence', '    output_revision: draft', '    findings: []',
-    '  - id: ats-pass', '    role: ats_reviewer', '    independent_context: true', '    input_revision: draft', '    output_revision: ats', '    findings: []',
-    '  - id: style-pass', '    role: recruiter_style_reviewer', '    independent_context: true', '    input_revision: ats', '    output_revision: reviewed', '    findings: []',
-    '  - id: finalizer-pass', '    role: finalizer', '    independent_context: true', '    input_revision: reviewed', '    output_revision: final', '    findings: []',
-  ].join('\n'),
-});
+const finalHtml = '<!doctype html><html lang="de"><head><title>Synthetic application</title></head><body><h1>Synthetic application</h1><p>Evidence-backed synthetic content.</p></body></html>';
 
 const employerResponseProposal = JSON.stringify({
   schemaVersion: 1,
@@ -104,7 +93,7 @@ const nextActionsProposal = JSON.stringify({
 
 function applicationProvider(): FakeAgentProvider {
   return new FakeAgentProvider({
-    steps: [{ kind: 'agent_message_completed', data: { text: pipelinePackage } }],
+    steps: [{ kind: 'agent_message_completed', data: { text: finalHtml } }],
     outcome: { state: 'succeeded' },
   });
 }
@@ -112,7 +101,7 @@ function applicationProvider(): FakeAgentProvider {
 class RoleOutputProvider extends FakeAgentProvider {
   override start(context: ProviderRunContext): Promise<AgentRunHandle> {
     const role = String(context.request.metadata?.nodeRole ?? 'unknown');
-    const text = role === 'finalizer' ? pipelinePackage : `${role} review variant`;
+    const text = role === 'finalizer' ? finalHtml : `${role} review variant`;
     return new FakeAgentProvider({
       steps: [{ kind: 'agent_message_completed', data: { text } }],
       outcome: { state: 'succeeded' },
@@ -139,12 +128,6 @@ function applicationInput(root: string): CreateApplicationOrchestrationInput {
     },
     claimIds: ['claim-verified-1'],
     reviewIds: ['review-ats-1', 'review-style-1'],
-    confirmations: [
-      {
-        nodeId: 'finalizer', gate: 'user_input', applicationCaseId: 'case-42', applicationCaseRevision: 7,
-        confirmationReference: confirmationReference('u'),
-      },
-    ],
   };
 }
 
@@ -167,7 +150,7 @@ describe('ApplicationAgentOrchestrationService root domain tools', () => {
     const requests: AgentRunRequest[] = [];
     // Only codex-exec reaches the root-tool path at all.
     const provider = new FakeAgentProvider({
-      steps: [{ kind: 'agent_message_completed', data: { text: pipelinePackage } }],
+      steps: [{ kind: 'agent_message_completed', data: { text: finalHtml } }],
       outcome: { state: 'succeeded' },
     }, 'codex-exec');
     const center = new AgentControlCenter(new MemoryAgentRunStore(), [provider], {
@@ -231,7 +214,7 @@ describe('ApplicationAgentOrchestrationService', () => {
     }
     const provider = new TrackingProvider({
       steps: [
-        { delayMs: 15, kind: 'agent_message_completed', data: { text: pipelinePackage } },
+        { delayMs: 15, kind: 'agent_message_completed', data: { text: finalHtml } },
         { kind: 'usage_updated', data: { inputTokens: 20, outputTokens: 10 } },
       ],
       outcome: { state: 'succeeded' },
@@ -279,15 +262,18 @@ describe('ApplicationAgentOrchestrationService', () => {
     expect(finalizer?.request.task).toContain('Evidence-backed synthetic content');
     expect(finalizer?.request.task).toContain('both raw reviews');
     expect(finalizer?.request.task).toContain('Closed output contract (mandatory)');
-    const finalArtifact = completed.artifactRefs.find((artifact) => artifact.outputRef === 'package_proposal')!;
+    expect(finalizer?.request.task).toContain('Return exactly one complete HTML5 document');
+    expect(finalizer?.request.task).not.toContain('Return exactly one JSON object');
+    const finalArtifact = completed.artifactRefs.find((artifact) => artifact.outputRef === 'final_html')!;
     expect(await artifactStore.get(finalArtifact.artifactId)).toMatchObject({
-      kind: 'application-pipeline-package', mediaType: 'application/json', lifecycle: 'proposed',
+      kind: 'application-final-html', mediaType: 'text/html; charset=utf-8', lifecycle: 'proposed',
       provenance: {
         reviewIds: expect.arrayContaining([
-          'review-ats-1', 'review-style-1', hash(`user_input:${confirmationReference('u')}`),
+          'review-ats-1', 'review-style-1',
         ]),
       },
     });
+    expect((await artifactStore.read(finalArtifact.artifactId)).content.toString('utf8')).toMatch(/^<!doctype html>/i);
     for (const reference of completed.artifactRefs) {
       expect(await artifactStore.get(reference.artifactId)).toMatchObject({ lifecycle: 'proposed' });
     }
@@ -310,7 +296,7 @@ describe('ApplicationAgentOrchestrationService', () => {
       }
     }
     const center = new AgentControlCenter(new MemoryAgentRunStore(), [new FlakyProvider({
-      steps: [{ kind: 'agent_message_completed', data: { text: pipelinePackage } }], outcome: { state: 'succeeded' },
+      steps: [{ kind: 'agent_message_completed', data: { text: finalHtml } }], outcome: { state: 'succeeded' },
     })], {
       maxParallel: 2, maxParallelPerProvider: 2, allowedWorkspaceRoots: [root],
     });
@@ -329,7 +315,7 @@ describe('ApplicationAgentOrchestrationService', () => {
     expect(starts).toBe(3);
   });
 
-  it('fails gates closed when the user-input confirmation is not bound to the exact case revision', async () => {
+  it('runs the finalizer without consulting a browser user-input confirmation', async () => {
     const root = await temporaryRoot();
     const verify = vi.fn(gateAuthority.verifyRevisionConfirmation);
     const center = new AgentControlCenter(new MemoryAgentRunStore(), [applicationProvider()], {
@@ -341,46 +327,17 @@ describe('ApplicationAgentOrchestrationService', () => {
       { runPersistenceProtection: 'ephemeral', maxParallelNodes: 2, pollIntervalMs: 2 },
     );
     const input = applicationInput(root);
-    input.confirmations = input.confirmations?.map((confirmation) => confirmation.gate === 'user_input'
-      ? { ...confirmation, applicationCaseRevision: 6 }
-      : confirmation);
+    input.confirmations = [{
+      nodeId: 'finalizer', gate: 'user_input', applicationCaseId: 'case-42', applicationCaseRevision: 6,
+      confirmationReference: confirmationReference('u'),
+    }];
     const created = await service.create(input);
-    const waiting = await waitForStatus(service, created.id);
-    expect(waiting.status).toBe('waiting_for_gate');
-    expect(waiting.unresolvedGates).toContainEqual({ nodeId: 'finalizer', gate: 'user_input' });
-    expect(waiting.nodeRunIds.finalizer).toEqual([]);
-    expect(Object.values(waiting.nodeRunIds).flat()).toHaveLength(4);
-    expect(verify).not.toHaveBeenCalled();
-  });
-
-  it('continues a waiting workflow with revision-bound gates without replaying successful roles', async () => {
-    const root = await temporaryRoot();
-    const center = new AgentControlCenter(new MemoryAgentRunStore(), [applicationProvider()], {
-      maxParallel: 2, maxParallelPerProvider: 2, allowedWorkspaceRoots: [root],
-    });
-    const service = new ApplicationAgentOrchestrationService(
-      center, new AgentArtifactStore(join(root, 'artifacts')), new MemoryApplicationOrchestrationStore(),
-      gateAuthority, inputResolver,
-      { runPersistenceProtection: 'ephemeral', maxParallelNodes: 2, pollIntervalMs: 2 },
-    );
-    const input = applicationInput(root);
-    const confirmations = input.confirmations!;
-    input.confirmations = [];
-    const created = await service.create(input);
-    const waiting = await waitForStatus(service, created.id);
-    expect(waiting.status).toBe('waiting_for_gate');
-    expect(Object.values(waiting.nodeRunIds).flat()).toHaveLength(4);
-    const completedRunIds = structuredClone(waiting.nodeRunIds);
-
-    const resumed = await service.continue(created.id, confirmations);
-    expect(resumed.status).toBe('running');
     const completed = await waitForStatus(service, created.id);
     expect(completed.status).toBe('succeeded');
-    expect(Object.values(completed.nodeRunIds).flat()).toHaveLength(5);
-    for (const nodeId of ['evidence', 'author', 'ats', 'style']) {
-      expect(completed.nodeRunIds[nodeId]).toEqual(completedRunIds[nodeId]);
-    }
+    expect(completed.unresolvedGates).toEqual([]);
     expect(completed.nodeRunIds.finalizer).toHaveLength(1);
+    expect(Object.values(completed.nodeRunIds).flat()).toHaveLength(5);
+    expect(verify).not.toHaveBeenCalled();
   });
 
   it('keeps classified retry limits on the gate-resume path', async () => {
@@ -461,7 +418,7 @@ describe('ApplicationAgentOrchestrationService', () => {
     expect(projection.sha256).toMatch(/^[a-f0-9]{64}$/);
   });
 
-  it('does not add a retry for the finalizer side-effect node after gate resume', async () => {
+  it('does not add a retry for the finalizer side-effect node', async () => {
     const root = await temporaryRoot();
     class FinalizerFailureProvider extends FakeAgentProvider {
       override start(context: ProviderRunContext): Promise<AgentRunHandle> {
@@ -488,25 +445,18 @@ describe('ApplicationAgentOrchestrationService', () => {
       gateAuthority, inputResolver,
       { runPersistenceProtection: 'ephemeral', pollIntervalMs: 2, delay: async () => undefined },
     );
-    const input = applicationInput(root);
-    input.confirmations = [];
-    const created = await service.create(input);
-    await waitForStatus(service, created.id);
-    await service.continue(created.id, [{
-      nodeId: 'finalizer', gate: 'user_input', applicationCaseId: 'case-42', applicationCaseRevision: 7,
-      confirmationReference: confirmationReference('u'),
-    }]);
+    const created = await service.create(applicationInput(root));
     const completed = await waitForStatus(service, created.id);
     expect(completed.status).toBe('failed');
     expect(completed.nodeRunIds.finalizer).toHaveLength(1);
   });
 
   it.each([
-    ['wallTimeMs', 30 * 60_000],
-    ['tokens', 50_000],
-    ['costMicros', 15_000_000],
-    ['toolCalls', 25],
-    ['iterations', 10],
+    ['wallTimeMs', 10 * 60_000],
+    ['tokens', 12_000],
+    ['costMicros', 4_000_000],
+    ['toolCalls', 8],
+    ['iterations', 4],
   ] as const)('fails gate continuation closed when cumulative %s budget is exhausted', async (key, limit) => {
     const root = await temporaryRoot();
     const store = new MemoryApplicationOrchestrationStore();
@@ -517,10 +467,14 @@ describe('ApplicationAgentOrchestrationService', () => {
       center, new AgentArtifactStore(join(root, 'artifacts')), store, gateAuthority, inputResolver,
       { runPersistenceProtection: 'ephemeral', maxParallelNodes: 2, pollIntervalMs: 2 },
     );
-    const input = applicationInput(root);
-    const confirmations = input.confirmations!;
-    input.confirmations = [];
-    const created = await service.create(input);
+    const created = await service.create({
+      workflowId: 'employer-response-triage', providerId: 'fake', workspaceRoot: root, runtimeTarget,
+      ownerId: 'local-user', prompt: 'Propose, do not send.',
+      scope: {
+        applicationCaseId: 'case-42', applicationCaseRevision: 7, jobId: 'job-42', companyKey: 'example-ag',
+        mailId: 'mail-42', identityMode: 'real', workspaceRootId: 'workspace-local',
+      },
+    });
     const waiting = await waitForStatus(service, created.id);
     const saturated: ApplicationOrchestrationRecord = {
       ...waiting,
@@ -530,9 +484,12 @@ describe('ApplicationAgentOrchestrationService', () => {
     };
     await store.compareAndSwap(saturated, waiting.revision);
 
-    await expect(service.continue(created.id, confirmations)).rejects.toThrow(`budget_exceeded:${key}`);
+    await expect(service.continue(created.id, [{
+      nodeId: 'respond', gate: 'user_input', applicationCaseId: 'case-42', applicationCaseRevision: 7,
+      confirmationReference: confirmationReference('u'),
+    }])).rejects.toThrow(`budget_exceeded:${key}`);
     expect(await service.get(created.id)).toMatchObject({ status: 'failed', failureReason: `budget_exceeded:${key}` });
-    expect((await center.list())).toHaveLength(4);
+    expect((await center.list())).toHaveLength(2);
   });
 
   it('cancels a live node on observed usage overrun and never starts downstream nodes', async () => {
@@ -588,7 +545,7 @@ describe('ApplicationAgentOrchestrationService', () => {
     expect(completed.artifactRefs).toEqual([]);
   });
 
-  it('persists conflicting ATS/style variants, rejects stale resolution and resumes only after exact domain resolution', async () => {
+  it('passes distinct complementary ATS/style reviews directly to the finalizer', async () => {
     const root = await temporaryRoot();
     const center = new AgentControlCenter(new MemoryAgentRunStore(), [new RoleOutputProvider()], {
       maxParallel: 2, maxParallelPerProvider: 2, allowedWorkspaceRoots: [root],
@@ -599,53 +556,13 @@ describe('ApplicationAgentOrchestrationService', () => {
       { runPersistenceProtection: 'ephemeral', maxParallelNodes: 2, pollIntervalMs: 2 },
     );
     const created = await service.create(applicationInput(root));
-    const waiting = await waitForStatus(service, created.id);
-    expect(waiting.status).toBe('waiting_for_gate');
-    expect(waiting.nodeRunIds.finalizer).toEqual([]);
-    expect(waiting.conflicts).toHaveLength(1);
-    const conflict = waiting.conflicts![0]!;
-    expect(conflict).toMatchObject({
-      targetNodeId: 'finalizer', kind: 'ats_style_fan_in', status: 'unresolved', requiresDomainResolution: true,
-    });
-    expect(conflict.variants.map((variant) => variant.sourceNodeId)).toEqual(['ats', 'style']);
-    expect(conflict.variants.every((variant) => HASH.test(variant.sha256))).toBe(true);
-
-    await expect(service.resolveConflict(created.id, {
-      expectedRevision: waiting.revision - 1,
-      conflictId: conflict.id,
-      variantsSha256: conflict.variantsSha256,
-      strategy: 'accept_complementary',
-      resolverId: 'domain-reviewer',
-      resolutionReference: 'review-decision-1',
-    })).rejects.toThrow('application_orchestration_revision_conflict');
-    await expect(service.resolveConflict(created.id, {
-      expectedRevision: waiting.revision,
-      conflictId: conflict.id,
-      variantsSha256: hash('stale-variants'),
-      strategy: 'accept_complementary',
-      resolverId: 'domain-reviewer',
-      resolutionReference: 'review-decision-1',
-    })).rejects.toThrow('application_orchestration_conflict_stale');
-
-    const resumed = await service.resolveConflict(created.id, {
-      expectedRevision: waiting.revision,
-      conflictId: conflict.id,
-      variantsSha256: conflict.variantsSha256,
-      strategy: 'accept_complementary',
-      resolverId: 'domain-reviewer',
-      resolutionReference: 'review-decision-1',
-    });
-    expect(resumed.status).toBe('running');
     const completed = await waitForStatus(service, created.id);
     expect(completed.status).toBe('succeeded');
-    expect(completed.conflicts?.[0]).toMatchObject({
-      status: 'resolved', requiresDomainResolution: false,
-      resolution: { strategy: 'accept_complementary', variantsSha256: conflict.variantsSha256 },
-    });
+    expect(completed.conflicts).toEqual([]);
     expect(completed.nodeRunIds.finalizer).toHaveLength(1);
     const finalizer = (await center.list()).find((run) => run.request.metadata?.nodeRole === 'finalizer');
-    expect(finalizer?.request.task).toContain('domain_resolution_');
-    expect(finalizer?.request.task).toContain('review-decision-1');
+    expect(finalizer?.request.task).toContain('ats_reviewer review variant');
+    expect(finalizer?.request.task).toContain('recruiter_style_reviewer review variant');
   });
 
   it('persists only prompt hashes/safe summaries and recovers active JSON records as orphaned without PID adoption', async () => {

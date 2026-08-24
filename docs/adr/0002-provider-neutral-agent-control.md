@@ -41,10 +41,10 @@ dem Agenten und übergibt nur normalisierte Daten.
 
 Die Bewerbungsfachlichkeit wird als versionierte Fünf-Node-Orchestrierung umgesetzt: Evidence,
 Author, ATS, Recruiter/Style und Finalizer laufen in getrennten Child-Runs. Servereigene Evidence-
-und Konfliktgates sowie das bewusste `user_input`-Vor-Gate trennen den Finalizerlauf von seiner
-nachgelagerten fachlichen Prüfung. Die erzeugte `package_proposal` durchläuft danach
-Artefakt-Review, Adoption, Pipeline-Revision, exakte Fallfreigabe, `used` und Export; ein
-`review_complete`-Vor-Gate des Finalizers existiert im aktuellen Workflow nicht.
+Gates bleiben servergebunden. Seit Workflow `1.1.0` gehen die getrennten ATS- und Stilreviews ohne
+Browser-Zwischengate an den Finalizer. Dieser liefert direkt `final_html`, das der Server sicher
+normalisiert und nach dem fünften Lauf automatisch anzeigt. Die Anzeige ist keine externe Aktion
+und verleiht keine Export- oder Versandberechtigung.
 
 ## Folgen
 

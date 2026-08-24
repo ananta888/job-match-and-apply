@@ -15,8 +15,11 @@ describe('application agent workflows', () => {
 
   it('declares all application review roles and never a submission node', () => {
     const workflow = APPLICATION_AGENT_WORKFLOWS.find((item) => item.id === 'evidence-application-package')!;
-    const roles = workflow.plan('fake').nodes.map((node) => node.role);
+    const plan = workflow.plan('fake');
+    const roles = plan.nodes.map((node) => node.role);
     expect(roles).toEqual(expect.arrayContaining(['author', 'evidence_reviewer', 'ats_reviewer', 'recruiter_style_reviewer', 'finalizer']));
+    expect(workflow.version).toBe('1.1.0');
+    expect(plan.nodes.find((node) => node.role === 'finalizer')).toMatchObject({ gates: [], outputRefs: ['final_html'] });
     expect(JSON.stringify(workflow)).not.toContain('submit_application"');
   });
 });

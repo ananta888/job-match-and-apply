@@ -277,7 +277,7 @@ test.describe('Agent Center – offline browser contract', () => {
     await expect(preflight).toHaveScreenshot('agent-preflight-guided.png');
   });
 
-  test('starts without a prior revision, continues only user input and exposes the package as proposed', async ({ page, agentApi }) => {
+  test('runs all five roles and shows the final HTML without a continuation gate', async ({ page, agentApi }) => {
     const application = agentApi.seedPipelineCase();
     await openAgentCenter(page);
     const center = page.getByTestId('agent-orchestration-center');
@@ -287,29 +287,20 @@ test.describe('Agent Center – offline browser contract', () => {
     await center.getByRole('button', { name: 'Multi-Agent-Workflow starten', exact: true }).click();
     await expect.poll(() => agentApi.orchestrationCreateRequests.length).toBe(1);
     expect(agentApi.orchestrationCreateRequests[0]).toEqual({
-      workflowId: 'evidence-application-package', providerId: 'fake-interactive',
+      workflowId: 'evidence-application-package', providerId: 'codex-exec',
       prompt: 'Getrennte Evidence- und Finalizer-Rollen synthetisch ausführen', runtimeTarget: 'windows', applicationCaseId: application.id
     });
-    await expect(center).toContainText('Gate offen');
-    await expect(center).toContainText('Bestätigte Nutzereingabe');
     await expect(center).toContainText('evidence_reviewer');
     await expect(center.locator('.orchestration-nodes > li')).toHaveCount(5);
-    await expect(center.locator('.orchestration-gates select')).toHaveCount(0);
-    await center.locator('.orchestration-gates .explicit-confirmation input[type="checkbox"]').check();
-    await center.getByRole('button', { name: 'Nur offene Rollen fortsetzen', exact: true }).click();
-    await expect.poll(() => agentApi.orchestrationContinueRequests.length).toBe(1);
-    expect(agentApi.orchestrationContinueRequests[0]).toEqual({
-      orchestrationId: '33333333-3333-4333-8333-000000000001',
-      body: {
-        expectedRevision: 1,
-        userInput: { confirmed: true }
-      }
-    });
-    await expect(center).toContainText('package_proposal');
-    await expect(center).toContainText('application-pipeline-package');
-    await expect(center).toContainText('PROPOSED');
-    await center.getByRole('button', { name: 'Node-Run für Review öffnen', exact: true }).click();
-    await expect(page.locator('.agent-artifact-list')).toContainText('application-pipeline-package');
+    await expect(center.locator('.orchestration-gates')).toHaveCount(0);
+    expect(agentApi.orchestrationContinueRequests).toHaveLength(0);
+    await expect(center).toContainText('final_html');
+    await expect(center).toContainText('HTML');
+    const finalHtml = center.getByTestId('agent-orchestration-html-result');
+    await expect(finalHtml).toHaveAttribute('sandbox', '');
+    await expect(finalHtml).not.toHaveAttribute('allow');
+    await expect(page.frameLocator('[data-testid="agent-orchestration-html-result"]')
+      .getByRole('heading', { name: 'Synthetische finale Agenten-HTML-Version' })).toBeVisible();
 
     await center.locator('select[name="orchestrationWorkflow"]').selectOption('guided-job-analysis');
     await center.locator('textarea[name="orchestrationPrompt"]').fill('Synthetische parallele Stellenanalyse starten');

@@ -100,7 +100,7 @@ Anzeigepfade sind segmentweise validiert und werden nicht als frei wählbare Sch
 
 Listen, Metadaten, UTF-8-Inhalt und begrenzte Textdiffs sind rungebunden lesbar. `approved` und
 `rejected` erfordern Bestätigung und erwartete Revision. Die bestätigte Agenten-Adopt-Route kann nur
-ein freigegebenes `application-pipeline-package` an den injizierten fachlichen Port übergeben. Er
+ein freigegebenes Legacy-`application-pipeline-package` aus Workflow 1.0 an den injizierten fachlichen Port übergeben. Er
 validiert es idempotent, führt die Pipeline erneut aus und erzeugt eine neue fachliche Revision im
 Zustand `proposed`. Ergebnis-IDs müssen der gespeicherten Case-/Job-/Firmen-Provenance entsprechen;
 Inkognito-Artefakte werden vor dem Portaufruf blockiert.
@@ -146,17 +146,16 @@ Das Schema `contracts/v1/application-agent-orchestration.schema.json` bindet Wor
 Provider, Scope, Prompt-Hash, Revision, Nodes, Run-IDs, Input-Digests, Budgets, Gates und
 Artefaktreferenzen. Eine Orchestrierung kann nur mit ihrer aktuellen Revision fortgesetzt oder
 abgebrochen werden. Der Browser kann `evidence_complete` nicht behaupten. Im aktuellen
-`evidence-application-package@1.0.0` ist `user_input` das einzige browserauflösbare Vor-Gate des
-Finalizers; es ist an die aktuelle ApplicationCase-Revision und die bewusste Bestätigung gebunden.
-`review_complete` ist kein Vor-Gate dieses Finalizers.
+`evidence-application-package@1.1.0` besitzt der Finalizer kein Browser-Gate; `user_input` und
+`review_complete` sind dort keine Vor-Gates.
 
-`evidence-application-package@1.0.0` besteht aus fünf separaten Node-Runs: Evidence, Author, ATS,
+`evidence-application-package@1.1.0` besteht aus fünf separaten Node-Runs: Evidence, Author, ATS,
 Recruiter/Style und Finalizer. ATS und Recruiter/Style erhalten denselben annotierten Rohentwurf in
-getrennten Rollenläufen; der Finalizer erhält beide Rohreviews und die Evidence-Matrix. Sein
-geschlossenes Ergebnisformat ist `application-pipeline-package`; es bleibt als
-`package_proposal` ein Vorschlag. Erst Artefakt-Review und Adoption erzeugen über die erneut
-ausgeführte lokale Pipeline eine fachliche Vorschlagsrevision. Danach folgen Revisionsreview,
-exakte Fallfreigabe sowie `used` beziehungsweise Export für dieselbe Revisions-ID und SHA-256.
+getrennten Rollenläufen; der Finalizer erhält beide Rohreviews und die Evidence-Matrix automatisch.
+Sein geschlossenes Ergebnisformat ist ein vollständiges HTML5-Dokument. Der Server veröffentlicht
+die normalisierte, content-addressed Ausgabe als `application-final-html`/`final_html` über eine
+Route, die Orchestrierungs-ID und vollständigen SHA-256 verlangt. Die HTML-Anzeige benötigt keine
+weitere Nutzerentscheidung und verleiht keine Export-, Versand- oder Submission-Berechtigung.
 
 ## Provider-spezifische Verträge
 

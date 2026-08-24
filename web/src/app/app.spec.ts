@@ -282,21 +282,20 @@ function cvAiRunFixture(
   };
 }
 
-function orchestrationFixture(status: AgentOrchestrationRecord['status'] = 'waiting_for_gate'): AgentOrchestrationRecord {
+function orchestrationFixture(status: AgentOrchestrationRecord['status'] = 'running'): AgentOrchestrationRecord {
   const packageProposal = {
-    outputRef: 'package_proposal', artifactId: 'artifact-package', runId: 'run-finalizer',
+    outputRef: 'final_html', artifactId: 'artifact-html', runId: 'run-finalizer',
     sha256: '4'.repeat(64), lifecycle: 'proposed' as const
   };
   return {
     schemaVersion: 1, id: '33333333-3333-4333-8333-333333333333', revision: 1,
-    workflowId: 'evidence-application-package', workflowVersion: '1.0.0', providerId: 'codex', status,
+    workflowId: 'evidence-application-package', workflowVersion: '1.1.0', providerId: 'codex', status,
     producesSuggestionsOnly: true, promptSha256: '1'.repeat(64), redactedSummary: 'Evidence-Paket · getrennte Rollen · nur Vorschläge',
     scope: { applicationCaseId: applicationCaseFixture.id, applicationCaseRevision: applicationCaseFixture.revision, jobId: applicationCaseFixture.job.id, companyKey: 'beispiel', identityMode: 'real', workspaceRootId: 'workspace-local' },
     resolvedGates: [
-      { nodeId: 'evidence', gate: 'evidence_complete', authority: 'server_evidence', bindingSha256: '3'.repeat(64) },
-      ...(status === 'succeeded' ? [{ nodeId: 'finalizer', gate: 'user_input' as const, authority: 'server_revision_confirmation' as const, bindingSha256: '5'.repeat(64) }] : [])
+      { nodeId: 'evidence', gate: 'evidence_complete', authority: 'server_evidence', bindingSha256: '3'.repeat(64) }
     ],
-    unresolvedGates: status === 'waiting_for_gate' ? [{ nodeId: 'finalizer', gate: 'user_input' }] : [],
+    unresolvedGates: [],
     conflicts: [],
     nodes: [
       { nodeId: 'evidence', role: 'evidence_reviewer', dependsOn: [], status: 'succeeded', attempts: 1, runIds: ['run-evidence'], inputDigests: {}, artifacts: [{ outputRef: 'evidence_matrix', artifactId: 'artifact-evidence', runId: 'run-evidence', sha256: '2'.repeat(64), lifecycle: 'proposed' }] },
@@ -434,6 +433,8 @@ describe('App', () => {
       agentWorkflows: vi.fn().mockReturnValue(of([])),
       agentOrchestrations: vi.fn().mockReturnValue(of({ orchestrations: [] })),
       agentOrchestration: vi.fn(),
+      agentOrchestrationResultHtmlUrl: vi.fn().mockImplementation((orchestrationId: string, sha256: string) =>
+        `/api/agent-orchestrations/${orchestrationId}/result.html?sha256=${sha256}`),
       createAgentOrchestration: vi.fn(),
       continueAgentOrchestration: vi.fn(),
       cancelAgentOrchestration: vi.fn(),
@@ -1218,17 +1219,15 @@ describe('App', () => {
     fixture.destroy();
   });
 
-  it('starts without an existing document revision and continues only the user-input gate to a package proposal', async () => {
-    const waiting = orchestrationFixture();
-    const completed: AgentOrchestrationRecord = { ...orchestrationFixture('succeeded'), revision: 2, finishedAt: '2026-08-14T08:02:00Z' };
+  it('runs all five application roles and displays the final HTML without a continuation gate', async () => {
+    const completed: AgentOrchestrationRecord = { ...orchestrationFixture('succeeded'), finishedAt: '2026-08-14T08:02:00Z' };
     apiMock['agentWorkflows'].mockReturnValue(of([{
-      id: 'evidence-application-package', version: '1.0.0', title: 'Evidence-Bewerbungspaket', description: 'Getrennte Rollen.',
+      id: 'evidence-application-package', version: '1.1.0', title: 'Evidence-Bewerbungspaket', description: 'Getrennte Rollen.',
       requiredScope: 'application_case', producesSuggestionsOnly: true, prohibitedActions: ['submit_application']
     }]));
     apiMock['applicationCases'].mockReturnValue(of([applicationCaseFixture]));
     apiMock['applicationArtifacts'].mockReturnValue(of([]));
-    apiMock['createAgentOrchestration'].mockReturnValue(of(waiting));
-    apiMock['continueAgentOrchestration'].mockReturnValue(of(completed));
+    apiMock['createAgentOrchestration'].mockReturnValue(of(completed));
     const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
     const component = fixture.componentInstance;
     component.select('agents'); fixture.detectChanges(); await fixture.whenStable();
@@ -1241,14 +1240,19 @@ describe('App', () => {
       runtimeTarget: 'windows', applicationCaseId: applicationCaseFixture.id
     });
     expect(component.selectedAgentOrchestration?.nodes[0].artifacts[0].lifecycle).toBe('proposed');
-    component.agentOrchestrationUserInputConfirmed = true;
-    component.continueAgentOrchestration();
-    expect(apiMock['continueAgentOrchestration']).toHaveBeenCalledWith(waiting.id, 1, {
-      userInput: { confirmed: true }
-    });
+    expect(apiMock['continueAgentOrchestration']).not.toHaveBeenCalled();
     expect(component.selectedAgentOrchestration?.status).toBe('succeeded');
-    expect(component.selectedAgentOrchestration?.artifactRefs).toContainEqual(expect.objectContaining({ outputRef: 'package_proposal', lifecycle: 'proposed' }));
-    expect(component.notice).toContain('erfolgreiche Rollen werden nicht erneut ausgeführt');
+    expect(component.selectedAgentOrchestration?.artifactRefs).toContainEqual(expect.objectContaining({ outputRef: 'final_html', lifecycle: 'proposed' }));
+    expect(component.notice).toContain('finale HTML-Seite erscheint');
+    fixture.detectChanges();
+    const htmlResult = (fixture.nativeElement as HTMLElement)
+      .querySelector<HTMLIFrameElement>('[data-testid="agent-orchestration-html-result"]');
+    expect(htmlResult).toBeTruthy();
+    expect(htmlResult?.hasAttribute('sandbox')).toBe(true);
+    expect(htmlResult?.getAttribute('sandbox')).toBe('');
+    expect(htmlResult?.getAttribute('src')).toBe(
+      `/api/agent-orchestrations/${completed.id}/result.html?sha256=${'4'.repeat(64)}`,
+    );
     fixture.destroy();
   });
 
@@ -1939,7 +1943,7 @@ describe('App', () => {
     fixture.destroy();
   });
 
-  it('runs the real five-role chain before rendering an approved revision in a sandboxed HTML preview', async () => {
+  it('shows the five-role result directly while retaining the separately bound approved export renderer', async () => {
     const adopted = adoptedCvImportFixture();
     const cvCase: ApplicationCase = { ...structuredClone(applicationCaseFixture), documentType: 'cv' };
     const approvedCvCase: ApplicationCase = {
@@ -1972,10 +1976,10 @@ describe('App', () => {
     apiMock['saveCvTheme'].mockReturnValue(of(themed));
     apiMock['createCvProposal'].mockReturnValue(of(proposed));
     apiMock['agentWorkflows'].mockReturnValue(of([{
-      id: 'evidence-application-package', version: '1.0.0', title: 'Evidence-Bewerbungspaket', description: 'Fixture',
+      id: 'evidence-application-package', version: '1.1.0', title: 'Evidence-Bewerbungspaket', description: 'Fixture',
       requiredScope: 'application_case', producesSuggestionsOnly: true, prohibitedActions: ['submit_application']
     }]));
-    apiMock['createAgentOrchestration'].mockReturnValue(of(orchestrationFixture('waiting_for_gate')));
+    apiMock['createAgentOrchestration'].mockReturnValue(of(orchestrationFixture('running')));
     const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
     const component = fixture.componentInstance;
     component.select('cv'); fixture.detectChanges(); await fixture.whenStable();
@@ -1991,6 +1995,15 @@ describe('App', () => {
     }));
     expect(apiMock['createAgentOrchestration'].mock.calls[0]?.[0].prompt).toContain('ausschließlich bestätigte CandidateProfile-Claims');
     expect(component.cvAgentOrchestrationId).toBe('33333333-3333-4333-8333-333333333333');
+
+    component.agentOrchestrations = [orchestrationFixture('succeeded')];
+    component.cvStep = 6;
+    fixture.detectChanges();
+    const directResult = (fixture.nativeElement as HTMLElement)
+      .querySelector<HTMLIFrameElement>('[data-testid="cv-agent-html-result"]');
+    expect(directResult).toBeTruthy();
+    expect(directResult?.hasAttribute('sandbox')).toBe(true);
+    expect(directResult?.getAttribute('sandbox')).toBe('');
 
     component.applicationCases = [approvedCvCase];
     component.renderApprovedCvHtml();

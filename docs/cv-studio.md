@@ -109,8 +109,9 @@ synthetische Fixtures und Fake-Provider. Sie senden keinen Lebenslauf an einen e
    API-Key, self-hosted OSS-Instanz oder Login in ein eigenes Anbieterkonto); Bot-Erkennung oder
    Captchas Dritter werden nicht umgangen.
 5. **Zielstelle:** einen vorhandenen CV-Bewerbungsfall und damit exakt eine Stelle auswählen.
-6. **Prüfung/HTML:** den Workflow Evidence → Author → ATS + Recruiter/Style → Finalizer ausführen,
-   sein Artefakt menschlich prüfen und übernehmen und erst dann die freigegebene Revision rendern.
+6. **Agentenlauf & HTML:** den Workflow Evidence → Author → ATS + Recruiter/Style → Finalizer
+   einmal starten. Alle fünf Rollen laufen ohne Browser-Zwischengate; danach wird `final_html`
+   automatisch als vollständige HTML-Seite eingeblendet.
 
 Importierte, KI-strukturierte oder bearbeitete Inhalte sind zunächst `pending`. Die
 Gesamtbestätigung setzt nur die noch offenen Fakten des aktiven Erkennungsstands auf `confirmed`;
@@ -128,8 +129,14 @@ versionierte CandidateProfile-Änderung.
 ## Agenten- und Freigabegrenzen
 
 Der Lebenslauf-Workflow verwendet die bestehende fünfstufige Bewerbungs-Pipeline. Der Finalizer darf
-nur belegte CandidateProfile-Claims verwenden. Sein Ergebnis bleibt ein Vorschlag. HTML wird erst
-erzeugt, wenn exakt dieselbe CV-Dokumentrevision
+nur belegte CandidateProfile-Claims verwenden. Seit `evidence-application-package@1.1.0` liefert er
+direkt ein vollständiges HTML5-Dokument. Der Server entfernt aktive Inhalte und externe Ressourcen
+und zeigt die exakt hashgebundene Datei nach dem fünften erfolgreichen Lauf automatisch in einem
+sandboxed `iframe`; weder JSON noch Review, Adoption oder Fallfreigabe sind zum Ansehen nötig.
+
+Diese Sofortansicht ist noch kein Versand oder Export. Falls eine Dokumentrevision später über den
+separaten fachlichen Exportpfad verwendet werden soll, gelten dort weiterhin dessen eigene
+Bindungen. Eine exportierbare Revision muss
 
 - einen gültigen PipelineProof besitzt,
 - von einem `used`-Agentenartefakt des versionierten Finalizer-Workflows stammt,
@@ -137,20 +144,16 @@ erzeugt, wenn exakt dieselbe CV-Dokumentrevision
 - an denselben Bewerbungsfall und dieselbe Stelle gebunden ist und
 - mit Revisions-ID und SHA-256 im Fall freigegeben wurde.
 
-Die optionale Formatvorlage — ATS-Variante oder originalgetreue Variante — wird danach serverseitig auf
+Die optionale Formatvorlage — ATS-Variante oder originalgetreue Variante — wird in diesem getrennten
+Exportpfad serverseitig auf
 die freigegebene Revision angewendet und ihr Hash im CV-Importnachweis gespeichert. Auch die
 originalgetreue Variante rendert ausschließlich aus serverseitig abgeleiteten, auf sichere Hex-Werte
 begrenzten Stildaten; freies HTML/CSS bleibt ausgeschlossen. Das Ergebnis ist eigenständiges, escaped
 HTML mit CSP, ohne Skripte oder externe Ressourcen. Die Angular-Vorschau läuft in einem sandboxed `iframe`.
-Inkognito-Agentenläufe bleiben als nicht verwendbare Vorschlagsartefakte im Agent Center prüfbar.
-Sie können weder als fachliche Dokumentrevision übernommen noch über die Fallfreigabe finalisiert
-werden. Ihr Ergebnis ist jedoch sichtbar: Die Inkognito-Vorschau rendert `proposed`- und
-`approved`-Artefakte direkt, ohne Adoption und ohne Fallfreigabe, und persistiert dabei keinen
-Vorschlagsdatensatz — sie kann also nie zu einer freigegebenen Revision werden. Das Dokument trägt
-einen Inkognito-Hinweis im `<body>`, der den Download überdauert und den Artefaktstand benennt;
-`proposed` bedeutet dabei ausdrücklich, dass kein Mensch das Ergebnis bestätigt hat. Damit wird eine
-Scheinidentität nicht versehentlich zu einer verwendbaren Bewerbung, ohne dass ein Inkognito-Lauf
-ergebnislos bleibt.
+Inkognito-Agentenläufe erhalten dieselbe automatische HTML-Anzeige, aber mit sichtbarer
+Inkognito-Markierung im Dokument. Sie können weder als fachliche Dokumentrevision übernommen noch
+über Fallfreigabe, Export oder Versand verwendet werden. Damit bleibt auch ein Inkognito-Lauf
+unmittelbar sichtbar, ohne eine Scheinidentität versehentlich verwendbar zu machen.
 
 Der Job-Search-MCP bleibt davon getrennt: Er läuft ausschließlich als validierter Trusted-Host-
 stdio-Prozess und niemals innerhalb einer Agenten-, Container- oder Bubblewrap-Sandbox.

@@ -73,6 +73,8 @@ const SAFE_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]{0,179}$/;
 const SAFE_CONTEXT = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
 const ARTIFACT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SAFE_MEDIA_TYPE = /^(?:text\/(?:plain|markdown)|application\/json)(?:;\s*charset=utf-8)?$/i;
+const FINAL_HTML_KIND = 'application-final-html';
+const FINAL_HTML_MEDIA_TYPE = 'text/html; charset=utf-8';
 const SOURCE_REFERENCE = /^[a-z][a-z0-9+.-]{1,31}:[A-Za-z0-9][A-Za-z0-9._~:/-]{0,479}$/;
 const MAX_ARTIFACT_BYTES = 25 * 1024 * 1024;
 const MAX_DIFF_BYTES = 2 * 1024 * 1024;
@@ -110,6 +112,19 @@ function safeMetadata(value: string | undefined, required = false): string | und
   return value;
 }
 
+function artifactMediaTypeAllowed(kind: string, mediaType: string): boolean {
+  return SAFE_MEDIA_TYPE.test(mediaType) || (kind === FINAL_HTML_KIND && mediaType === FINAL_HTML_MEDIA_TYPE);
+}
+
+function finalHtmlContentAllowed(kind: string, content: string | Uint8Array): boolean {
+  if (kind !== FINAL_HTML_KIND) return true;
+  return typeof content === 'string' && /^<!doctype html>/i.test(content)
+    && content.includes('data-result="final-agent-html"')
+    && content.includes("default-src 'none'")
+    && !/<(?:script|iframe|object|embed|form|input|button|textarea|select|svg|math)(?:\s|>)/i.test(content)
+    && !/<[^>]+\s(?:href|src|action|on[a-z]+)\s*=/i.test(content);
+}
+
 function validateProvenance(value: AgentArtifactProvenance): AgentArtifactProvenance {
   if (!value || !['none', 'real', 'incognito'].includes(value.identityMode)) throw new Error('artifact_provenance_invalid');
   const provenance: AgentArtifactProvenance = {
@@ -140,7 +155,7 @@ function validateProvenance(value: AgentArtifactProvenance): AgentArtifactProven
 function validateRecord(record: AgentArtifactRecord): AgentArtifactRecord {
   if (record.schemaVersion !== 1 || !ARTIFACT_ID.test(record.id) || !SAFE_SEGMENT.test(record.kind)
     || !/^[a-f0-9]{64}$/.test(record.sha256) || !Number.isSafeInteger(record.bytes) || record.bytes < 0
-    || !SAFE_MEDIA_TYPE.test(record.mediaType) || !Number.isSafeInteger(record.revision) || record.revision < 0
+    || !artifactMediaTypeAllowed(record.kind, record.mediaType) || !Number.isSafeInteger(record.revision) || record.revision < 0
     || !['proposed', 'approved', 'used', 'rejected'].includes(record.lifecycle)
     || (record.contentState !== undefined && !['available', 'deleted'].includes(record.contentState))
     || !Number.isFinite(Date.parse(record.createdAt)) || !Number.isFinite(Date.parse(record.updatedAt))) {
@@ -186,7 +201,8 @@ export class AgentArtifactStore {
     const bytes = typeof input.content === 'string' ? Buffer.from(input.content, 'utf8') : Buffer.from(input.content);
     if (bytes.byteLength > MAX_ARTIFACT_BYTES) throw new Error('artifact_too_large');
     if (!SAFE_SEGMENT.test(input.kind)) throw new Error('artifact_kind_is_not_safe');
-    if (!SAFE_MEDIA_TYPE.test(input.mediaType)) throw new Error('artifact_media_type_not_allowed');
+    if (!artifactMediaTypeAllowed(input.kind, input.mediaType)) throw new Error('artifact_media_type_not_allowed');
+    if (!finalHtmlContentAllowed(input.kind, input.content)) throw new Error('artifact_final_html_not_normalized');
     const relativePath = ensureRelativePath(input.relativePath);
     const provenance = validateProvenance(input.provenance);
     return this.serialized(async () => {

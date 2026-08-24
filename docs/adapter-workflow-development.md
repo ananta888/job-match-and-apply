@@ -44,14 +44,14 @@ Retryklassen und Fehlerstrategie. Nur tatsächlich getrennte Runs mit getrenntem
 `declaredIndependentAgent:true` tragen. Outputs bleiben Vorschläge und erhalten Run-, Inputdigest-
 und Artefaktprovenienz.
 
-Fan-in entscheidet nicht durch Mehrheitsfiktion: abweichende ATS-/Style-Varianten bleiben sichtbar
-und blockieren den Finalizer bis zu einer revisions- und Variantendigest-gebundenen fachlichen
-Entscheidung. Gate-Fortsetzungen verwenden dieselben Budget- und Retryregeln wie der Erstlauf.
+Fan-in entscheidet nicht durch Mehrheitsfiktion: ATS und Recruiter/Style bleiben getrennte
+Rollenläufe und werden als komplementäre Rohreviews vollständig an den Finalizer übergeben.
 
-Im aktuellen `evidence-application-package@1.0.0` ist `user_input` das einzige
-browserauflösbare Vor-Gate des Finalizers. `review_complete` darf nicht vorgezogen werden: Der
-menschliche Review beginnt erst am neu erzeugten `package_proposal` und führt über Adoption und
-Pipeline-Revision zur exakten Fallfreigabe.
+Im aktuellen `evidence-application-package@1.1.0` läuft der Finalizer ohne Browser-Gate. Sein
+Output-Ref `final_html` verlangt ein vollständiges HTML5-Dokument und verbietet JSON, Skripte,
+Formulare, Navigation und externe Ressourcen. Neue Workflowänderungen an Gates oder Outputformat
+benötigen eine neue Workflowversion; alte `package_proposal`-Artefakte bleiben nur als
+Kompatibilitätsformat lesbar.
 
 Für Bewerbungsdokumente gilt zusätzlich die lokale Skill-Pipeline: Stellenanalyse, Match-Matrix,
 offene Fragen, Evidence, Author, ATS, Recruiter/Style und Finalizer. Erst der anschließende

@@ -51,14 +51,14 @@ Subagent-Werkzeuge sind durch eine feste servereigene Policy entfernt.
 ## Bewerbungs- und Revisionsgrenze
 
 Die lokal verdrahtete Kette führt Evidence → Author → ATS und Recruiter/Style → Finalizer als getrennte
-Node-Runs aus. Das einzige browserauflösbare Vor-Gate des Finalizers ist `user_input`; ein
-`review_complete`-Vor-Gate existiert nicht. Das Finalizer-Ergebnis bleibt als `package_proposal`
-ein `proposed` Agentenartefakt. Nach menschlichem Artefakt-Review führt die Adopt-Route den
-annotierten Inhalt und das Iterationsmanifest erneut durch die lokale Evidence-, Stil- und
-Sprachpipeline und erzeugt erst dann eine fachliche Vorschlagsrevision.
+Node-Runs aus. Im aktuellen Workflow besitzt der Finalizer weder `user_input` noch
+`review_complete` als Vor-Gate; getrennte ATS-/Style-Ergebnisse werden vollständig und automatisch
+eingespeist. Das Ergebnis `final_html` wird beim Speichern auf eine kontrollierte semantische
+Tagmenge reduziert. Skripte, Eventhandler, Formulare, Navigation und externe Ressourcen werden
+entfernt; zusätzlich gelten CSP, `nosniff`, Same-Origin und ein leeres iframe-`sandbox`.
 
-Inkognito darf Vorschau und Review erreichen. Adoption als reale Revision, Fallfreigabe, `used`
-und Export sind gesperrt. Review, Fallgenehmigung, `use` und Export prüfen ihre jeweils
+Inkognito darf die deutlich markierte HTML-Vorschau erreichen. Adoption als reale Revision,
+Fallfreigabe, `used` und Export sind gesperrt. Review, Fallgenehmigung, `use` und Export prüfen ihre jeweils
 servergelieferten Revisions- und Hashbindungen; es gibt keinen freien Lifecycle-Schalter und keinen
 automatischen Submission-Pfad.
 

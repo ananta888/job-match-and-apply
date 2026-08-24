@@ -146,18 +146,16 @@ Evidence → Author → ┬→ ATS ─────────────┐
 
 Der Server löst Inputs aus dem aktuellen Suchprofil, Job, Kandidatenprofil, Bewerbungsfall und den
 vorherigen Rohartefakten auf und speichert ihre Digests. Nur `verified` und `user_confirmed` Claims
-mit Evidence-Referenzen erfüllen das Evidence-Gate. Abweichende ATS-/Style-Varianten bleiben bis zu
-einer expliziten, revisions- und Variantendigest-gebundenen Konfliktentscheidung sichtbar. Das
-einzige browserauflösbare Vor-Gate des Finalizers ist `user_input`, gebunden an die aktuelle
-ApplicationCase-Revision und die ausdrückliche Bestätigung; `review_complete` ist kein Vor-Gate
-dieses Workflows. Eine wartende Orchestrierung lässt sich nur mit ihrer aktuellen Revision und
-passend gebundener Bestätigung fortsetzen; Cancel ist ebenfalls revisionsgebunden.
+mit Evidence-Referenzen erfüllen das servereigene Evidence-Gate. ATS und Recruiter/Style prüfen
+weiterhin getrennt; beide Rohreviews werden automatisch an den Finalizer übergeben. Im
+`evidence-application-package@1.1.0` gibt es weder ein browserauflösbares `user_input`-Gate noch
+eine manuelle Fan-in-Entscheidung. Cancel bleibt revisionsgebunden.
 
-Der Finalizer darf ausschließlich ein JSON-`application-pipeline-package` mit
-`annotatedContent` und `iterationManifest` erzeugen. Das Ergebnis ist weiterhin `proposed`; die
-Orchestrierung genehmigt, exportiert oder versendet nichts. Die `package_proposal` durchläuft erst
-danach Artefakt-Review, Adoption mit erneuter lokaler Pipelinevalidierung, eine fachliche
-Vorschlagsrevision, deren Review, die exakte Fallfreigabe sowie `used` beziehungsweise Export.
+Der Finalizer liefert ausschließlich ein vollständiges HTML5-Dokument als `final_html`, kein
+JSON-Paket. Der Server normalisiert es auf eine CSP-geschützte Seite ohne aktive oder externe
+Inhalte. Nach dem fünften erfolgreichen Node zeigt das Agent Center die exakt hashgebundene Route
+automatisch in einem sandboxed `iframe`. Die Anzeige selbst genehmigt, exportiert oder versendet
+nichts; solche späteren Aktionen bleiben eigene fachliche Wege.
 
 ## Artefakte und fachliche Übernahme
 
@@ -167,7 +165,8 @@ Job, Firmenschlüssel und Identitätsmodus stammen aus serverseitigem Kontext. A
 Metadaten, UTF-8-Inhalt und begrenzte Textdiffs anzeigen sowie eine exakte Artefaktrevision
 freigeben oder ablehnen.
 
-Nur ein freigegebenes `application-pipeline-package` mit realer Identität kann über die bestätigte
+Der getrennte Legacy-Adoptionspfad für bestehende Workflow-1.0-Artefakte akzeptiert nur ein
+freigegebenes `application-pipeline-package` mit realer Identität und kann es über die bestätigte
 Adopt-Aktion weitergegeben werden. Der servereigene Port führt die vollständige lokale
 Bewerbungs-Pipeline erneut aus und erstellt eine neue fachliche Dokumentrevision im Zustand
 `proposed`. Danach folgen getrennt:

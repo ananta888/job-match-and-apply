@@ -301,6 +301,7 @@ export class App implements OnInit, OnDestroy {
   private agentPreflightFingerprint?: string;
   private readonly agentRecoveryLeases = new Map<string, AgentRecoveryLease>();
   private readonly agentEventIndex = new Map<number, AgentRunEvent>();
+  private readonly agentOrchestrationResultUrls = new Map<string, SafeResourceUrl>();
   private agentTimelineCache?: { source: AgentRunEvent[]; search: string; type: string; level: AgentEventLevelFilter; entries: AgentTimelineEntry[] };
   private agentEventTypesCache?: { source: AgentRunEvent[]; types: string[] };
   private agentMotionMedia?: MediaQueryList;
@@ -403,7 +404,8 @@ export class App implements OnInit, OnDestroy {
 
   select(section: Section): void {
     this.section = section; this.notice = ''; this.error = '';
-    if (section !== 'agents') { this.stopAgentPolling(); this.stopAgentStream(); this.closeAgentRecoveryDialog(); }
+    if (section !== 'agents' && section !== 'cv') this.stopAgentPolling();
+    if (section !== 'agents') { this.stopAgentStream(); this.closeAgentRecoveryDialog(); }
     if (section !== 'cv') this.stopCvAiPolling();
     if (section === 'jobs') this.loadJobs();
     if (section === 'identity') { this.loadProfileSetup(); this.loadCandidateProfile(); }
@@ -435,6 +437,7 @@ export class App implements OnInit, OnDestroy {
       error: (error) => { this.cvError = this.message(error); this.refreshView(); }
     });
     if (this.cvImport) { this.loadCvRecognitionVersions(); this.loadCvAiStructuringState(); }
+    this.startAgentPolling();
   }
 
   loadAgentConfigProfile(): void {
@@ -802,7 +805,9 @@ export class App implements OnInit, OnDestroy {
           && created.scope.applicationCaseId === this.cvSelectedApplicationCaseId) this.cvAgentOrchestrationId = created.id;
         this.agentOrchestrationForm.prompt = '';
         this.agentOrchestrationForm.userInputConfirmed = false;
-        this.notice = `Multi-Agent-Workflow ${created.id} wurde serverseitig angenommen; alle Ergebnisse bleiben Vorschläge.`;
+        this.notice = created.workflowId === 'evidence-application-package'
+          ? `Alle fünf Agenten laufen automatisch. Die finale HTML-Seite erscheint hier, sobald der Finalizer fertig ist.`
+          : `Multi-Agent-Workflow ${created.id} wurde serverseitig angenommen.`;
         this.refreshView();
       },
       error: (error) => { this.agentOrchestrationBusy = false; this.agentOrchestrationError = this.message(error); this.refreshView(); }
@@ -811,6 +816,33 @@ export class App implements OnInit, OnDestroy {
 
   agentOrchestrationHasGate(gate: AgentOrchestrationGate): boolean {
     return this.selectedAgentOrchestration?.unresolvedGates.some((item) => item.gate === gate) ?? false;
+  }
+  agentOrchestrationResultArtifact(
+    orchestration: AgentOrchestrationRecord
+  ): AgentOrchestrationRecord['artifactRefs'][number] | undefined {
+    if (orchestration.workflowId !== 'evidence-application-package' || orchestration.status !== 'succeeded') return undefined;
+    const packages = orchestration.artifactRefs.filter((artifact) => ['final_html', 'package_proposal'].includes(artifact.outputRef));
+    if (packages.length !== 1) return undefined;
+    const result = packages[0];
+    const finalizer = orchestration.nodes.find((node) => node.nodeId === 'finalizer' && node.role === 'finalizer');
+    if (finalizer?.status !== 'succeeded' || !finalizer.artifacts.some((artifact) =>
+      artifact.outputRef === result.outputRef && artifact.artifactId === result.artifactId
+      && artifact.runId === result.runId && artifact.sha256 === result.sha256)) return undefined;
+    return result;
+  }
+  agentOrchestrationResultUrl(orchestration: AgentOrchestrationRecord): SafeResourceUrl | undefined {
+    const artifact = this.agentOrchestrationResultArtifact(orchestration);
+    if (!artifact
+      || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(orchestration.id)
+      || !/^[a-f0-9]{64}$/.test(artifact.sha256)) return undefined;
+    const cacheKey = `${orchestration.id}:${artifact.sha256}`;
+    const cached = this.agentOrchestrationResultUrls.get(cacheKey);
+    if (cached) return cached;
+    const route = this.api.agentOrchestrationResultHtmlUrl(orchestration.id, artifact.sha256);
+    if (!/^\/api\/agent-orchestrations\/[0-9a-f-]{36}\/result\.html\?sha256=[a-f0-9]{64}$/i.test(route)) return undefined;
+    const trusted = this.sanitizer.bypassSecurityTrustResourceUrl(route);
+    this.agentOrchestrationResultUrls.set(cacheKey, trusted);
+    return trusted;
   }
   agentOrchestrationConflictKey(conflict: AgentOrchestrationConflict): string {
     return `${this.selectedAgentOrchestration?.id ?? 'none'}:${conflict.id}`;
@@ -1837,7 +1869,8 @@ export class App implements OnInit, OnDestroy {
   private startAgentPolling(): void {
     this.stopAgentPolling();
     this.agentPollHandle = setInterval(() => {
-      if (this.section === 'agents') { this.refreshAgentRuns(); this.refreshAgentOrchestrations(); }
+      if (this.section === 'agents') this.refreshAgentRuns();
+      if (this.section === 'agents' || this.section === 'cv') this.refreshAgentOrchestrations();
     }, 2500);
   }
   private stopAgentPolling(): void {
@@ -4089,7 +4122,7 @@ export class App implements OnInit, OnDestroy {
     this.cvError = ''; this.agentOrchestrationError = '';
     this.agentOrchestrationForm = {
       workflowId: workflow.id, providerId,
-      prompt: `Erstelle einen belegbasierten ATS-sicheren Lebenslauf für den ausgewählten Bewerbungsfall ${application.id}. Verwende ausschließlich bestätigte CandidateProfile-Claims und die serverseitig gespeicherten Stilvorgaben. Alle Ergebnisse bleiben prüfpflichtige Vorschläge.`,
+      prompt: `Erstelle einen belegbasierten ATS-sicheren Lebenslauf für den ausgewählten Bewerbungsfall ${application.id}. Verwende ausschließlich bestätigte CandidateProfile-Claims und die serverseitig gespeicherten Stilvorgaben. Der fünfte Agent liefert die direkt sichtbare finale HTML-Fassung.`,
       runtimeTarget: this.agentOrchestrationForm.runtimeTarget,
       ...(this.agentOrchestrationForm.runtimeTarget === 'wsl' && this.agentOrchestrationForm.wslDistribution
         ? { wslDistribution: this.agentOrchestrationForm.wslDistribution } : {}),

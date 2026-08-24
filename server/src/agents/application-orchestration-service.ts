@@ -20,7 +20,6 @@ import {
   newApplicationOrchestrationId,
   type ApplicationOrchestrationArtifactReference,
   type ApplicationOrchestrationConflict,
-  type ApplicationOrchestrationConflictVariant,
   type ApplicationOrchestrationRecord,
   type ApplicationOrchestrationScope,
   type ApplicationOrchestrationStore,
@@ -31,6 +30,7 @@ import {
   projectApplicationNextActionsProposal,
   projectEmployerResponseTriageProposal,
 } from './application-agent-proposals.js';
+import { normalizeApplicationFinalHtml, parseApplicationPipelinePackage } from './application-result-html.js';
 
 export type ApplicationOrchestrationControlPort = Pick<AgentControlCenter, 'enqueue' | 'get' | 'events' | 'cancel'>;
 
@@ -314,23 +314,6 @@ function completedText(events: readonly AgentEvent[], maximumBytes: number): str
   if (!output) throw new Error('agent_proposal_output_missing');
   if (Buffer.byteLength(output, 'utf8') > maximumBytes) throw new Error('agent_proposal_output_too_large');
   return output;
-}
-
-function pipelinePackageProposal(content: string): { annotatedContent: string; iterationManifest: string } {
-  let parsed: unknown;
-  try { parsed = JSON.parse(content); }
-  catch { throw new Error('application_pipeline_package_json_invalid'); }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new Error('application_pipeline_package_contract_invalid');
-  }
-  const value = parsed as Record<string, unknown>;
-  if (Object.keys(value).length !== 2
-    || !Object.hasOwn(value, 'annotatedContent') || !Object.hasOwn(value, 'iterationManifest')
-    || typeof value.annotatedContent !== 'string' || !value.annotatedContent.trim() || value.annotatedContent.length > 200_000
-    || typeof value.iterationManifest !== 'string' || !value.iterationManifest.trim() || value.iterationManifest.length > 200_000) {
-    throw new Error('application_pipeline_package_contract_invalid');
-  }
-  return { annotatedContent: value.annotatedContent, iterationManifest: value.iterationManifest };
 }
 
 class AsyncSemaphore {
@@ -831,18 +814,6 @@ export class ApplicationAgentOrchestrationService {
         status: 'policy_blocked', runId: `unstarted-${request.node.id}-${request.attempt}`,
         failureCategory: 'policy_blocked', reason: stopped,
       };
-      if (!await this.ensureFanInResolved(orchestrationId, request.node)) {
-        await this.mutate(orchestrationId, (record) => this.updateNode(record, request.node.id, (node) => ({
-          ...node,
-          status: 'policy_blocked',
-          failureCategory: 'policy_blocked',
-          reason: 'fan_in_conflict_requires_domain_resolution',
-        })));
-        return {
-          status: 'policy_blocked', runId: `unstarted-${request.node.id}-${request.attempt}`,
-          failureCategory: 'policy_blocked', reason: 'fan_in_conflict_requires_domain_resolution',
-        };
-      }
       const startBudgetFailure = this.nodeStartBudgetFailure(await this.required(orchestrationId), plan, request.node);
       if (startBudgetFailure) {
         await this.stopForBudget(orchestrationId, startBudgetFailure);
@@ -1033,11 +1004,11 @@ export class ApplicationAgentOrchestrationService {
       ? [
           '',
           'Closed output contract (mandatory):',
-          '- Return exactly one JSON object and no Markdown fence or surrounding prose.',
-          '- It must contain exactly the two string properties "annotatedContent" and "iterationManifest".',
-          '- annotatedContent is the final evidence-annotated document proposal.',
-          '- iterationManifest is a YAML manifest accepted by validate_iteration.py in rigorous mode.',
-          '- The rigorous manifest records evidence_reviewer, author, ats_reviewer, recruiter_style_reviewer and finalizer in that order; every pass has independent_context: true, chained input/output revisions and explicit finding dispositions.',
+          '- Return exactly one complete HTML5 document and no JSON, Markdown fence or surrounding prose.',
+          '- Start with <!doctype html> and include html, head, title and body.',
+          '- Put the finished, directly readable application document in the body.',
+          '- Use semantic HTML only. Do not include scripts, forms, iframes, event handlers, remote resources, navigation or external links.',
+          '- Resolve both reviews in the final document without exposing internal evidence annotations, review logs or iteration metadata.',
         ]
       : workflow.id === 'employer-response-triage' && request.node.role === 'response_drafter'
         ? [
@@ -1164,45 +1135,6 @@ export class ApplicationAgentOrchestrationService {
           ? allowedRootDomainTools({ applicationCaseId: input.scope.applicationCaseId, metadata: metadataBase }) : [],
       },
     };
-  }
-
-  private async ensureFanInResolved(orchestrationId: string, node: OrchestrationNode): Promise<boolean> {
-    if (node.role !== 'finalizer') return true;
-    const current = await this.required(orchestrationId);
-    const reviewerNodes = current.nodes.filter((candidate) => node.dependsOn.includes(candidate.nodeId)
-      && ['ats_reviewer', 'recruiter_style_reviewer'].includes(candidate.role));
-    if (reviewerNodes.length < 2) return true;
-    const variants: ApplicationOrchestrationConflictVariant[] = reviewerNodes.flatMap((candidate) => candidate.artifacts.map((artifact) => ({
-      sourceNodeId: candidate.nodeId,
-      sourceRole: candidate.role,
-      outputRef: artifact.outputRef,
-      runId: artifact.runId,
-      artifactId: artifact.artifactId,
-      sha256: artifact.sha256,
-    }))).sort((left, right) => left.sourceNodeId.localeCompare(right.sourceNodeId)
-      || left.outputRef.localeCompare(right.outputRef) || left.artifactId.localeCompare(right.artifactId));
-    if (variants.length < 2) throw new Error('fan_in_review_variant_missing');
-    const variantsSha256 = sha256(JSON.stringify(variants));
-    const existing = (current.conflicts ?? []).find((candidate) => candidate.targetNodeId === node.id
-      && candidate.variantsSha256 === variantsSha256);
-    if (existing) return existing.status !== 'unresolved';
-    const equivalent = variants.every((variant) => variant.sha256 === variants[0]!.sha256);
-    const conflict: ApplicationOrchestrationConflict = {
-      id: `fan-in-${node.id}-${variantsSha256.slice(0, 16)}`,
-      targetNodeId: node.id,
-      kind: 'ats_style_fan_in',
-      status: equivalent ? 'equivalent' : 'unresolved',
-      requiresDomainResolution: !equivalent,
-      variantsSha256,
-      variants,
-    };
-    await this.mutate(orchestrationId, (record) => ({
-      ...record,
-      conflicts: [...(record.conflicts ?? []), conflict],
-      status: equivalent ? record.status : 'waiting_for_gate',
-      updatedAt: nowIso(this.now),
-    }));
-    return equivalent;
   }
 
   private conflictResolutionInputs(
@@ -1381,7 +1313,9 @@ export class ApplicationAgentOrchestrationService {
     } : provenanceBase;
     const references: ApplicationOrchestrationArtifactReference[] = [];
     for (const outputRef of request.node.outputRefs) {
-      const isPipelinePackage = workflow.id === 'evidence-application-package'
+      const isFinalHtml = workflow.id === 'evidence-application-package'
+        && request.node.role === 'finalizer' && outputRef === 'final_html';
+      const isLegacyPipelinePackage = workflow.id === 'evidence-application-package'
         && request.node.role === 'finalizer' && outputRef === 'package_proposal';
       const isEmployerProposal = workflow.id === 'employer-response-triage'
         && request.node.role === 'response_drafter' && outputRef === 'response_and_calendar_proposal';
@@ -1390,8 +1324,14 @@ export class ApplicationAgentOrchestrationService {
       let artifactContent = content;
       let kind = `agent-proposal-${outputRef}`.slice(0, 180);
       let mediaType = 'text/markdown; charset=utf-8';
-      if (isPipelinePackage) {
-        artifactContent = JSON.stringify(pipelinePackageProposal(content));
+      if (isFinalHtml) {
+        artifactContent = normalizeApplicationFinalHtml(content, {
+          identityMode: input.scope.identityMode === 'incognito' ? 'incognito' : 'real',
+        });
+        kind = 'application-final-html';
+        mediaType = 'text/html; charset=utf-8';
+      } else if (isLegacyPipelinePackage) {
+        artifactContent = JSON.stringify(parseApplicationPipelinePackage(content));
         kind = 'application-pipeline-package';
         mediaType = 'application/json';
       } else if (isEmployerProposal) {

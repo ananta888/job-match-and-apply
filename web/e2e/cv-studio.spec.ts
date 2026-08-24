@@ -16,7 +16,7 @@ async function expectAxeClean(page: Page, selector: string): Promise<void> {
 }
 
 test.describe('Lebenslauf-Studio – vollständiger Offline-Vertrag', () => {
-  test('imports, reviews, adopts, orchestrates and renders only the approved HTML revision', async ({ page, agentApi }) => {
+  test('imports, adopts and displays the fifth agent result directly as HTML', async ({ page, agentApi }) => {
     test.setTimeout(60_000);
     const application = agentApi.seedCvPipelineCase();
     await openCvStudio(page);
@@ -74,45 +74,24 @@ test.describe('Lebenslauf-Studio – vollständiger Offline-Vertrag', () => {
     await expect(target).toContainText('Angular Engineer');
     await target.getByRole('button', { name: 'Agentenkette öffnen →', exact: true }).click();
     const pipeline = page.getByTestId('cv-pipeline-step');
-    await expect(pipeline.getByTestId('cv-render-approved')).toBeDisabled();
-    await expect(pipeline).toContainText('Agentenrevision muss zuerst geprüft');
+    await expect(pipeline).toContainText('kein manuelles Fortsetzen nötig');
 
     await pipeline.getByTestId('cv-agent-start').click();
     await expect.poll(() => agentApi.orchestrationCreateRequests.length).toBe(1);
     expect(agentApi.orchestrationCreateRequests[0]).toMatchObject({
-      workflowId: 'evidence-application-package', providerId: 'fake-interactive', runtimeTarget: 'windows',
+      workflowId: 'evidence-application-package', providerId: 'codex-exec', runtimeTarget: 'windows',
       applicationCaseId: application.id
     });
     expect(agentApi.orchestrationCreateRequests[0]?.prompt).toContain('ausschließlich bestätigte CandidateProfile-Claims');
     await expect(pipeline.locator('.cv-agent-progress')).toContainText('evidence_reviewer');
     await expect(pipeline.locator('.cv-agent-progress')).toContainText('finalizer');
-
-    const approved = agentApi.approveCvCaseForHtml(application.id);
-    await pipeline.getByRole('button', { name: 'Fallstatus aktualisieren', exact: true }).click();
-    await expect(pipeline.getByTestId('cv-render-approved')).toBeEnabled();
-    await pipeline.getByTestId('cv-render-approved').click();
-    await expect.poll(() => agentApi.cvHtmlRenderRequests.length).toBe(1);
-    expect(agentApi.cvHtmlRenderRequests[0]).toEqual({
-      caseId: application.id,
-      body: {
-        importId: '66666666-6666-4666-8666-666666666666', expectedRevision: 5, expectedSha256: '5'.repeat(64),
-        documentRevisionId: approved.approvedArtifactRevisionId,
-        expectedDocumentSha256: approved.approvedArtifactSha256, confirmed: true
-      }
-    });
-    const preview = pipeline.getByTestId('cv-html-preview');
+    const preview = pipeline.getByTestId('cv-agent-html-result');
     await expect(preview).toHaveAttribute('sandbox', '');
     await expect(preview).not.toHaveAttribute('allow');
-    await expect(page.frameLocator('[data-testid="cv-html-preview"]').getByRole('heading', { name: 'Synthetischer HTML-Lebenslauf' })).toBeVisible();
-    await expect(pipeline).toContainText('approved_revision_preview');
-    await expect(pipeline).toContainText(approved.approvedArtifactRevisionId!);
-
-    const download = page.waitForEvent('download');
-    await pipeline.getByTestId('cv-html-download').click();
-    expect((await download).suggestedFilename()).toBe('lebenslauf.html');
-    await expect.poll(() => agentApi.cvHtmlDownloadRequests.length).toBe(1);
-    expect(agentApi.cvHtmlDownloadRequests[0]).toContain(`sha256=${'e'.repeat(64)}`);
-    expect(agentApi.cvHtmlDownloadRequests[0]).toContain('download=true');
+    await expect(page.frameLocator('[data-testid="cv-agent-html-result"]')
+      .getByRole('heading', { name: 'Synthetische finale Agenten-HTML-Version' })).toBeVisible();
+    expect(agentApi.orchestrationContinueRequests).toHaveLength(0);
+    expect(agentApi.cvHtmlRenderRequests).toHaveLength(0);
     await expectAxeClean(page, '[data-testid="cv-pipeline-step"]');
   });
 

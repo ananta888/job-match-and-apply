@@ -89,6 +89,7 @@ import { createRunBoundAgentDomainPorts } from './services/agent-domain-ports.js
 import { VerifiedApplicationArtifactAdoptionPort } from './services/agent-artifact-adoption.js';
 import { ApplicationAgentOrchestrationService, type RevisionBoundGateConfirmation } from './agents/application-orchestration-service.js';
 import { JsonApplicationOrchestrationStore, MemoryApplicationOrchestrationStore } from './agents/application-orchestration-store.js';
+import { parseApplicationPipelinePackage, renderApplicationPipelinePackageHtml } from './agents/application-result-html.js';
 import { LocalApplicationOrchestrationDomain } from './services/application-orchestration-domain.js';
 import { ApplicationStyleProfileStore } from './services/style-profile.js';
 import { SubmoduleCvNormalizationAdapter } from './adapters/submodule-cv-normalization.js';
@@ -1409,6 +1410,55 @@ export function createApp(
     if (!orchestration) { response.status(404).json({ error: 'Agentenorchestrierung nicht gefunden.' }); return; }
     response.setHeader('cache-control', 'no-store');
     response.json(orchestration);
+  }));
+
+  app.get('/api/agent-orchestrations/:orchestrationId/result.html', asyncRoute(async (request, response) => {
+    const id = z.string().uuid().parse(request.params.orchestrationId);
+    const query = z.object({ sha256: z.string().regex(/^[a-f0-9]{64}$/) }).strict().parse(request.query);
+    const orchestration = await orchestrationService.get(id);
+    if (!orchestration) throw Object.assign(new Error('Agentenorchestrierung nicht gefunden.'), { statusCode: 404 });
+    if (orchestration.workflowId !== 'evidence-application-package' || orchestration.status !== 'succeeded') {
+      throw Object.assign(new Error('Die finale HTML-Fassung ist erst nach allen fünf erfolgreichen Agenten verfügbar.'), { statusCode: 409 });
+    }
+    const references = orchestration.artifactRefs.filter((candidate) => ['final_html', 'package_proposal'].includes(candidate.outputRef));
+    const reference = references.length === 1 ? references[0] : undefined;
+    const directHtml = reference?.outputRef === 'final_html';
+    const finalizer = orchestration.nodes.find((node) => node.nodeId === 'finalizer' && node.role === 'finalizer');
+    if (!reference || reference.sha256 !== query.sha256 || finalizer?.status !== 'succeeded'
+      || !finalizer.artifacts.some((candidate) => candidate.outputRef === reference.outputRef && candidate.artifactId === reference.artifactId
+        && candidate.runId === reference.runId && candidate.sha256 === reference.sha256)) {
+      throw Object.assign(new Error('Die HTML-Fassung stimmt nicht mit dem abgeschlossenen Finalizer-Ergebnis überein.'), { statusCode: 409 });
+    }
+    const { record: artifact, content } = await agentApi.artifacts.read(reference.artifactId);
+    if (artifact.sha256 !== reference.sha256 || artifact.provenance.runId !== reference.runId
+      || (directHtml
+        ? artifact.kind !== 'application-final-html' || artifact.mediaType !== 'text/html; charset=utf-8'
+        : artifact.kind !== 'application-pipeline-package' || artifact.mediaType !== 'application/json')
+      || artifact.provenance.workflowId !== orchestration.workflowId
+      || artifact.provenance.workflowVersion !== orchestration.workflowVersion
+      || artifact.provenance.templateId !== 'evidence-application-package-finalizer'
+      || artifact.provenance.applicationCaseId !== orchestration.scope.applicationCaseId
+      || artifact.provenance.identityMode !== orchestration.scope.identityMode) {
+      throw Object.assign(new Error('Die Finalizer-Provenienz der HTML-Fassung ist nicht vollständig gebunden.'), { statusCode: 409 });
+    }
+    let packageContent: string;
+    try { packageContent = new TextDecoder('utf-8', { fatal: true }).decode(content); }
+    catch { throw Object.assign(new Error('Das Finalizer-Ergebnis ist kein gültiger UTF-8-Text.'), { statusCode: 409 }); }
+    if (directHtml && (!/^<!doctype html>/i.test(packageContent)
+      || !packageContent.includes('data-result="final-agent-html"')
+      || /<(?:script|iframe|object|embed|form|input|button|textarea|select|svg|math)(?:\s|>)/i.test(packageContent))) {
+      throw Object.assign(new Error('Das Finalizer-HTML verletzt den sicheren Anzeigevertrag.'), { statusCode: 409 });
+    }
+    const html = directHtml ? packageContent : renderApplicationPipelinePackageHtml(parseApplicationPipelinePackage(packageContent), {
+      artifactSha256: artifact.sha256,
+      identityMode: artifact.provenance.identityMode === 'incognito' ? 'incognito' : 'real',
+      artifactLifecycle: artifact.lifecycle,
+    });
+    response.setHeader('cache-control', 'no-store');
+    response.setHeader('content-security-policy', "default-src 'none'; style-src 'unsafe-inline'; img-src data:; form-action 'none'; base-uri 'none'; sandbox");
+    response.setHeader('x-content-type-options', 'nosniff');
+    response.setHeader('x-frame-options', 'SAMEORIGIN');
+    response.type('html').send(html);
   }));
 
   app.post('/api/agent-orchestrations', asyncRoute(async (request, response) => {

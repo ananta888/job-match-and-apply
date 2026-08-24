@@ -82,11 +82,18 @@ const AGENT_CONFIG_PROFILE: AgentConfigProfileView = {
 };
 
 const PROVIDERS: AgentProvider[] = [{
-  id: 'fake-interactive', name: 'Synthetischer Offline-Agent', available: true, version: '1.0.0',
+  id: 'codex-exec', name: 'Synthetischer Offline-Agent', available: true, version: '1.0.0',
   authStatus: 'not_required', transport: 'fixture-jsonl', note: 'Offline-Fixture ohne Konto, Netzwerk oder persönliche Daten.',
   installations: [
     { runtimeTarget: 'windows', version: '1.0.0', support: 'supported', authStatus: 'not_required', note: 'Synthetische Windows-Laufzeit.' },
     { runtimeTarget: 'wsl', distribution: 'E2E-Ubuntu', version: '1.0.0', support: 'supported', authStatus: 'not_required', note: 'Synthetische WSL-Laufzeit.' }
+  ],
+  capabilities: { interactiveInput: true, approvals: true, networkControl: false, workspaceModes: ['read_only', 'workspace_write'] }
+}, {
+  id: 'fake-interactive', name: 'Synthetischer Legacy-Testagent', available: true, version: '1.0.0',
+  authStatus: 'not_required', transport: 'fixture-jsonl', note: 'Nur für isolierte Adapter-Fixtures.',
+  installations: [
+    { runtimeTarget: 'windows', version: '1.0.0', support: 'supported', authStatus: 'not_required', note: 'Synthetische Windows-Laufzeit.' }
   ],
   capabilities: { interactiveInput: true, approvals: true, networkControl: false, workspaceModes: ['read_only', 'workspace_write'] }
 }];
@@ -98,7 +105,7 @@ const WORKFLOWS: AgentWorkflow[] = [
     producesSuggestionsOnly: true, prohibitedActions: ['submit_application', 'send_message']
   },
   {
-    id: 'evidence-application-package', version: '1.0.0', title: 'Evidence-Bewerbungspaket',
+    id: 'evidence-application-package', version: '1.1.0', title: 'Evidence-Bewerbungspaket',
     description: 'Prüft ein fallgebundenes synthetisches Bewerbungspaket.', requiredScope: 'application_case',
     producesSuggestionsOnly: true, prohibitedActions: ['submit_application', 'send_message']
   },
@@ -870,6 +877,20 @@ export class AgentApiStub {
       const limit = Number(url.searchParams.get('limit') ?? '100');
       return this.json(route, this.cvImport && limit > 0 ? [cvImportSummary(this.cvImport)] : []);
     }
+    const cvRevocableAdoptionsMatch = path.match(/^\/api\/cv-imports\/([^/]+)\/adoption\/revocable$/);
+    if (method === 'GET' && cvRevocableAdoptionsMatch) {
+      return this.json(route, {
+        contract: 'cv-adoption-revocation-candidates', contractVersion: '1.0',
+        importId: decodeURIComponent(cvRevocableAdoptionsMatch[1]), candidateProfileSha256: 'b'.repeat(64), adoptions: []
+      });
+    }
+    const cvProfileSnapshotsMatch = path.match(/^\/api\/cv-imports\/([^/]+)\/profile-snapshots$/);
+    if (method === 'GET' && cvProfileSnapshotsMatch) {
+      return this.json(route, {
+        contract: 'cv-profile-snapshot-list', contractVersion: '1.0',
+        importId: decodeURIComponent(cvProfileSnapshotsMatch[1]), candidateProfileSha256: 'b'.repeat(64), snapshots: []
+      });
+    }
     if (method === 'POST' && path === '/api/cv-imports') {
       const body = request.postDataJSON() as Record<string, unknown>;
       this.cvImportRequests.push(clone(body));
@@ -1244,6 +1265,24 @@ export class AgentApiStub {
     if (method === 'GET' && path === '/api/agents/workflows') return this.json(route, WORKFLOWS);
     if (method === 'GET' && path === '/api/agents/queue') return this.json(route, this.queueSnapshot);
     if (method === 'GET' && path === '/api/agents/recovery') return this.json(route, { runs: [...this.recoveries.values()] });
+    const orchestrationHtmlMatch = path.match(/^\/api\/agent-orchestrations\/([^/]+)\/result\.html$/);
+    if (method === 'GET' && orchestrationHtmlMatch) {
+      const orchestration = this.orchestrations.get(decodeURIComponent(orchestrationHtmlMatch[1]));
+      const packageArtifact = orchestration?.artifactRefs.find((artifact) => artifact.outputRef === 'final_html');
+      if (!orchestration || orchestration.status !== 'succeeded' || !packageArtifact
+        || url.searchParams.get('sha256') !== packageArtifact.sha256) {
+        return this.json(route, { error: 'Fixture-Agenten-HTML-Hash ist stale.' }, 409);
+      }
+      return route.fulfill({
+        status: 200, contentType: 'text/html; charset=utf-8',
+        headers: {
+          'cache-control': 'no-store',
+          'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+          'x-content-type-options': 'nosniff'
+        },
+        body: '<!doctype html><html lang="de"><head><meta charset="utf-8"><title>Finale Agentenfassung</title></head><body><h1>Synthetische finale Agenten-HTML-Version</h1><p>Alle fünf Rollen sind abgeschlossen.</p></body></html>'
+      });
+    }
     if (method === 'GET' && path === '/api/agent-orchestrations') {
       for (const [id, completed] of this.pendingOrchestrationCompletions) {
         this.orchestrations.set(id, completed);
@@ -1872,17 +1911,18 @@ export class AgentApiStub {
     const application = request.applicationCaseId ? this.applicationCases.get(request.applicationCaseId) : undefined;
     const evidenceWorkflow = request.workflowId === 'evidence-application-package';
     const mailWorkflow = request.workflowId === 'employer-response-triage';
-    const gatedNodeId = evidenceWorkflow ? 'finalizer' : mailWorkflow ? 'respond' : undefined;
+    const gatedNodeId = mailWorkflow ? 'respond' : undefined;
     const unresolvedGates: AgentOrchestrationRecord['unresolvedGates'] = gatedNodeId
       ? [{ nodeId: gatedNodeId, gate: 'user_input' }]
       : [];
     const evidenceArtifact = { outputRef: 'evidence_matrix', artifactId: 'fixture-evidence-matrix', runId: 'fixture-orchestration-evidence', sha256: '6'.repeat(64), lifecycle: 'proposed' as const };
+    const packageArtifact = { outputRef: 'final_html', artifactId: 'fixture-orchestration-html', runId: 'fixture-orchestration-finalizer', sha256: '7'.repeat(64), lifecycle: 'proposed' as const };
     const evidenceNodes: AgentOrchestrationRecord['nodes'] = [
       { nodeId: 'evidence', role: 'evidence_reviewer', dependsOn: [], status: 'succeeded', attempts: 1, runIds: ['fixture-orchestration-evidence'], inputDigests: {}, artifacts: [evidenceArtifact] },
       { nodeId: 'author', role: 'author', dependsOn: ['evidence'], status: 'succeeded', attempts: 1, runIds: ['fixture-orchestration-author'], inputDigests: {}, artifacts: [] },
       { nodeId: 'ats', role: 'ats_reviewer', dependsOn: ['author'], status: 'succeeded', attempts: 1, runIds: ['fixture-orchestration-ats'], inputDigests: {}, artifacts: [] },
       { nodeId: 'style', role: 'recruiter_style_reviewer', dependsOn: ['author'], status: 'succeeded', attempts: 1, runIds: ['fixture-orchestration-style'], inputDigests: {}, artifacts: [] },
-      { nodeId: 'finalizer', role: 'finalizer', dependsOn: ['ats', 'style'], status: unresolvedGates.length ? 'pending' : 'running', attempts: unresolvedGates.length ? 0 : 1, runIds: [], inputDigests: {}, artifacts: [] }
+      { nodeId: 'finalizer', role: 'finalizer', dependsOn: ['ats', 'style'], status: 'succeeded', attempts: 1, runIds: ['fixture-orchestration-finalizer'], inputDigests: {}, artifacts: [packageArtifact] }
     ];
     const mailNodes: AgentOrchestrationRecord['nodes'] = [
       { nodeId: 'classify', role: 'mail_classifier', dependsOn: [], status: 'succeeded', attempts: 1, runIds: ['fixture-orchestration-classify'], inputDigests: {}, artifacts: [] },
@@ -1896,8 +1936,8 @@ export class AgentApiStub {
         ]
       : [{ nodeId: 'next-actions', role: 'application_coordinator', dependsOn: [], status: 'running', attempts: 1, runIds: [], inputDigests: {}, artifacts: [] }];
     return {
-      schemaVersion: 1, id, revision: 1, workflowId: request.workflowId, workflowVersion: '1.0.0', providerId: request.providerId,
-      status: unresolvedGates.length ? 'waiting_for_gate' : 'running', producesSuggestionsOnly: true, promptSha256: '4'.repeat(64),
+      schemaVersion: 1, id, revision: 1, workflowId: request.workflowId, workflowVersion: evidenceWorkflow ? '1.1.0' : '1.0.0', providerId: request.providerId,
+      status: evidenceWorkflow ? 'succeeded' : unresolvedGates.length ? 'waiting_for_gate' : 'running', producesSuggestionsOnly: true, promptSha256: '4'.repeat(64),
       redactedSummary: `${WORKFLOWS.find((item) => item.id === request.workflowId)?.title ?? request.workflowId} · ${evidenceWorkflow ? 5 : mailWorkflow ? 3 : genericNodes.length} getrennte Rollen · nur Vorschläge`,
       scope: {
         ...(application ? { applicationCaseId: application.id, applicationCaseRevision: application.revision, jobId: application.job.id, companyKey: 'beispiel' } : {}),
@@ -1912,12 +1952,12 @@ export class AgentApiStub {
       conflicts: [],
       nodes: evidenceWorkflow ? evidenceNodes : mailWorkflow ? mailNodes : genericNodes,
       nodeRunIds: evidenceWorkflow
-        ? { evidence: ['fixture-orchestration-evidence'], author: ['fixture-orchestration-author'], ats: ['fixture-orchestration-ats'], style: ['fixture-orchestration-style'], finalizer: [] }
+        ? { evidence: ['fixture-orchestration-evidence'], author: ['fixture-orchestration-author'], ats: ['fixture-orchestration-ats'], style: ['fixture-orchestration-style'], finalizer: ['fixture-orchestration-finalizer'] }
         : mailWorkflow
           ? { classify: ['fixture-orchestration-classify'], correlate: ['fixture-orchestration-correlate'], respond: [] }
           : Object.fromEntries(genericNodes.map((node) => [node.nodeId, node.runIds])),
-      artifactRefs: evidenceWorkflow ? [evidenceArtifact] : [], budget: { wallTimeMs: 1500, tokens: 90, costMicros: 0, toolCalls: 1, iterations: 1 },
-      createdAt: FIXED_TIME, updatedAt: FIXED_TIME
+      artifactRefs: evidenceWorkflow ? [evidenceArtifact, packageArtifact] : [], budget: { wallTimeMs: 1500, tokens: 90, costMicros: 0, toolCalls: 1, iterations: 1 },
+      createdAt: FIXED_TIME, updatedAt: FIXED_TIME, ...(evidenceWorkflow ? { finishedAt: FIXED_TIME } : {})
     };
   }
 

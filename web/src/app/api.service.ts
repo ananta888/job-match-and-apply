@@ -332,6 +332,9 @@ export class ApiService {
   agentOrchestration(orchestrationId: string): Observable<AgentOrchestrationRecord> {
     return this.http.get<AgentOrchestrationRecord>(`/api/agent-orchestrations/${encodeURIComponent(orchestrationId)}`);
   }
+  agentOrchestrationResultHtmlUrl(orchestrationId: string, sha256: string): string {
+    return `/api/agent-orchestrations/${encodeURIComponent(orchestrationId)}/result.html?sha256=${encodeURIComponent(sha256)}`;
+  }
   createAgentOrchestration(request: AgentOrchestrationCreateRequest): Observable<AgentOrchestrationRecord> {
     return this.http.post<AgentOrchestrationRecord>('/api/agent-orchestrations', request);
   }

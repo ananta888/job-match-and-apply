@@ -225,7 +225,7 @@ UTF-8-Inhalt werden über `.../artifacts/:artifactId` beziehungsweise `.../conte
 `.../artifacts/diff?left=<id>&right=<id>` liefert einen größen- und zeilenbegrenzten Vergleich.
 `POST .../artifacts/:artifactId/review` akzeptiert ausschließlich `approved` oder `rejected`
 zusammen mit `expectedRevision` und `confirmed:true`. Die bestätigte Route `.../adopt` kann nur ein
-freigegebenes `application-pipeline-package` übernehmen. Dabei führt der Server die lokale
+freigegebenes Legacy-`application-pipeline-package` aus Workflow 1.0 übernehmen. Dabei führt der Server die lokale
 Evidence- und Sprachpipeline erneut aus, prüft Fall-, Stellen-, Firmen-, Identitäts-, Revisions-
 und Hash-Provenance und erzeugt eine neue fachliche Revision im Zustand `proposed`. Nur dieser
 servereigene Übernahmeport darf anschließend das Agentenartefakt als `used` markieren; einen freien
@@ -240,13 +240,12 @@ gemeinsame Backup-, Zugriffs- und Löschpolicy.
 UI-Run. Der Workflow `evidence-application-package` führt fünf getrennte Node-Runs aus:
 Evidence → Author → ATS und Recruiter/Style → Finalizer. Scope, Input-Digests, Rollenprompt,
 Abhängigkeiten, Budgets, Retryregeln und Artefakte werden serverseitig gebunden. Evidence-Gates
-kommen ausschließlich aus dem lokalen Kandidatenprofil. Das einzige browserauflösbare Vor-Gate des
-Finalizers ist `user_input`, gebunden an die aktuelle ApplicationCase-Revision und die
-ausdrückliche Bestätigung; `review_complete` ist kein Vor-Gate dieses Workflows. Eine wartende
-Orchestrierung wird mit `expectedRevision` fortgesetzt oder abgebrochen. Der Finalizer erzeugt nur
-ein strikt validiertes `application-pipeline-package` im Zustand `package_proposal`. Danach folgen
-separat Artefakt-Review, Adoption mit erneuter lokaler Pipelineprüfung, eine fachliche
-Vorschlagsrevision, deren Review, die exakte Fallfreigabe sowie `used` beziehungsweise Export.
+kommen ausschließlich aus dem lokalen Kandidatenprofil. Im aktuellen
+`evidence-application-package@1.1.0` läuft der Finalizer ohne Browser-Gate und erhält ATS- sowie
+Recruiter/Style-Review automatisch. Er erzeugt direkt `final_html`; JSON-Paket, Fortsetzen-Dialog
+und Fan-in-Freigabe gehören nicht zum aktuellen Lauf. Nach Erfolg liefert die hashgebundene
+`result.html`-Route eine CSP-geschützte Seite, die Angular automatisch sandboxed anzeigt. Ein
+Abbruch ist weiter an `expectedRevision` gebunden; Anzeige löst keinen Export oder Versand aus.
 
 ### Profile und lokale Sprachprüfung
 

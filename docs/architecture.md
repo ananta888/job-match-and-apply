@@ -75,17 +75,17 @@ Evidence → Author → ┬→ ATS ─────────────┐
 Jede Rolle erhält nur ihre deklarierten Rohinputs und rollenspezifischen Kriterien. Der Server
 bindet Input-Digests, Abhängigkeiten, Budget, Retryregeln, ApplicationCase-Revision und
 Identitätsmodus. Das Evidence-Gate akzeptiert nur `verified` oder `user_confirmed` Claims mit
-Evidence-Referenzen. Abweichende ATS-/Style-Varianten müssen vor dem Fan-in über den gebundenen
-Konfliktvertrag aufgelöst sein. Das einzige browserauflösbare Gate vor dem Finalizer ist im
-aktuellen Workflow die bewusste Bestätigung `user_input`; ein `review_complete`-Gate vor seinem
-Lauf existiert nicht.
+Evidence-Referenzen. ATS und Recruiter/Style bleiben getrennte Rollenläufe, werden aber ohne
+manuelle Konfliktentscheidung gemeinsam an den Finalizer übergeben. Vor dem Finalizer existiert
+weder ein browserauflösbares `user_input`- noch ein `review_complete`-Gate.
 
-Das Finalizer-Ergebnis ist ein geschlossenes `application-pipeline-package` mit annotiertem Inhalt
-und Iterationsmanifest. Es bleibt als `package_proposal` ein Vorschlag. Erst menschliches
-Artefakt-Review und die bestätigte Adopt-Aktion dürfen es über den servereigenen Port erneut durch
-die lokale Evidence-, Stil- und Sprachpipeline führen und eine neue fachliche Dokumentrevision
-erzeugen. Diese Revision durchläuft danach ihr eigenes Review, die exakte Fallfreigabe sowie
-`used` beziehungsweise Export.
+Seit `evidence-application-package@1.1.0` ist das Finalizer-Ergebnis direkt `final_html`: ein
+vollständiges HTML5-Dokument statt eines JSON-Pakets. Der Server normalisiert es auf semantisches,
+scriptfreies HTML ohne Formulare, Navigation oder externe Ressourcen. Nach dem fünften
+erfolgreichen Node ist es über
+`GET /api/agent-orchestrations/:orchestrationId/result.html?sha256=<artifact-sha256>` unmittelbar
+verfügbar und wird in Angular automatisch in einem sandboxed `iframe` angezeigt. Anzeige und
+externe Verwendung bleiben getrennte Operationen.
 
 ## Dokumentrevisionen und Freigabe
 

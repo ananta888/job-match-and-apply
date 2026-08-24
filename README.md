@@ -27,8 +27,8 @@ und behalten ihre eigene Historie.
 - lokales Agent Control Center für Codex CLI sowie die exakt geprüften WSL-Versionen OpenCode
   `1.14.41` und Claude Code `2.1.232`
 - lokal verdrahtete Fünf-Rollen-Orchestrierung für Evidence, Author, ATS, Recruiter/Style und Finalizer;
-  der Finalizer hat vor seinem Lauf ausschließlich das bewusste `user_input`-Gate und sein
-  Ergebnis bleibt bis zur nachgelagerten Review- und Revisionskette ein Vorschlag
+  alle fünf Rollen laufen ohne Browser-Zwischengate durch und der Finalizer liefert direkt eine
+  sicher normalisierte HTML-Seite
 
 ## Start
 
@@ -121,11 +121,11 @@ Architektur, Sicherheitsgrenzen und Providerstrategie des Agent Control Centers 
 
 Die Seite **Agenten** enthält den vollständigen lokalen Bedienpfad: Providerdiagnose, sichere
 Run-Erstellung, Queue, Live-/Replay-Timeline, Rückfragen, Freigaben, Abbruch und redigierten Export.
-Sie steuert außerdem die versionierten Multi-Agent-Workflows, zeigt deren Rollen, Budgets und Gates
-und kann ein vom Finalizer erzeugtes `application-pipeline-package` nach menschlichem
-Artefakt-Review über die lokale Evidence-Pipeline als neue fachliche Vorschlagsrevision übernehmen.
-Danach folgen Pipeline-Review, exakte Fallfreigabe, `used` und Export, jeweils an dieselbe
-Revisions-ID und denselben SHA-256 gebunden. `fake` ist der konto- und netzwerkfreie
+Sie steuert außerdem die versionierten Multi-Agent-Workflows und zeigt deren Rollen und Budgets.
+`evidence-application-package@1.1.0` läuft nach einem Start vollständig bis zum fünften Agenten und
+blendet dessen hashgebundenes `final_html` automatisch als sandboxed HTML-Seite ein. Dafür sind
+weder JSON-Ansicht noch Review, Adoption oder Fallfreigabe nötig. Eine spätere externe Verwendung,
+ein Export oder Versand bleibt davon getrennt. `fake` ist der konto- und netzwerkfreie
 Referenzprovider. Reale CLIs werden ausschließlich dann freigeschaltet, wenn Binary, exakte
 Version, Runtime und Capability-Vertrag nachweisbar passen.
 

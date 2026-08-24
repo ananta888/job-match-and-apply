@@ -55,11 +55,11 @@ vollständigen SHA-256 gebunden und müssen den Profilvalidator des Bewerbungs-S
 
 Die Rollenverträge werden nicht im Hauptprojekt neu erfunden. Maßgeblich sind `SKILL.md` und
 `references/iteration-loop.md` des Bewerbungs-Submodules. Der lokal verdrahtete Root-Workflow
-`evidence-application-package@1.0.0` erzeugt für Evidence, Author, ATS, Recruiter/Style und
+`evidence-application-package@1.1.0` erzeugt für Evidence, Author, ATS, Recruiter/Style und
 Finalizer jeweils einen eigenen Node-Run. Jeder Run erhält nur deklarierte Rohartefakte und
 rollenspezifische Kriterien; ATS und Recruiter/Style prüfen den Author-Entwurf getrennt. Der
-Finalizer besitzt im aktuellen Workflow vor seinem Lauf ausschließlich das bewusste
-`user_input`-Gate; ein vorgezogenes `review_complete` existiert nicht. Er erzeugt lediglich eine
-strikt validierte `package_proposal`. Erst Artefakt-Review, Adoption mit erneuter
-Submodule-Validierung, die daraus erzeugte fachliche Vorschlagsrevision, deren Review sowie exakte
-Revisions- und Hashgates erlauben Fallfreigabe, `used` und Export.
+Finalizer erhält beide Reviews automatisch als komplementäre Eingaben; weder ein `user_input`-Gate
+noch eine manuelle Fan-in-Entscheidung unterbricht den Lauf. Er muss direkt ein vollständiges
+HTML5-Dokument als `final_html` liefern. Der Server entfernt aktive Inhalte und externe Ressourcen,
+speichert die normalisierte HTML-Datei unveränderlich und zeigt sie sofort über eine
+SHA-256-gebundene Sandbox-Route an. Die Anzeige selbst genehmigt oder versendet nichts.

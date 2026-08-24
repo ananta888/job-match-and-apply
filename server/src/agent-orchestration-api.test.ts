@@ -164,70 +164,58 @@ describe('public agent orchestration API', () => {
     expect((await request(value.app).get('/api/agent-orchestrations/33333333-3333-4333-8333-333333333333')).status).toBe(404);
   });
 
-  it('runs a first-time five-node package chain without an unrelated old revision and leaves the new package proposed', async () => {
-    const pipelinePackage = JSON.stringify({
-      annotatedContent: 'Belegter Vorschlag. <!-- evidence: claim-role -->',
-      iterationManifest: 'schema_version: 1\nmode: standard\nexecution: independent_agents\ncycle: 1\npasses: []\n',
-    });
+  it('runs all five roles without an intermediate browser gate and exposes the final HTML immediately', async () => {
+    const finalHtml = '<!doctype html><html lang="de"><head><title>Belegter Vorschlag</title></head><body><h1>Belegter Vorschlag</h1><p>Sicherer Inhalt</p><script>alert(1)</script><!-- evidence: claim-role --></body></html>';
     const value = await apiFixture({
       real: true,
       provider: new FakeAgentProvider({
-        steps: [{ kind: 'agent_message_completed', data: { text: pipelinePackage } }],
+        steps: [{ kind: 'agent_message_completed', data: { text: finalHtml } }],
         outcome: { state: 'succeeded' },
       }),
     });
     const current = application();
     await value.workspace.saveApplicationCase(current);
-    const premature = await request(value.app).post('/api/agent-orchestrations').send({
-      workflowId: 'evidence-application-package', providerId: 'fake', prompt: 'Premature confirmation must fail.',
-      runtimeTarget, applicationCaseId: current.id, confirmations: { userInput: { confirmed: true } },
-    });
-    expect(premature.status).toBe(400);
     const created = await request(value.app).post('/api/agent-orchestrations').send({
       workflowId: 'evidence-application-package', providerId: 'fake', prompt: 'Prepare an evidence-backed proposal.',
       runtimeTarget, applicationCaseId: current.id,
     });
     expect(created.status, created.text).toBe(202);
-    const waiting = await waitForStatus(value.app, created.body.id, ['waiting_for_gate', 'failed']);
-    expect(waiting.body.status).toBe('waiting_for_gate');
-    expect(waiting.body.unresolvedGates).toEqual([{ nodeId: 'finalizer', gate: 'user_input' }]);
-    expect(waiting.body.resolvedGates).toContainEqual(expect.objectContaining({
-      nodeId: 'evidence', gate: 'evidence_complete', authority: 'server_evidence',
-    }));
-    const successfulRunIds = structuredClone(waiting.body.nodeRunIds);
-    expect(Object.values(successfulRunIds).flat()).toHaveLength(4);
-    expect(successfulRunIds.finalizer).toEqual([]);
-
-    const stale = await request(value.app).post(`/api/agent-orchestrations/${created.body.id}/continue`).send({
-      expectedRevision: waiting.body.revision - 1,
-      userInput: { confirmed: true },
-    });
-    expect(stale.status).toBe(409);
-
-    const continued = await request(value.app).post(`/api/agent-orchestrations/${created.body.id}/continue`).send({
-      expectedRevision: waiting.body.revision,
-      userInput: { confirmed: true },
-    });
-    expect(continued.status, continued.text).toBe(200);
-    expect(continued.body.status).toBe('running');
-    expect(continued.body.unresolvedGates).toEqual([]);
-    expect(continued.body.resolvedGates).toContainEqual(expect.objectContaining({
-      nodeId: 'finalizer', gate: 'user_input', authority: 'server_revision_confirmation',
-    }));
-
     const completed = await waitForStatus(value.app, created.body.id);
     expect(completed.body.status, JSON.stringify(completed.body, null, 2)).toBe('succeeded');
+    expect(completed.body.unresolvedGates).toEqual([]);
+    expect(completed.body.resolvedGates).toEqual([expect.objectContaining({
+      nodeId: 'evidence', gate: 'evidence_complete', authority: 'server_evidence',
+    })]);
     expect(Object.values(completed.body.nodeRunIds).flat()).toHaveLength(5);
-    for (const nodeId of ['evidence', 'author', 'ats', 'style']) {
-      expect(completed.body.nodeRunIds[nodeId]).toEqual(successfulRunIds[nodeId]);
-    }
     expect(completed.body.nodeRunIds.finalizer).toHaveLength(1);
+    expect(completed.body.conflicts).toEqual([]);
     expect(completed.body.artifactRefs).toHaveLength(5);
     const finalArtifactId = completed.body.nodes.find((node: { nodeId: string }) => node.nodeId === 'finalizer').artifacts[0].artifactId;
     expect(await value.dependencies.artifacts.get(finalArtifactId)).toMatchObject({
-      kind: 'application-pipeline-package', mediaType: 'application/json', lifecycle: 'proposed',
+      kind: 'application-final-html', mediaType: 'text/html; charset=utf-8', lifecycle: 'proposed',
       provenance: { identityMode: 'real' },
     });
+
+    const packageReference = completed.body.artifactRefs.find((artifact: { outputRef: string }) => artifact.outputRef === 'final_html');
+    const html = await request(value.app)
+      .get(`/api/agent-orchestrations/${created.body.id}/result.html`)
+      .query({ sha256: packageReference.sha256 });
+    expect(html.status, html.text).toBe(200);
+    expect(html.headers['content-type']).toMatch(/^text\/html/);
+    expect(html.headers['cache-control']).toBe('no-store');
+    expect(html.headers['content-security-policy']).toContain("default-src 'none'");
+    expect(html.text).toMatch(/^<!doctype html>/i);
+    expect(html.text).toContain('Fünfter Agent abgeschlossen · finale HTML-Version');
+    expect(html.text).toContain('<h1>Belegter Vorschlag</h1>');
+    expect(html.text).toContain('<p>Sicherer Inhalt</p>');
+    expect(html.text).not.toContain('alert(1)');
+    expect(html.text).not.toContain('evidence:');
+    expect(html.text).not.toContain('iterationManifest');
+
+    const stale = await request(value.app)
+      .get(`/api/agent-orchestrations/${created.body.id}/result.html`)
+      .query({ sha256: '0'.repeat(64) });
+    expect(stale.status).toBe(409);
   }, 30_000);
 
   it('cancels a running orchestration only with the current revision and explicit confirmation', async () => {

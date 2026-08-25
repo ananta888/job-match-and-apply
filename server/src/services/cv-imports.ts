@@ -1281,7 +1281,7 @@ async function extractCvText(mimeType: keyof typeof CV_MIME_TYPES, buffer: Buffe
       || /\/Encrypt\b/i.test(rawPdf)) badRequest('PDF mit direkt erkennbaren aktiven oder verschlüsselten Inhalten wird nicht akzeptiert.');
     const parser = new PDFParse({ data: buffer, isEvalSupported: false, stopAtErrors: true });
     try {
-      const result = await parser.getText({ first: 100 });
+      const result = await parser.getText({ first: 100, pageJoiner: '' });
       text = result.text; warnings.push(...pdfExtractionWarnings(result.total, text));
     } finally { await parser.destroy(); }
   } else {

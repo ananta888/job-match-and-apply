@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import JSZip from 'jszip';
+import PDFDocument from 'pdfkit';
 import type {
   CvAdoptionLedgerEntry, CvFact, CvNormalizationEnvelope, CvNormalizationPort, CvProfileSnapshot, CvTheme,
 } from '../ports/cv-normalization.js';
@@ -508,6 +509,35 @@ describe('CV import service', () => {
       expect.objectContaining({ code: 'pdf_page_limit' }),
       expect.objectContaining({ code: 'low_pdf_text' }),
     ]));
+  });
+
+  it('keeps PDF parser page separators out of normalized candidate facts', async () => {
+    const chunks: Buffer[] = [];
+    const document = new PDFDocument({ autoFirstPage: false });
+    document.on('data', (chunk: Buffer) => chunks.push(chunk));
+    const complete = new Promise<Buffer>((resolve) => {
+      document.on('end', () => resolve(Buffer.concat(chunks)));
+    });
+    document.addPage().text('Skills').text('TypeScript');
+    document.addPage().text('Experience').text('2024-01 - present: Engineer | Synthetic GmbH');
+    document.end();
+
+    const normalization = new FakeNormalization();
+    const service = new CvImportService(
+      new MemoryCvImportRepository(),
+      normalization,
+    );
+    await service.import({
+      fileName: 'two-pages.pdf',
+      mimeType: 'application/pdf',
+      data: await complete,
+    });
+
+    expect(normalization.lastEnvelope?.extractedText).toContain('TypeScript');
+    expect(normalization.lastEnvelope?.extractedText).toContain('Synthetic GmbH');
+    expect(normalization.lastEnvelope?.extractedText).not.toMatch(
+      /--\s*\d+\s+of\s+\d+\s*--/,
+    );
   });
 });
 

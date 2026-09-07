@@ -61,6 +61,27 @@ export class LocalApplicationAssistantAdapter implements ApplicationAssistantPor
     }
   }
 
+  async styleProfile(documentType: 'cv' | 'cover_letter' | 'email'): Promise<Record<string, unknown>> {
+    const skillRoot = this.projectPath(this.settings.skillPath);
+    const candidate = this.projectPath(this.settings.candidateProfilePath);
+    const style = this.projectPath(this.settings.styleProfilePath);
+    try {
+      await execute(process.env.PYTHON_EXECUTABLE || 'python', [
+        resolve(skillRoot, 'scripts', 'validate_profiles.py'), '--candidate', candidate, '--style', style,
+      ], { cwd: skillRoot, windowsHide: true, env: buildMinimalLocalChildEnvironment() });
+      const document = YAML.parse(await readFile(style, 'utf8')) as Record<string, unknown>;
+      return {
+        contract: 'application-style-profile-snapshot',
+        contractVersion: '1.0',
+        outputType: documentType,
+        profile: document,
+      };
+    } catch (error) {
+      const stderr = typeof error === 'object' && error && 'stderr' in error ? String(error.stderr).trim() : '';
+      throw policyError(stderr || 'Das Schreibstilprofil ist nicht gültig oder nicht lesbar.');
+    }
+  }
+
   async analyze(job: JobPosting, documentType: 'cv' | 'cover_letter' | 'email'): Promise<CandidateMatchAnalysis> {
     const skillRoot = this.projectPath(this.settings.skillPath);
     const candidate = this.projectPath(this.settings.candidateProfilePath);

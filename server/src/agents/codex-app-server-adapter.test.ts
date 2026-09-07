@@ -1,4 +1,5 @@
-import { readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type {
@@ -199,6 +200,33 @@ describe('Codex App Server experimental adapter', () => {
       })
     }));
     expect(events.at(-1)).toMatchObject({ kind: 'run_completed', data: { state: 'succeeded', transport: 'codex-app-server' } });
+  });
+
+  it('propagates a verified refresh-token rotation out of the isolated run home', async () => {
+    const sourceHome = await mkdtemp(resolve(tmpdir(), 'codex-auth-source-'));
+    const auth = (lastRefresh: string, refreshToken: string) => ({
+      OPENAI_API_KEY: null, auth_mode: 'chatgpt', last_refresh: lastRefresh,
+      tokens: { account_id: 'account-1', access_token: 'access', id_token: 'identity', refresh_token: refreshToken },
+    });
+    await writeFile(resolve(sourceHome, 'auth.json'), JSON.stringify(auth('2026-08-25T10:00:00Z', 'old')), { mode: 0o600 });
+    try {
+      const supervisor = new SyntheticAppServerSupervisor(); supervisor.autoComplete = false;
+      const events: AgentEventDraft[] = [];
+      const adapter = new CodexAppServerAgentAdapter(supervisor, undefined, {
+        requestTimeoutMs: 1_000, userConfigIsolationVerified: true, authSourceHome: sourceHome,
+      });
+      const handle = await adapter.start(context(events));
+      const isolatedHome = String(supervisor.spec?.env?.CODEX_HOME);
+      await writeFile(resolve(isolatedHome, 'auth.json'), JSON.stringify(auth('2026-08-25T11:00:00Z', 'rotated')), { mode: 0o600 });
+      supervisor.finishTurn();
+
+      expect((await handle.completion).state).toBe('succeeded');
+      const persisted = JSON.parse(await readFile(resolve(sourceHome, 'auth.json'), 'utf8')) as ReturnType<typeof auth>;
+      expect(persisted.last_refresh).toBe('2026-08-25T11:00:00Z');
+      expect(persisted.tokens.refresh_token).toBe('rotated');
+    } finally {
+      await rm(sourceHome, { recursive: true, force: true });
+    }
   });
 
   it('maps turn steering and one-shot approval responses to the active thread and turn', async () => {

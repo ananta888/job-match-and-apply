@@ -932,6 +932,10 @@ export function createApp(
     if (!providerSupportsRootDomainTools(run.provider, installation.runtimeTarget)
       || capabilities.extensions?.dynamicTools !== true) return undefined;
     const allowedTools = allowedRootDomainTools(run.request);
+    // A fully materialized workflow deliberately needs no live domain tools.
+    // Do not create a run-bound MCP session for that case: the session factory
+    // correctly rejects empty scopes, while the provider can run tool-free.
+    if (allowedTools.length === 0) return undefined;
     const declared = Array.isArray(run.request.metadata?.requiredRootMcpTools)
       ? run.request.metadata.requiredRootMcpTools.filter((value): value is string => typeof value === 'string') : allowedTools;
     if (JSON.stringify([...declared].sort()) !== JSON.stringify([...allowedTools].sort())) {
@@ -1519,7 +1523,9 @@ export function createApp(
     let claimIds: string[] = [];
     if (payload.workflowId === 'evidence-application-package') {
       const profile = await new LocalCandidateProfileAdapter(configuration.assistant).summary();
-      claimIds = profile.claims.filter((claim) => ['verified', 'user_confirmed'].includes(claim.status) && claim.evidenceRefs.length)
+      claimIds = profile.claims.filter((claim) => application
+        && claim.allowedOutputs.includes(application.documentType)
+        && (claim.status === 'user_confirmed' || (claim.status === 'verified' && claim.evidenceRefs.length > 0)))
         .map((claim) => claim.id);
       if (!profile.valid || !claimIds.length) {
         throw Object.assign(new Error('Die Multi-Agent-Bewerbungskette benoetigt mindestens einen belegten Claim im Kandidatenprofil.'), { statusCode: 409 });

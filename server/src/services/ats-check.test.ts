@@ -52,6 +52,22 @@ describe('checkAtsHtml — local parser round-trip', () => {
     const canonicals = report.parse.detectedSections.map((section) => section.canonical);
     expect(canonicals).toEqual(expect.arrayContaining(['employment', 'education', 'skill']));
   });
+
+  it('keeps role h3 headings inside the parent employment section', () => {
+    const report = checkAtsHtml(`<!doctype html><html lang="de"><body><main>
+      <h1>Petra Muster</h1>
+      <section><h2>Berufserfahrung</h2>
+        <article><h3>Senior Test Engineer, Beispiel GmbH</h3><ul><li>Automatisierte Regressionstests aufgebaut</li></ul></article>
+        <article><h3>Softwareentwicklerin, Muster AG</h3><ul><li>REST-Schnittstellen entwickelt</li></ul></article>
+      </section>
+    </main></body></html>`);
+
+    expect(report.parse.counts.experienceItems).toBe(2);
+    expect(report.parse.detectedSections).toEqual([
+      { heading: 'Berufserfahrung', canonical: 'employment', itemCount: 2 },
+    ]);
+    expect(report.lint.find((rule) => rule.id === 'standard-headings')?.status).toBe('pass');
+  });
 });
 
 describe('checkAtsHtml — keyword coverage', () => {

@@ -59,7 +59,12 @@ function escapeHtml(value: string): string {
   })[character]!);
 }
 
-function safeTableAttributes(name: string, attributes: Record<string, string>): string {
+function normalizedContentTag(name: string): string {
+  return name === 'header' || name === 'footer' || name === 'aside' ? 'div' : name;
+}
+
+function safeAttributes(name: string, attributes: Record<string, string>): string {
+  if (name === 'header' || name === 'footer' || name === 'aside') return ` class="content-${name}"`;
   const values: string[] = [];
   if (name === 'td' || name === 'th') {
     for (const attribute of ['colspan', 'rowspan'] as const) {
@@ -94,6 +99,7 @@ export function normalizeApplicationFinalHtml(input: string, context: Applicatio
   let blockedDepth = 0;
   let title = '';
   let visibleText = '';
+  let closedSpanBoundary = false;
   let parseFailure: Error | undefined;
   const closeThrough = (name: string) => {
     const index = openTags.lastIndexOf(name);
@@ -104,16 +110,23 @@ export function normalizeApplicationFinalHtml(input: string, context: Applicatio
     onopentag(name, attributes) {
       if (blockedDepth > 0) { blockedDepth += 1; return; }
       if (name === 'title' && !inBody) { inTitle = true; return; }
-      if (name === 'body') { inBody = true; return; }
+      if (name === 'body') { inBody = true; closedSpanBoundary = false; return; }
       if (!inBody) return;
-      if (BLOCKED_CONTENT_TAGS.has(name)) { blockedDepth = 1; return; }
+      if (BLOCKED_CONTENT_TAGS.has(name)) { blockedDepth = 1; closedSpanBoundary = false; return; }
       if (!ALLOWED_TAGS.has(name)) return;
-      body.push(`<${name}${safeTableAttributes(name, attributes)}>`);
-      if (!VOID_TAGS.has(name)) openTags.push(name);
+      closedSpanBoundary = false;
+      const safeName = normalizedContentTag(name);
+      body.push(`<${safeName}${safeAttributes(name, attributes)}>`);
+      if (!VOID_TAGS.has(safeName)) openTags.push(safeName);
     },
     ontext(text) {
       if (inTitle) title += text;
       if (!inBody || blockedDepth > 0) return;
+      if (closedSpanBoundary && text && !/^\s/u.test(text) && /^[\p{L}\p{N}]/u.test(text)) {
+        body.push(' ');
+        visibleText += ' ';
+      }
+      closedSpanBoundary = false;
       body.push(escapeHtml(text));
       visibleText += text;
     },
@@ -125,7 +138,11 @@ export function normalizeApplicationFinalHtml(input: string, context: Applicatio
         inBody = false;
         return;
       }
-      if (inBody && ALLOWED_TAGS.has(name) && !VOID_TAGS.has(name)) closeThrough(name);
+      if (inBody && ALLOWED_TAGS.has(name) && !VOID_TAGS.has(name)) {
+        const safeName = normalizedContentTag(name);
+        closeThrough(safeName);
+        closedSpanBoundary = safeName === 'span';
+      }
     },
     onerror(error) { parseFailure = error; },
   }, { decodeEntities: true, lowerCaseAttributeNames: true, lowerCaseTags: true, recognizeSelfClosing: true });
@@ -133,9 +150,9 @@ export function normalizeApplicationFinalHtml(input: string, context: Applicatio
   if (parseFailure || !visibleText.trim()) throw new Error('application_final_html_content_invalid');
 
   const safeTitle = title.trim().slice(0, 160) || 'Finale Bewerbungsfassung';
-  const identityNote = context.identityMode === 'incognito'
-    ? 'Inkognito-Fassung – nicht für eine echte Bewerbung verwenden.'
-    : 'Fertige Fassung des fünften Agenten – noch nicht versendet.';
+  const previewNote = context.identityMode === 'incognito'
+    ? '<div class="preview-note">Inkognito-Vorschau – nicht als echte Bewerbung verwenden.</div>'
+    : '';
   const csp = "default-src 'none'; style-src 'unsafe-inline'; img-src data:; form-action 'none'; base-uri 'none'";
   return `<!doctype html>
 <html lang="de">
@@ -147,16 +164,16 @@ export function normalizeApplicationFinalHtml(input: string, context: Applicatio
   <style>
     :root{color-scheme:light;font-family:Arial,Helvetica,sans-serif;color:#17213a;background:#eef1f6}
     *{box-sizing:border-box}body{margin:0;padding:24px}.document-shell{max-width:900px;margin:auto;background:#fff;border:1px solid #dfe3ea;border-radius:14px;box-shadow:0 14px 40px #17213a16;overflow:hidden}
-    .result-head{padding:16px 24px;background:#e8f7f0;border-bottom:1px solid #b9e4d1;color:#20583f}.result-head strong,.result-head small{display:block}.result-head strong{font-size:14px}.result-head small{margin-top:5px;font-size:11px;line-height:1.5}
-    .agent-document{padding:34px 38px 42px}.agent-document h1{margin:0 0 24px;font-size:30px;line-height:1.15}.agent-document h2{margin:28px 0 10px;padding-bottom:6px;border-bottom:2px solid #6855e7;font-size:18px}.agent-document h3{margin:20px 0 8px;font-size:15px}.agent-document p,.agent-document li,.agent-document dd,.agent-document dt,.agent-document td,.agent-document th{font-size:14px;line-height:1.65}.agent-document ul,.agent-document ol{padding-left:24px}.agent-document li+li{margin-top:6px}.agent-document pre,.agent-document code{border-radius:4px;background:#f1f3f7;font-family:Consolas,monospace}.agent-document code{padding:2px 5px;font-size:.92em}.agent-document pre{padding:12px;white-space:pre-wrap}.agent-document table{width:100%;border-collapse:collapse}.agent-document th,.agent-document td{padding:8px;border:1px solid #dfe3ea;text-align:left}
+    .agent-document{padding:34px 38px 42px}.agent-document h1{margin:0 0 24px;font-size:30px;line-height:1.15}.agent-document h2{margin:28px 0 10px;padding-bottom:6px;border-bottom:2px solid #6855e7;font-size:18px}.agent-document h3,.agent-document article>.content-header{margin:20px 0 8px;font-size:15px;font-weight:700}.agent-document article>.content-header span{margin-right:.35em}.agent-document p,.agent-document li,.agent-document dd,.agent-document dt,.agent-document td,.agent-document th{font-size:14px;line-height:1.65}.agent-document ul,.agent-document ol{padding-left:24px}.agent-document li+li{margin-top:6px}.agent-document pre,.agent-document code{border-radius:4px;background:#f1f3f7;font-family:Consolas,monospace}.agent-document code{padding:2px 5px;font-size:.92em}.agent-document pre{padding:12px;white-space:pre-wrap}.agent-document table{width:100%;border-collapse:collapse}.agent-document th,.agent-document td{padding:8px;border:1px solid #dfe3ea;text-align:left}
+    .preview-note{padding:9px 16px;border-top:1px solid #e6e9ef;background:#fafbfc;color:#667085;font-size:10px;text-align:center}
     @media(max-width:600px){body{padding:0}.document-shell{border:0;border-radius:0}.agent-document{padding:25px 20px}.agent-document h1{font-size:25px}}
-    @media print{body{padding:0;background:#fff}.document-shell{border:0;box-shadow:none}.result-head{display:none}}
+    @media print{body{padding:0;background:#fff}.document-shell{border:0;box-shadow:none}.preview-note{display:none}}
   </style>
 </head>
 <body data-result="final-agent-html" data-identity-mode="${context.identityMode}">
   <div class="document-shell">
-    <header class="result-head"><strong>Fünfter Agent abgeschlossen · finale HTML-Version</strong><small>${escapeHtml(identityNote)}</small></header>
     <article class="agent-document">${body.join('')}</article>
+    ${previewNote}
   </div>
 </body>
 </html>`;
@@ -219,13 +236,9 @@ export function renderApplicationPipelinePackageHtml(
 ): string {
   if (!HASH.test(context.artifactSha256)) throw new Error('application_result_html_hash_invalid');
   const document = documentHtml(value.annotatedContent);
-  const identityNote = context.identityMode === 'incognito'
-    ? 'Inkognito-Fassung – nicht für eine echte Bewerbung verwenden.'
-    : 'Finale Fassung des fünften Agenten – noch nicht versendet.';
-  const state = {
-    proposed: 'Agentenlauf abgeschlossen', approved: 'Agentenfassung bestätigt',
-    used: 'Agentenfassung übernommen', rejected: 'Agentenfassung abgelehnt',
-  }[context.artifactLifecycle];
+  const previewNote = context.identityMode === 'incognito'
+    ? '<div class="preview-note">Inkognito-Vorschau – nicht als echte Bewerbung verwenden.</div>'
+    : '';
   const csp = "default-src 'none'; style-src 'unsafe-inline'; img-src data:; form-action 'none'; base-uri 'none'";
   return `<!doctype html>
 <html lang="de">
@@ -237,18 +250,16 @@ export function renderApplicationPipelinePackageHtml(
   <style>
     :root{color-scheme:light;font-family:Arial,Helvetica,sans-serif;color:#17213a;background:#eef1f6}
     *{box-sizing:border-box}body{margin:0;padding:24px}main{max-width:850px;margin:auto;background:#fff;border:1px solid #dfe3ea;border-radius:14px;box-shadow:0 14px 40px #17213a16;overflow:hidden}
-    .result-head{padding:16px 22px;background:#eeebff;border-bottom:1px solid #d9d3ff;color:#3f338f}.result-head strong,.result-head small{display:block}.result-head strong{font-size:14px}.result-head small{margin-top:5px;font-size:11px;line-height:1.5}
     article{padding:30px 34px 38px}h1{margin:0 0 24px;color:#17213a;font-size:30px;line-height:1.15}h2{margin:28px 0 10px;padding-bottom:6px;border-bottom:2px solid #6855e7;color:#29334a;font-size:18px}h3{margin:20px 0 8px;font-size:15px}p,li{font-size:14px;line-height:1.65}p{white-space:pre-wrap}ul,ol{padding-left:24px}li+li{margin-top:6px}code{padding:2px 5px;border-radius:4px;background:#f1f3f7;font-family:Consolas,monospace;font-size:.92em}hr{border:0;border-top:1px solid #dfe3ea;margin:24px 0}
-    footer{padding:12px 22px;border-top:1px solid #e6e9ef;color:#667085;background:#fafbfc;font-size:10px;overflow-wrap:anywhere}
+    .preview-note{padding:9px 16px;border-top:1px solid #e6e9ef;background:#fafbfc;color:#667085;font-size:10px;text-align:center}
     @media(max-width:600px){body{padding:0}main{border:0;border-radius:0}article{padding:24px 20px}h1{font-size:25px}}
-    @media print{body{padding:0;background:#fff}main{border:0;box-shadow:none}.result-head,footer{display:none}}
+    @media print{body{padding:0;background:#fff}main{border:0;box-shadow:none}.preview-note{display:none}}
   </style>
 </head>
 <body data-result="final-agent-html" data-identity-mode="${context.identityMode}">
   <main>
-    <header class="result-head"><strong>Direkte HTML-Sofortansicht · ${escapeHtml(state)}</strong><small>${escapeHtml(identityNote)}</small></header>
     <article>${document.body}</article>
-    <footer>Ergebnis-SHA-256: ${context.artifactSha256}</footer>
+    ${previewNote}
   </main>
 </body>
 </html>`;

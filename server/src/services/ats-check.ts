@@ -99,7 +99,9 @@ function analyzeHtml(html: string): HtmlSignals {
         const text = headingText.replace(/\s+/g, ' ').trim();
         if (text) {
           headings.push({ level: headingLevel, text });
-          if (headingLevel >= 2) { current = { heading: text, items: [] }; sections.push(current); }
+          // Only h2 headings define top-level resume sections. Lower-level headings are
+          // commonly used for individual roles and must not interrupt the parent section.
+          if (headingLevel === 2) { current = { heading: text, items: [] }; sections.push(current); }
         }
         headingLevel = 0; headingText = '';
       }
@@ -129,13 +131,13 @@ function lintRules(signals: HtmlSignals): AtsLintRule[] {
       : 'Eine Spalte mit eindeutiger Lesereihenfolge.',
   });
 
-  const nonStandard = signals.headings.filter((heading) => heading.level >= 2 && classifyLayoutSection(heading.text) === undefined).map((heading) => heading.text);
-  const sectionHeadings = signals.headings.filter((heading) => heading.level >= 2);
+  const nonStandard = signals.headings.filter((heading) => heading.level === 2 && classifyLayoutSection(heading.text) === undefined).map((heading) => heading.text);
+  const sectionHeadings = signals.headings.filter((heading) => heading.level === 2);
   rules.push({
     id: 'standard-headings', label: 'Standard-Abschnittsüberschriften',
     status: sectionHeadings.length === 0 ? 'fail' : nonStandard.length ? 'warn' : 'pass',
     detail: sectionHeadings.length === 0
-      ? 'Keine Abschnittsüberschriften (h2/h3) gefunden — ATS können keine Abschnitte zuordnen.'
+      ? 'Keine Abschnittsüberschriften (h2) gefunden — ATS können keine Abschnitte zuordnen.'
       : nonStandard.length ? `Nicht-kanonische Überschriften: ${nonStandard.slice(0, 6).join(', ')}.` : 'Alle Überschriften sind ATS-üblichen Abschnitten zugeordnet.',
   });
 

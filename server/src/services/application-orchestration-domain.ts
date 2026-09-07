@@ -83,7 +83,8 @@ implements ApplicationOrchestrationGateAuthority, ApplicationOrchestrationInputR
     const summary = await new LocalCandidateProfileAdapter(settings).summary();
     if (!summary.valid) return { complete: false };
     const claims = input.claimIds.map((id) => summary.claims.find((claim) => claim.id === id));
-    if (claims.some((claim) => !claim || !['verified', 'user_confirmed'].includes(claim.status) || claim.evidenceRefs.length === 0)) {
+    if (claims.some((claim) => !claim
+      || (claim.status !== 'user_confirmed' && (claim.status !== 'verified' || claim.evidenceRefs.length === 0)))) {
       return { complete: false };
     }
     return { bindingSha256: sha256(canonicalJson({
@@ -164,13 +165,31 @@ implements ApplicationOrchestrationGateAuthority, ApplicationOrchestrationInputR
         value = { ...application.job, trust: 'untrusted_job_posting', sourceReference: sourceReference(`job:${application.job.id}`) };
         break;
       case 'candidate_evidence': {
-        const profile = await new LocalCandidateProfileAdapter(configuration.assistant).summary();
-        if (!profile.valid) throw new Error('orchestration_candidate_profile_invalid');
+        if (!application) throw new Error('orchestration_application_case_not_found');
+        const snapshot = await new LocalCandidateProfileAdapter(configuration.assistant)
+          .evidence(application.documentType);
+        if (!snapshot.valid) throw new Error('orchestration_candidate_profile_invalid');
         value = {
-          contractVersion: profile.contractVersion,
-          claims: profile.claims.filter((claim) => ['verified', 'user_confirmed'].includes(claim.status) && claim.evidenceRefs.length)
+          contract: 'candidate-evidence-snapshot',
+          contractVersion: snapshot.contractVersion,
+          outputType: snapshot.outputType,
+          claims: snapshot.claims
+            .filter((claim) => claim.category !== 'profile')
             .map((claim) => ({ ...claim, sourceReference: sourceReference(`claim:${claim.id}`) })),
+          records: Object.fromEntries(Object.entries(snapshot.records).map(([collection, records]) => [
+            collection,
+            records.map((record) => ({
+              ...record,
+              sourceReference: sourceReference(`candidate-record:${collection}:${String(record.id ?? '')}`),
+            })),
+          ])),
         };
+        break;
+      }
+      case 'style_profile': {
+        if (!application) throw new Error('orchestration_application_case_not_found');
+        value = await new LocalApplicationAssistantAdapter(configuration.assistant, this.workRoot)
+          .styleProfile(application.documentType);
         break;
       }
       case 'application_pipeline_analysis': {
@@ -208,10 +227,22 @@ implements ApplicationOrchestrationGateAuthority, ApplicationOrchestrationInputR
               })),
           };
         } else {
+          const identity = configuration.identities.find((candidate) => candidate.id === application.identityId);
+          if (!identity || identity.mode !== application.identityMode) {
+            throw new Error('orchestration_application_identity_invalid');
+          }
           value = {
             id: application.id, revision: application.revision, state: application.state,
             documentType: application.documentType, identityMode: application.identityMode,
             jobId: application.job.id, company: application.job.company,
+            ...(input.workflowId === 'evidence-application-package' ? { identity: {
+              mode: identity.mode,
+              fullName: identity.fullName,
+              email: identity.email,
+              phone: identity.phone,
+              location: identity.location,
+              linkedin: identity.linkedin,
+            } } : {}),
             sourceReference: sourceReference(`application:${application.id}:${application.revision}`),
           };
         }

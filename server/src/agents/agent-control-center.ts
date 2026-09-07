@@ -651,7 +651,11 @@ export class AgentControlCenter {
       if (source === 'server' && draft.providerEventId) throw new Error('server_provider_event_id_forbidden');
       if (source === 'provider' && draft.kind === 'user_input_received') throw new Error('provider_user_input_receipt_forbidden');
       if (source === 'provider' && ['cancelled', 'succeeded', 'failed', 'timed_out'].includes(run.state)) {
-        throw new Error('provider_event_after_terminal_forbidden');
+        // Some streaming transports can deliver a notification after their
+        // completion promise settles. The terminal run is authoritative: drop
+        // that late event without persisting its data or rejecting an
+        // asynchronously invoked provider callback.
+        return;
       }
       const now = this.now();
       let providerDraft = draft;

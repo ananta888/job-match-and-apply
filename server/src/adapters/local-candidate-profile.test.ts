@@ -19,6 +19,13 @@ describe('LocalCandidateProfileAdapter', () => {
       styleProfilePath: resolve(root, 'integrations', 'bewerbungs-schreib-assistent', 'tests', 'fixtures', 'valid-style.yaml')
     });
     expect((await adapter.summary()).valid).toBe(true);
+    const evidence = await adapter.evidence('cv');
+    expect(evidence).toMatchObject({
+      contractVersion: '1.0', valid: true,
+      records: { experience: [expect.objectContaining({ id: 'experience-example' })] },
+    });
+    expect(evidence.claims.map((claim) => claim.id)).toContain('claim-coordination');
+    expect(evidence.claims.map((claim) => claim.id)).not.toContain('claim-users');
     const result = await adapter.patch([{ claimId: 'claim-role', field: 'statement', value: 'Senior Engineer bei Example GmbH' }], true);
     expect(result.updatedClaimIds).toEqual(['claim-role']);
     expect((await adapter.summary()).claims.find((claim) => claim.id === 'claim-role')?.statement).toContain('Senior Engineer');

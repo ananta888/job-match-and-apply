@@ -103,7 +103,10 @@ class RoleOutputProvider extends FakeAgentProvider {
     const role = String(context.request.metadata?.nodeRole ?? 'unknown');
     const text = role === 'finalizer' ? finalHtml : `${role} review variant`;
     return new FakeAgentProvider({
-      steps: [{ kind: 'agent_message_completed', data: { text } }],
+      steps: role === 'finalizer' ? [
+        { kind: 'agent_message_completed', data: { text: 'Zwischenstand: Die finale Fassung wird geprüft.' } },
+        { kind: 'agent_message_completed', data: { text } },
+      ] : [{ kind: 'agent_message_completed', data: { text } }],
       outcome: { state: 'succeeded' },
     }).start(context);
   }
@@ -185,11 +188,10 @@ describe('ApplicationAgentOrchestrationService root domain tools', () => {
     expect(settled.nodes[0]?.status).not.toBe('failed');
   });
 
-  it('requests the workflow tools when the installation does serve them', async () => {
+  it('does not request redundant workflow tools when every role input is materialized', async () => {
     const { requests } = await runWithCodexProvider(async () => true);
-    expect(requests[0]?.metadata?.requiredRootMcpTools).toEqual(expect.arrayContaining([
-      'applications.get', 'companies.get', 'application.analyze',
-    ]));
+    expect(requests[0]?.metadata?.requiredRootMcpTools).toEqual([]);
+    expect(requests[0]?.approvalMode).toBe('deny');
   });
 
   it('treats an unconfigured or failing probe as unavailable rather than failing the run', async () => {
@@ -257,6 +259,15 @@ describe('ApplicationAgentOrchestrationService', () => {
       expect(typeof run.request.metadata?.nodeRole).toBe('string');
       expect(run.request.network).toBe('disabled');
       expect(run.request.sandbox).toBe('read-only');
+    }
+    for (const role of ['author', 'ats_reviewer', 'recruiter_style_reviewer', 'finalizer']) {
+      const run = runs.find((candidate) => candidate.request.metadata?.nodeRole === role);
+      expect(run?.request.task).toContain('<input reference="candidate_evidence">');
+      expect(run?.request.task).toContain('<input reference="job">');
+    }
+    for (const role of ['author', 'recruiter_style_reviewer', 'finalizer']) {
+      const run = runs.find((candidate) => candidate.request.metadata?.nodeRole === role);
+      expect(run?.request.task).toContain('<input reference="style_profile">');
     }
     const finalizer = runs.find((run) => run.request.metadata?.nodeRole === 'finalizer');
     expect(finalizer?.request.task).toContain('Evidence-backed synthetic content');

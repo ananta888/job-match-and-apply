@@ -42,6 +42,36 @@ describe('AgentControlCenter', () => {
     expect((await center.get(run.id))?.capabilities?.provider).toBe('fake');
   });
 
+  it('drops provider events arriving after a terminal result without crashing the control center', async () => {
+    const root = await workspace();
+    let lateError: unknown;
+    let finishLate!: () => void;
+    const lateFinished = new Promise<void>((resolve) => { finishLate = resolve; });
+    class LateEventProvider extends FakeAgentProvider {
+      override async start(context: ProviderRunContext): Promise<AgentRunHandle> {
+        const handle = await super.start(context);
+        void handle.completion.then(() => {
+          setTimeout(() => {
+            void context.emit({ kind: 'heartbeat', data: { phase: 'too-late' } })
+              .catch((error) => { lateError = error; })
+              .finally(finishLate);
+          }, 10);
+        });
+        return handle;
+      }
+    }
+    const center = new AgentControlCenter(new MemoryAgentRunStore(), [new LateEventProvider()], {
+      maxParallel: 1, maxParallelPerProvider: 1, allowedWorkspaceRoots: [root],
+    });
+    const run = await center.enqueue(request(root));
+
+    expect(await waitForTerminal(center, run.id)).toBe('succeeded');
+    await lateFinished;
+    expect(lateError).toBeUndefined();
+    expect((await center.events(run.id)).some((event) => event.data.phase === 'too-late')).toBe(false);
+    await center.dispose();
+  });
+
   it('pins the discovered provider and negotiated adapter versions before spawn', async () => {
     const root = await workspace();
     class TrackingProvider extends FakeAgentProvider {

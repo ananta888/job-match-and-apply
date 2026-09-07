@@ -4,7 +4,13 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import type { AppConfig } from '../domain/models.js';
-import type { CandidateProfilePort, CandidateProfileSummary, ClaimPatchOperation } from '../ports/candidate-profile.js';
+import {
+  candidateEvidenceCollections,
+  type CandidateEvidenceSnapshot,
+  type CandidateProfilePort,
+  type CandidateProfileSummary,
+  type ClaimPatchOperation,
+} from '../ports/candidate-profile.js';
 import { buildMinimalLocalChildEnvironment } from '../services/process-environment.js';
 
 const execute = promisify(execFile);
@@ -15,6 +21,30 @@ export class LocalCandidateProfileAdapter implements CandidateProfilePort {
   async summary(): Promise<CandidateProfileSummary> {
     const raw = await this.run(['show', '--candidate', this.path(this.settings.candidateProfilePath)]);
     return this.mapSummary(raw);
+  }
+
+  async evidence(outputType: CandidateEvidenceSnapshot['outputType']): Promise<CandidateEvidenceSnapshot> {
+    const raw = await this.run([
+      'evidence', '--candidate', this.path(this.settings.candidateProfilePath), '--output-type', outputType,
+    ]);
+    const records = raw.records && typeof raw.records === 'object' && !Array.isArray(raw.records)
+      ? raw.records as Record<string, unknown> : {};
+    const mappedRecords = Object.fromEntries(candidateEvidenceCollections.map((collection) => {
+      const values = Array.isArray(records[collection]) ? records[collection] : [];
+      if (!values.every((value) => value !== null && typeof value === 'object' && !Array.isArray(value))) {
+        throw Object.assign(new Error('Kandidaten-Evidence enthält ungültige Strukturdaten.'), { statusCode: 409 });
+      }
+      return [collection, structuredClone(values as Array<Record<string, unknown>>)] as const;
+    })) as CandidateEvidenceSnapshot['records'];
+    const claims = this.mapClaims(raw.claims);
+    const contractVersion = String(raw.contract_version ?? '');
+    const valid = raw.contract === 'candidate-evidence-snapshot' && raw.output_type === outputType
+      && Boolean(raw.valid) && Boolean(contractVersion);
+    return {
+      contractVersion, outputType, valid,
+      errors: Array.isArray(raw.errors) ? raw.errors.map(String) : [],
+      claims, records: mappedRecords,
+    };
   }
 
   async patch(operations: ClaimPatchOperation[], confirmed: boolean): Promise<{ status: string; updatedClaimIds: string[] }> {
@@ -61,19 +91,26 @@ export class LocalCandidateProfileAdapter implements CandidateProfilePort {
   }
 
   private mapSummary(raw: Record<string, unknown>): CandidateProfileSummary {
-    const claims = Array.isArray(raw.claims) ? raw.claims as Record<string, unknown>[] : [];
     return {
       contractVersion: String(raw.contract_version), valid: Boolean(raw.valid),
       errors: Array.isArray(raw.errors) ? raw.errors.map(String) : [],
       profile: raw.profile && typeof raw.profile === 'object' ? raw.profile as Record<string, unknown> : {},
-      claims: claims.map((claim) => ({
-        id: String(claim.id), statement: String(claim.statement), status: String(claim.status) as CandidateProfileSummary['claims'][number]['status'],
-        evidenceRefs: Array.isArray(claim.evidence_refs) ? claim.evidence_refs.map(String) : [],
-        allowedOutputs: Array.isArray(claim.allowed_outputs) ? claim.allowed_outputs.map(String) : [],
-        validFrom: typeof claim.valid_from === 'string' ? claim.valid_from : undefined,
-        validTo: typeof claim.valid_to === 'string' ? claim.valid_to : undefined
-      }))
+      claims: this.mapClaims(raw.claims),
     };
+  }
+
+  private mapClaims(value: unknown): CandidateProfileSummary['claims'] {
+    const claims = Array.isArray(value) ? value as Record<string, unknown>[] : [];
+    return claims.map((claim) => ({
+      id: String(claim.id),
+      ...(typeof claim.category === 'string' ? { category: claim.category } : {}),
+      statement: String(claim.statement),
+      status: String(claim.status) as CandidateProfileSummary['claims'][number]['status'],
+      evidenceRefs: Array.isArray(claim.evidence_refs) ? claim.evidence_refs.map(String) : [],
+      allowedOutputs: Array.isArray(claim.allowed_outputs) ? claim.allowed_outputs.map(String) : [],
+      validFrom: typeof claim.valid_from === 'string' ? claim.valid_from : undefined,
+      validTo: typeof claim.valid_to === 'string' ? claim.valid_to : undefined,
+    }));
   }
 
   private async candidateSha256(candidate: string): Promise<string> {

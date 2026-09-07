@@ -24,10 +24,10 @@ const workflowTools: Readonly<Record<string, readonly string[]>> = {
   // no-case job-search tool set (including the trusted-host Job MCP).
   'cv-ai-structuring': [],
   'guided-job-analysis': ['jobs.search', 'job_search.capabilities', 'job_search.search'],
-  'evidence-application-package': [
-    'applications.get', 'companies.get', 'application.tracking.list', 'application.analyze', 'application.pipeline.audit',
-    'document.revision.propose',
-  ],
+  // Every role receives its complete server-owned raw input snapshot. Extra
+  // domain reads would duplicate that data and can introduce approval waits
+  // halfway through an otherwise read-only five-role run.
+  'evidence-application-package': [],
   'employer-response-triage': [
     'applications.get', 'companies.get', 'application.tracking.list', 'messages.list', 'mail.correlation.propose',
     'application.status.propose', 'reminder.propose', 'domain.command.confirm', 'domain.command.execute_local',

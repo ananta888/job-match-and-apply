@@ -147,25 +147,31 @@ const ROLE_CRITERIA: Readonly<Record<string, readonly string[]>> = {
   evidence_reviewer: [
     'Use only verified or user_confirmed candidate claims with traceable evidence references.',
     'Reject inferred, unverified and do_not_use claims; never invent a candidate fact.',
-    'Return an evidence matrix that distinguishes supported matches from gaps.',
+    'Use the structured candidate records to preserve exact roles, employers, dates, education, certifications and skills.',
+    'Return an evidence matrix that distinguishes supported matches from gaps and retains the career facts needed for a complete CV.',
   ],
   author: [
-    'Draft only from the evidence matrix and keep claim-to-evidence annotations.',
+    'Draft a complete job-specific CV from the raw candidate records and the evidence matrix; do not reduce it to a match report.',
+    'Use the exact bound identity from application_case. Preserve reverse chronology and include relevant experience, skills, certifications and education.',
+    'Keep claim-to-evidence annotations for the reviewers, but keep gap analysis and lifecycle disclaimers outside the CV content.',
     'Treat search preferences as preferences, never as candidate evidence.',
     'The result is a proposal and must not be represented as approved or submitted.',
   ],
   ats_reviewer: [
-    'Review the raw annotated draft against the job requirements and evidence matrix.',
+    'Review the raw annotated draft against the complete job, candidate records, pipeline analysis and evidence matrix.',
+    'Check ATS-safe headings, readable reverse chronology and natural use of supported job keywords.',
     'Report unsupported claims and missing keywords; do not rewrite candidate facts.',
     'Do not call searchPreferenceScore an ATS score.',
   ],
   recruiter_style_reviewer: [
-    'Review the raw annotated draft independently for clarity, specificity, tone and style-profile fit.',
+    'Review the raw annotated draft independently against the complete job, candidate records and style profile.',
+    'Check whether a recruiter can understand target fit, recent career history and core skills in a fast scan.',
     'Flag generic language and unsupported persuasion; preserve factual evidence boundaries.',
   ],
   finalizer: [
-    'Use the raw annotated draft plus both raw reviews and the evidence matrix.',
-    'Resolve review findings without adding facts; preserve evidence traceability.',
+    'Use the complete raw job, identity, candidate records, style profile, annotated draft, both raw reviews and the evidence matrix.',
+    'Resolve review findings without adding facts; keep evidence traceability internal and remove every visible claim ID, source ID and review note.',
+    'Produce the polished application document itself, not an evidence report, requirements table, audit log or explanation.',
     'Return a proposal only. Approval, used-state, export and submission are separate server gates.',
   ],
   mail_classifier: [
@@ -310,7 +316,11 @@ function completedText(events: readonly AgentEvent[], maximumBytes: number): str
     const data = event.data as Readonly<Record<string, unknown>>;
     return typeof data.text === 'string' ? [data.text] : typeof data.message === 'string' ? [data.message] : [];
   });
-  const output = texts.join('\n\n').trim();
+  // Tool-capable providers may complete short progress messages before the
+  // final answer. Only the last completed assistant message is the node's
+  // deliverable; joining progress text in front of a strict HTML/JSON result
+  // corrupts that result even though the provider run itself succeeded.
+  const output = (texts.at(-1) ?? '').trim();
   if (!output) throw new Error('agent_proposal_output_missing');
   if (Buffer.byteLength(output, 'utf8') > maximumBytes) throw new Error('agent_proposal_output_too_large');
   return output;
@@ -1009,6 +1019,9 @@ export class ApplicationAgentOrchestrationService {
           '- Put the finished, directly readable application document in the body.',
           '- Use semantic HTML only. Do not include scripts, forms, iframes, event handlers, remote resources, navigation or external links.',
           '- Resolve both reviews in the final document without exposing internal evidence annotations, review logs or iteration metadata.',
+          '- Do not show claim IDs, source references, evidence status, unsupported-requirement lists, gap tables or lifecycle disclaimers.',
+          '- Do not label the document as draft, proposal or final; the server-owned banner communicates lifecycle and identity mode.',
+          '- For a CV, use a clean single-column ATS structure with identity header, concise profile, relevant skills, reverse-chronological experience, certifications and education whenever those records exist.',
         ]
       : workflow.id === 'employer-response-triage' && request.node.role === 'response_drafter'
         ? [
@@ -1050,7 +1063,9 @@ export class ApplicationAgentOrchestrationService {
         `<input reference="${section.reference}">`, section.content, '</input>',
       ]),
       '',
-      'Return the requested proposal with explicit source/evidence references. Do not claim it is approved, used, exported or submitted.',
+      request.node.role === 'finalizer'
+        ? 'Return only the finished document. Evidence references remain in the upstream artifacts and must not be visible in the HTML.'
+        : 'Return the requested proposal with explicit source/evidence references. Do not claim it is approved, used, exported or submitted.',
     ].join('\n');
     if (Buffer.byteLength(task, 'utf8') > this.maxNodeTaskBytes) throw new Error('orchestration_node_task_too_large');
     return task;
@@ -1090,6 +1105,8 @@ export class ApplicationAgentOrchestrationService {
       workflowId: workflow.id,
       identityMode: input.scope.identityMode,
     };
+    const rootToolNames = rootToolsSupported
+      ? allowedRootDomainTools({ applicationCaseId: input.scope.applicationCaseId, metadata: metadataBase }) : [];
     return {
       provider: request.node.providerId,
       task,
@@ -1098,7 +1115,7 @@ export class ApplicationAgentOrchestrationService {
       wslDistribution: input.wslDistribution,
       sandbox: 'read-only',
       network: 'disabled',
-      approvalMode: rootToolsSupported && input.approvalMode === 'explicit' ? 'explicit' : 'deny',
+      approvalMode: rootToolNames.length > 0 && input.approvalMode === 'explicit' ? 'explicit' : 'deny',
       model: input.model,
       profile: input.profile,
       applicationCaseId: input.scope.applicationCaseId,
@@ -1131,8 +1148,7 @@ export class ApplicationAgentOrchestrationService {
         nodeBudget: clone(request.node.budget),
         identityMode: input.scope.identityMode,
         allowedApplicationCaseIds: input.scope.applicationCaseId ? [input.scope.applicationCaseId] : [],
-        requiredRootMcpTools: rootToolsSupported
-          ? allowedRootDomainTools({ applicationCaseId: input.scope.applicationCaseId, metadata: metadataBase }) : [],
+        requiredRootMcpTools: rootToolNames,
       },
     };
   }

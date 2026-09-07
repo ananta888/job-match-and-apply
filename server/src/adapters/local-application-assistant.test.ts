@@ -40,6 +40,10 @@ describe('LocalApplicationAssistantAdapter', () => {
       styleProfilePath: resolve(repositoryRoot, 'integrations', 'bewerbungs-schreib-assistent', 'tests', 'fixtures', 'valid-style.yaml')
     }, temporaryDirectory);
     const analysis = await adapter.analyze({ ...job, skills: ['RabbitMQ', 'Kafka'] }, 'cover_letter');
+    expect(await adapter.styleProfile('cv')).toMatchObject({
+      contract: 'application-style-profile-snapshot', contractVersion: '1.0', outputType: 'cv',
+      profile: { style_profile: expect.any(Object), document_styles: expect.any(Object) },
+    });
     const matches = analysis.matchMatrix.matches as Array<{ competency: string; classification: string; evidence_claim_ids: string[] }>;
     expect(matches.find((item) => item.competency === 'RabbitMQ')).toMatchObject({ classification: 'direct_match', evidence_claim_ids: ['claim-rabbitmq'] });
     expect(matches.find((item) => item.competency === 'Kafka')).toMatchObject({ classification: 'gap', evidence_claim_ids: [] });

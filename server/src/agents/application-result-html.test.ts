@@ -10,7 +10,7 @@ describe('application pipeline HTML result', () => {
     const html = normalizeApplicationFinalHtml(`<!doctype html>
       <html><head><title>Direkter Lebenslauf</title><style>body{display:none}</style></head>
       <body onload="steal()"><h1>Erika Beispiel</h1><script>alert('x')</script>
-      <p>Belegte Erfahrung</p><a href="https://example.invalid/leak">Kontakt</a>
+      <p>Belegte Erfahrung</p><header><span>Engineer</span><time datetime="2025-03">03/2025 – heute</time></header><a href="https://example.invalid/leak">Kontakt</a>
       <table><tr><th scope="col" onclick="steal()">Rolle</th><td colspan="2">Engineer</td></tr></table></body></html>`, {
       identityMode: 'real',
     });
@@ -21,10 +21,28 @@ describe('application pipeline HTML result', () => {
     expect(html).toContain('<h1>Erika Beispiel</h1>');
     expect(html).toContain('<th scope="col">Rolle</th>');
     expect(html).toContain('<td colspan="2">Engineer</td>');
+    expect(html).toContain('<span>Engineer</span> 03/2025 – heute');
+    expect(html).toContain('<div class="content-header"><span>Engineer</span>');
+    expect(html).not.toContain('<header>');
     expect(html).not.toContain("alert('x')");
     expect(html).not.toContain('example.invalid');
     expect(html).not.toContain('onload');
     expect(html).not.toContain('onclick');
+    expect(html).not.toContain('Fünfter Agent');
+    expect(html).not.toContain('Inkognito-Vorschau');
+  });
+
+  it('keeps only a small print-hidden safety note for incognito previews', () => {
+    const html = normalizeApplicationFinalHtml(
+      '<!doctype html><html><head><title>CV</title></head><body><h1>Alex Beispiel</h1></body></html>',
+      { identityMode: 'incognito' },
+    );
+
+    expect(html).toContain('Inkognito-Vorschau – nicht als echte Bewerbung verwenden.');
+    expect(html).toContain('<div class="preview-note">');
+    expect(html).not.toContain('<aside class="preview-note">');
+    expect(html).toContain('.preview-note{display:none}');
+    expect(html).not.toContain('Fünfter Agent');
   });
 
   it('parses only the closed finalizer package contract', () => {
@@ -57,7 +75,6 @@ describe('application pipeline HTML result', () => {
 
     expect(html).toMatch(/^<!doctype html>/i);
     expect(html).toContain('Content-Security-Policy');
-    expect(html).toContain('Direkte HTML-Sofortansicht');
     expect(html).toContain('<h2>Profil</h2>');
     expect(html).toContain('<li>Belegte Erfahrung</li>');
     expect(html).toContain('<strong>Klare Wirkung</strong>');
@@ -65,5 +82,7 @@ describe('application pipeline HTML result', () => {
     expect(html).not.toContain('<script>alert(1)</script>');
     expect(html).not.toContain('evidence:');
     expect(html).not.toContain('PRIVATE_INTERNAL_MANIFEST');
+    expect(html).not.toContain('Direkte HTML-Sofortansicht');
+    expect(html).not.toContain('Ergebnis-SHA-256');
   });
 });

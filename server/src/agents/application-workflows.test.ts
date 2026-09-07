@@ -20,6 +20,11 @@ describe('application agent workflows', () => {
     expect(roles).toEqual(expect.arrayContaining(['author', 'evidence_reviewer', 'ats_reviewer', 'recruiter_style_reviewer', 'finalizer']));
     expect(workflow.version).toBe('1.1.0');
     expect(plan.nodes.find((node) => node.role === 'finalizer')).toMatchObject({ gates: [], outputRefs: ['final_html'] });
+    expect(plan.totalBudget.toolCalls).toBeGreaterThanOrEqual(70);
+    for (const node of plan.nodes) expect(node.budget.toolCalls).toBeGreaterThanOrEqual(12);
+    for (const role of ['author', 'finalizer']) {
+      expect(plan.nodes.find((node) => node.role === role)?.budget.wallTimeMs).toBeGreaterThanOrEqual(15 * 60_000);
+    }
     expect(JSON.stringify(workflow)).not.toContain('submit_application"');
   });
 });

@@ -252,7 +252,13 @@ export class MemoryAgentRunStore implements AgentRunStore {
 export class JsonAgentRunStore implements AgentRunStore {
   private serialQueue: Promise<void> = Promise.resolve();
 
-  constructor(private readonly rootDirectory: string) {}
+  constructor(
+    private readonly rootDirectory: string,
+    private readonly fileOperations: {
+      rename?: (source: string, destination: string) => Promise<void>;
+      retryDelay?: (milliseconds: number) => Promise<void>;
+    } = {},
+  ) {}
 
   private serialize<T>(operation: () => Promise<T>): Promise<T> {
     const result = this.serialQueue.then(operation, operation);
@@ -272,7 +278,26 @@ export class JsonAgentRunStore implements AgentRunStore {
     await mkdir(dirname(path), { recursive: true });
     const temporary = `${path}.${randomUUID()}.tmp`;
     await writeFile(temporary, `${JSON.stringify(encodeAgentRunSnapshot(value), null, 2)}\n`, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
-    await rename(temporary, path);
+    const renameFile = this.fileOperations.rename ?? rename;
+    const retryDelay = this.fileOperations.retryDelay
+      ?? ((milliseconds: number) => new Promise<void>((resolveDelay) => setTimeout(resolveDelay, milliseconds)));
+    let moved = false;
+    try {
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        try {
+          await renameFile(temporary, path);
+          moved = true;
+          return;
+        } catch (error) {
+          const code = (error as NodeJS.ErrnoException).code;
+          const transientReplaceFailure = code === 'EPERM' || code === 'EBUSY' || code === 'EACCES';
+          if (!transientReplaceFailure || attempt === 4) throw error;
+          await retryDelay(10 * (2 ** attempt));
+        }
+      }
+    } finally {
+      if (!moved) await rm(temporary, { force: true }).catch(() => undefined);
+    }
   }
 
   private async readRun(runId: string): Promise<AgentRun | undefined> {

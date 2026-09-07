@@ -1,5 +1,5 @@
 import { isAbsolute } from 'node:path';
-import { lstat, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
@@ -96,25 +96,89 @@ export interface CodexAppServerOptions {
   environmentBuilder?: ProviderEnvironmentBuilder;
   /** Conformance-only hook; production falls back until user config can be ignored. */
   userConfigIsolationVerified?: boolean;
+  /** Test hook; production resolves the authenticated Codex home from the process environment. */
+  authSourceHome?: string;
 }
 
-async function isolatedCodexHome(runId: string): Promise<{ path: string; dispose(): Promise<void> }> {
+function codexAuthMetadata(auth: Buffer): { accountId: string; authMode: string; refreshedAt: number } {
+  let value: unknown;
+  try { value = JSON.parse(auth.toString('utf8')); } catch { throw new Error('codex_auth_source_invalid'); }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('codex_auth_source_invalid');
+  const record = value as Record<string, unknown>;
+  const tokens = record.tokens;
+  if (!tokens || typeof tokens !== 'object' || Array.isArray(tokens)
+    || typeof record.auth_mode !== 'string' || typeof record.last_refresh !== 'string') {
+    throw new Error('codex_auth_source_invalid');
+  }
+  const tokenRecord = tokens as Record<string, unknown>;
+  if (typeof tokenRecord.account_id !== 'string' || typeof tokenRecord.access_token !== 'string'
+    || typeof tokenRecord.id_token !== 'string' || typeof tokenRecord.refresh_token !== 'string') {
+    throw new Error('codex_auth_source_invalid');
+  }
+  const refreshedAt = Date.parse(record.last_refresh);
+  if (!Number.isFinite(refreshedAt)) throw new Error('codex_auth_source_invalid');
+  return { accountId: tokenRecord.account_id, authMode: record.auth_mode, refreshedAt };
+}
+
+async function safeCodexAuth(path: string): Promise<Buffer> {
+  const info = await lstat(path);
+  if (!info.isFile() || info.isSymbolicLink() || info.size < 2 || info.size > 2 * 1024 * 1024) {
+    throw new Error('codex_auth_source_unsafe');
+  }
+  const auth = await readFile(path);
+  codexAuthMetadata(auth);
+  return auth;
+}
+
+async function replaceCodexAuth(path: string, auth: Buffer): Promise<void> {
+  const temporary = `${path}.${randomUUID()}.tmp`;
+  await writeFile(temporary, auth, { flag: 'wx', mode: 0o600 });
+  let moved = false;
+  try {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      try { await rename(temporary, path); moved = true; return; }
+      catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (!['EPERM', 'EBUSY', 'EACCES'].includes(String(code)) || attempt === 4) throw error;
+        await new Promise<void>((resolveDelay) => setTimeout(resolveDelay, 10 * (2 ** attempt)));
+      }
+    }
+  } finally {
+    if (!moved) await rm(temporary, { force: true }).catch(() => undefined);
+  }
+}
+
+async function syncRefreshedCodexAuth(sourcePath: string, isolatedPath: string): Promise<void> {
+  const source = await safeCodexAuth(sourcePath);
+  const candidate = await safeCodexAuth(isolatedPath);
+  const sourceMetadata = codexAuthMetadata(source);
+  const candidateMetadata = codexAuthMetadata(candidate);
+  if (candidateMetadata.accountId !== sourceMetadata.accountId
+    || candidateMetadata.authMode !== sourceMetadata.authMode) throw new Error('codex_auth_identity_changed');
+  if (candidateMetadata.refreshedAt <= sourceMetadata.refreshedAt) return;
+  // Re-read immediately before replacement so another authenticated Codex
+  // process cannot be overwritten with an older refresh-token rotation.
+  const latestSourceMetadata = codexAuthMetadata(await safeCodexAuth(sourcePath));
+  if (candidateMetadata.refreshedAt <= latestSourceMetadata.refreshedAt) return;
+  await replaceCodexAuth(sourcePath, candidate);
+}
+
+async function isolatedCodexHome(runId: string, sourceHomeOverride?: string): Promise<{ path: string; dispose(): Promise<void> }> {
   const safeRun = runId.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 48) || 'run';
   const base = resolve(tmpdir(), 'job-match-codex-homes');
   await mkdir(base, { recursive: true, mode: 0o700 });
   const path = resolve(base, `${safeRun}-${randomUUID()}`);
   if (!path.startsWith(`${base}\\`) && !path.startsWith(`${base}/`)) throw new Error('codex_isolated_home_escape');
   await mkdir(path, { recursive: false, mode: 0o700 });
-  const configuredHome = process.env.CODEX_HOME;
+  const configuredHome = sourceHomeOverride ?? process.env.CODEX_HOME;
   const userHome = process.env.USERPROFILE ?? process.env.HOME;
   const sourceHome = configuredHome && isAbsolute(configuredHome)
     ? resolve(configuredHome) : userHome && isAbsolute(userHome) ? resolve(userHome, '.codex') : undefined;
+  let authPath: string | undefined;
   if (sourceHome) {
-    const authPath = resolve(sourceHome, 'auth.json');
+    authPath = resolve(sourceHome, 'auth.json');
     try {
-      const info = await lstat(authPath);
-      if (!info.isFile() || info.isSymbolicLink() || info.size > 2 * 1024 * 1024) throw new Error('codex_auth_source_unsafe');
-      const auth = await readFile(authPath);
+      const auth = await safeCodexAuth(authPath);
       await writeFile(resolve(path, 'auth.json'), auth, { flag: 'wx', mode: 0o600 });
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
@@ -127,7 +191,11 @@ async function isolatedCodexHome(runId: string): Promise<{ path: string; dispose
     path,
     async dispose() {
       if (!path.startsWith(`${base}\\`) && !path.startsWith(`${base}/`)) throw new Error('codex_isolated_home_escape');
-      await rm(path, { recursive: true, force: true });
+      try {
+        if (authPath) await syncRefreshedCodexAuth(authPath, resolve(path, 'auth.json'));
+      } finally {
+        await rm(path, { recursive: true, force: true });
+      }
     },
   };
 }
@@ -359,6 +427,7 @@ export class CodexAppServerAgentAdapter implements AgentRunnerPort {
   private readonly cancelGraceMs: number;
   private readonly environmentBuilder: ProviderEnvironmentBuilder;
   private readonly userConfigIsolationVerified: boolean;
+  private readonly authSourceHome?: string;
 
   constructor(
     private readonly supervisor: Pick<ProcessSupervisor, 'start'> = new ProcessSupervisor(),
@@ -369,6 +438,7 @@ export class CodexAppServerAgentAdapter implements AgentRunnerPort {
     this.cancelGraceMs = Math.max(25, Math.min(options.cancelGraceMs ?? 750, 5_000));
     this.environmentBuilder = options.environmentBuilder ?? buildMinimalProviderEnvironment;
     this.userConfigIsolationVerified = options.userConfigIsolationVerified === true;
+    this.authSourceHome = options.authSourceHome;
   }
 
   supports(installation: AgentProviderInstallation): boolean {
@@ -589,7 +659,7 @@ export class CodexAppServerAgentAdapter implements AgentRunnerPort {
     const policy = sandboxPolicy(context, workspace);
     if (args.some((argument) => /^(?:ws|wss|unix):\/\//i.test(argument))) throw new Error('Codex App Server Listenertransport ist nicht erlaubt.');
 
-    const isolatedHome = await isolatedCodexHome(context.runId);
+    const isolatedHome = await isolatedCodexHome(context.runId, this.authSourceHome);
     let run!: AppServerRun;
     const parser = new IncrementalJsonlParser();
     let processHandle: SupervisedProcess;

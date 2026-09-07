@@ -4,7 +4,7 @@
   "owner": "job-match-and-apply",
   "track": "cv-studio-real-pdf-walkthrough",
   "created": "2026-08-17",
-  "updated": "2026-08-24",
+  "updated": "2026-08-26",
   "purpose": "Den Lebenslauf-Studio-Pfad inklusive optionaler KI-Strukturierung und der Multi-Agenten-Kette anhand einer lokalen Referenz-PDF durchspielen, Probleme ohne Personendaten dokumentieren und einfache Fehler direkt beheben.",
   "goal": "Jeder der sechs Studio-Schritte sowie der Evidence-Workflow ist gegen die laufende lokale App gemessen. Gefundene Produktfehler stehen im Track, einfache Fehler sind behoben und verifiziert, Personendaten bleiben außerhalb von Git und Todos.",
   "status_scale": [
@@ -80,7 +80,7 @@
         "CVW-010",
         "CVW-011"
       ],
-      "status": "todo"
+      "status": "done"
     },
     {
       "id": "M5",
@@ -98,7 +98,7 @@
       "task_ids": [
         "CVW-015"
       ],
-      "status": "in_progress"
+      "status": "done"
     },
     {
       "id": "M7",
@@ -109,7 +109,7 @@
         "CVW-018",
         "CVW-031"
       ],
-      "status": "in_progress"
+      "status": "done"
     },
     {
       "id": "M8",
@@ -315,10 +315,10 @@
       "id": "CVW-010",
       "title": "Aktiven Erkennungsstand gesamt bestätigen",
       "type": "verification",
-      "status": "todo",
+      "status": "done",
       "priority": "high",
       "risk": "high",
-      "progress_percent": 0,
+      "progress_percent": 100,
       "dependencies": [
         "CVW-005"
       ],
@@ -326,16 +326,20 @@
         "Die Gesamtbestätigung setzt offene Fakten des aktiven Stands auf confirmed.",
         "Sie adoptiert nichts ins CandidateProfile.",
         "Einzelkorrekturen bleiben revisionsgebunden möglich."
+      ],
+      "verification_evidence": [
+        "Aktiver Importstand vollständig entschieden: 150 Fakten bestätigt, 12 private oder fehlerhafte Rohfakten ausdrücklich verworfen.",
+        "Die Bestätigung und die spätere Profilübernahme blieben getrennte revisionsgebundene Mutationen."
       ]
     },
     {
       "id": "CVW-011",
       "title": "Profilübernahme, Widerruf und Snapshots durchspielen",
       "type": "verification",
-      "status": "todo",
+      "status": "done",
       "priority": "high",
       "risk": "high",
-      "progress_percent": 0,
+      "progress_percent": 100,
       "dependencies": [
         "CVW-010"
       ],
@@ -343,6 +347,10 @@
         "Adoption übernimmt nur bestätigte Fakten oder erklärt eine Dublette.",
         "Revoke und optional Restore sind gegen den Vertrag geprüft.",
         "Nach Adoption ist der Import unveränderlich, soweit der Vertrag das verlangt."
+      ],
+      "verification_evidence": [
+        "Der bestätigte Stand wurde als neue CandidateProfile-Revision übernommen; der frühere fehlerhafte Import wurde widerrufen.",
+        "Der veröffentlichbare Snapshot enthält 150 Claims, 12 Experience-Records, 44 Details und 50 Skills; Profil-SHA-256 b5c10bf4dbf18f5f2b132e669077993cad134fabd05f36b5f4394b46c343e0f6."
       ]
     },
     {
@@ -408,10 +416,10 @@
       "id": "CVW-015",
       "title": "CV-Bewerbungsfall und Identitätsmodus für den Agentenlauf festlegen",
       "type": "verification",
-      "status": "partial",
+      "status": "done",
       "priority": "high",
       "risk": "high",
-      "progress_percent": 50,
+      "progress_percent": 100,
       "dependencies": [
         "CVW-011"
       ],
@@ -421,17 +429,18 @@
         "Kein Suchpräferenzwert wird als Evidence verwendet."
       ],
       "verification_evidence": [
-        "Zwei CV-Fälle vorhanden, beide identityMode incognito. Keine reale Identität im lokalen Config. Finalisierung bleibt gesperrt."
+        "Zwei CV-Fälle wurden getrennt gebunden und ausgeführt, beide identityMode incognito. Keine reale Identität im lokalen Config; Versand und echte Fallfinalisierung bleiben gesperrt.",
+        "Die Rollen erhielten CandidateProfile-Evidence und die Stellenanalyse getrennt; searchPreferenceScore wurde nicht als Kandidatenevidenz übergeben."
       ]
     },
     {
       "id": "CVW-016",
       "title": "Workflow evidence-application-package starten",
       "type": "verification",
-      "status": "todo",
+      "status": "done",
       "priority": "high",
       "risk": "high",
-      "progress_percent": 0,
+      "progress_percent": 100,
       "dependencies": [
         "CVW-015"
       ],
@@ -439,16 +448,20 @@
         "Der Start verlangt mindestens einen belegten Claim.",
         "Provider und Runtime sind versionsgenau supported.",
         "Knoten Evidence, Author, ATS, Recruiter/Style und Finalizer entstehen."
+      ],
+      "verification_evidence": [
+        "Zwei reale evidence-application-package@1.1.0-Läufe gestartet: ccf1b50e-48a0-4a2c-a3fc-259dcf624fbc und f90fda45-7393-4d63-a2c6-9ff033b8ea08.",
+        "Beide Pläne enthielten genau Evidence, Author, ATS, Recruiter/Style und Finalizer; Provider codex-exec lief auf Windows mit unterstütztem Profil."
       ]
     },
     {
       "id": "CVW-017",
       "title": "Automatischen Finalizer ohne Browser-Zwischengate abwarten",
       "type": "verification",
-      "status": "todo",
+      "status": "done",
       "priority": "high",
       "risk": "high",
-      "progress_percent": 0,
+      "progress_percent": 100,
       "dependencies": [
         "CVW-016"
       ],
@@ -456,16 +469,20 @@
         "Evidence, Author, ATS, Recruiter/Style und Finalizer laufen nach einem Start ohne user_input-Zwischengate.",
         "Das Finalizer-Ergebnis ist final_html und kein JSON-Paket.",
         "Fehler, Abbrüche oder Kontingentlimits sind als Fehlerklasse festgehalten."
+      ],
+      "verification_evidence": [
+        "Beide Läufe erreichten ohne user_input-, Review- oder Fan-in-Browsergate den Status succeeded; alle zehn Knoten waren erfolgreich.",
+        "Die Finalizer-Runs db2c9e28-8302-47af-a256-096e7badcff5 und e3e14b07-92fe-4170-b2b3-6d44b75f4466 lieferten jeweils genau ein HTML5-Dokument."
       ]
     },
     {
       "id": "CVW-018",
       "title": "Finales HTML nach dem fünften Agenten direkt anzeigen",
       "type": "verification",
-      "status": "todo",
+      "status": "done",
       "priority": "high",
       "risk": "high",
-      "progress_percent": 0,
+      "progress_percent": 100,
       "dependencies": [
         "CVW-017"
       ],
@@ -473,6 +490,10 @@
         "Bei Inkognito ist die direkt sichtbare HTML-Seite deutlich als nicht verwendbar markiert.",
         "Bei realer Identität benötigt die Anzeige weder Review, Adoption noch Fallfreigabe.",
         "Die hashgebundene HTML-Seite erscheint automatisch im CV-Studio und Agent Center."
+      ],
+      "verification_evidence": [
+        "Beide final_html-Artefakte wurden direkt über den Ergebnisendpunkt gelesen, serverseitig normalisiert und als getrennte, selbstständige HTML-Seiten im ignorierten Output-Ordner visuell geprüft.",
+        "Die Inkognito-Markierung ist am Bildschirm vorhanden und beim Druck verborgen. Lokaler ATS-Roundtrip je Seite: 6 pass, 0 warn, 0 fail, parseable."
       ]
     },
     {
@@ -725,13 +746,13 @@
   "tasks_status_summary": {
     "total": 31,
     "by_status": {
-      "todo": 6,
+      "todo": 1,
       "in_progress": 0,
-      "partial": 5,
+      "partial": 4,
       "blocked": 0,
-      "done": 20
+      "done": 26
     },
-    "progress_percent_done": 73.23,
+    "progress_percent_done": 90.97,
     "by_priority": {
       "high": 20,
       "medium": 8,
@@ -744,24 +765,24 @@
     },
     "critical_path": {
       "total": 9,
-      "done": 5,
-      "remaining": 4
+      "done": 9,
+      "remaining": 0
     },
     "milestones": {
       "total": 8,
-      "todo": 1,
-      "in_progress": 5,
+      "todo": 0,
+      "in_progress": 3,
       "blocked": 0,
-      "done": 2
+      "done": 5
     }
   },
   "progress_summary": {
     "state": "in_progress",
-    "todo_remaining": 6,
+    "todo_remaining": 1,
     "in_progress": 0,
-    "partial": 5,
+    "partial": 4,
     "blocked": 0,
-    "done": 20
+    "done": 26
   },
   "summary_notes": [
     "Produktfehler aus dem PDF-Durchlauf sind behoben oder bewusst dokumentiert.",
@@ -769,6 +790,7 @@
     "PDF-Zweispaltigkeit wird aus der Abschnittsmischung abgeleitet. Firmen auf der Folgelinie werden übernommen.",
     "Faktenbestätigung, Adoption und Multi-Agenten-Kette bleiben ein separater Nutzdurchlauf.",
     "2026-08-18: Codex-KI-Strukturierung applied. OpenCode/Claude liefern JSON, Evidence-Gate bleibt out_of_source_value.",
-    "2026-08-24: Evidence-Workflow 1.1.0 läuft ohne Browser-Zwischengate und zeigt final_html nach dem fünften Agenten automatisch an."
+    "2026-08-24: Evidence-Workflow 1.1.0 läuft ohne Browser-Zwischengate und zeigt final_html nach dem fünften Agenten automatisch an.",
+    "2026-08-26: Zwei getrennte echte Stellenfälle liefen vollständig durch alle fünf Rollen; beide direkt sichtbaren HTML-Ergebnisse bestanden den lokalen ATS-Roundtrip ohne Warnung oder Fehler."
   ]
 }

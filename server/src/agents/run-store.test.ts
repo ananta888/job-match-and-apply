@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -64,6 +64,25 @@ describe.each([
 });
 
 describe('JsonAgentRunStore recovery and retention', () => {
+  it('retries transient atomic replacement failures without losing the run snapshot', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'agent-replace-retry-')); temporary.push(root);
+    let attempts = 0;
+    const store = new JsonAgentRunStore(root, {
+      rename: async (source, destination) => {
+        attempts += 1;
+        if (attempts < 3) throw Object.assign(new Error('temporarily locked'), { code: 'EPERM' });
+        await rename(source, destination);
+      },
+      retryDelay: async () => undefined,
+    });
+    const run = fixtureRun('replace-retry');
+
+    await store.create(run);
+
+    expect(attempts).toBe(3);
+    expect(await store.get(run.id)).toEqual(run);
+  });
+
   it('repairs only a partial trailing line and marks live snapshots orphaned', async () => {
     const root = await mkdtemp(join(tmpdir(), 'agent-recover-')); temporary.push(root);
     const store = new JsonAgentRunStore(root);

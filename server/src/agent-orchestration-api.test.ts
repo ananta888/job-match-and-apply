@@ -130,6 +130,15 @@ class BlockingFakeProvider extends FakeAgentProvider {
   }
 }
 
+class CapturingFakeProvider extends FakeAgentProvider {
+  readonly requests: ProviderRunContext['request'][] = [];
+
+  override start(context: ProviderRunContext): Promise<AgentRunHandle> {
+    this.requests.push(structuredClone(context.request));
+    return super.start(context);
+  }
+}
+
 describe('public agent orchestration API', () => {
   it('creates guided server-owned analysis and exposes only the persisted safe projection via get/list', async () => {
     const value = await apiFixture();
@@ -166,12 +175,13 @@ describe('public agent orchestration API', () => {
 
   it('runs all five roles without an intermediate browser gate and exposes the final HTML immediately', async () => {
     const finalHtml = '<!doctype html><html lang="de"><head><title>Belegter Vorschlag</title></head><body><h1>Belegter Vorschlag</h1><p>Sicherer Inhalt</p><script>alert(1)</script><!-- evidence: claim-role --></body></html>';
+    const provider = new CapturingFakeProvider({
+      steps: [{ kind: 'agent_message_completed', data: { text: finalHtml } }],
+      outcome: { state: 'succeeded' },
+    });
     const value = await apiFixture({
       real: true,
-      provider: new FakeAgentProvider({
-        steps: [{ kind: 'agent_message_completed', data: { text: finalHtml } }],
-        outcome: { state: 'succeeded' },
-      }),
+      provider,
     });
     const current = application();
     await value.workspace.saveApplicationCase(current);
@@ -190,6 +200,15 @@ describe('public agent orchestration API', () => {
     expect(completed.body.nodeRunIds.finalizer).toHaveLength(1);
     expect(completed.body.conflicts).toEqual([]);
     expect(completed.body.artifactRefs).toHaveLength(5);
+    const authorTask = provider.requests.find((candidate) => candidate.metadata?.nodeRole === 'author')?.task ?? '';
+    const styleTask = provider.requests.find((candidate) => candidate.metadata?.nodeRole === 'recruiter_style_reviewer')?.task ?? '';
+    const finalizerTask = provider.requests.find((candidate) => candidate.metadata?.nodeRole === 'finalizer')?.task ?? '';
+    expect(authorTask).toContain('experience-example');
+    expect(authorTask).toContain('"fullName":"Erika Beispiel"');
+    expect(authorTask).toContain('<input reference="candidate_evidence">');
+    expect(styleTask).toContain('<input reference="style_profile">');
+    expect(finalizerTask).toContain('<input reference="candidate_evidence">');
+    expect(finalizerTask).toContain('must not be visible in the HTML');
     const finalArtifactId = completed.body.nodes.find((node: { nodeId: string }) => node.nodeId === 'finalizer').artifacts[0].artifactId;
     expect(await value.dependencies.artifacts.get(finalArtifactId)).toMatchObject({
       kind: 'application-final-html', mediaType: 'text/html; charset=utf-8', lifecycle: 'proposed',
@@ -205,7 +224,7 @@ describe('public agent orchestration API', () => {
     expect(html.headers['cache-control']).toBe('no-store');
     expect(html.headers['content-security-policy']).toContain("default-src 'none'");
     expect(html.text).toMatch(/^<!doctype html>/i);
-    expect(html.text).toContain('Fünfter Agent abgeschlossen · finale HTML-Version');
+    expect(html.text).not.toContain('Fünfter Agent');
     expect(html.text).toContain('<h1>Belegter Vorschlag</h1>');
     expect(html.text).toContain('<p>Sicherer Inhalt</p>');
     expect(html.text).not.toContain('alert(1)');
@@ -216,6 +235,31 @@ describe('public agent orchestration API', () => {
       .get(`/api/agent-orchestrations/${created.body.id}/result.html`)
       .query({ sha256: '0'.repeat(64) });
     expect(stale.status).toBe(409);
+  }, 30_000);
+
+  it('uses the bound incognito identity while keeping candidate-profile contact claims out of every role', async () => {
+    const finalHtml = '<!doctype html><html lang="de"><head><title>Inkognito CV</title></head><body><h1>Alex Beispiel</h1><p>Senior Software Engineer</p></body></html>';
+    const provider = new CapturingFakeProvider({
+      steps: [{ kind: 'agent_message_completed', data: { text: finalHtml } }],
+      outcome: { state: 'succeeded' },
+    });
+    const value = await apiFixture({ provider });
+    const current: ApplicationCase = {
+      ...application(),
+      identityId: 'incognito-default', identityMode: 'incognito', documentType: 'cv', state: 'selected',
+    };
+    await value.workspace.saveApplicationCase(current);
+    const created = await request(value.app).post('/api/agent-orchestrations').send({
+      workflowId: 'evidence-application-package', providerId: 'fake', prompt: 'Prepare an incognito CV preview.',
+      runtimeTarget, applicationCaseId: current.id,
+    });
+    expect(created.status, created.text).toBe(202);
+    const completed = await waitForStatus(value.app, created.body.id);
+    expect(completed.body.status, JSON.stringify(completed.body, null, 2)).toBe('succeeded');
+    const tasks = provider.requests.map((candidate) => candidate.task).join('\n');
+    expect(tasks).toContain('"fullName":"Alex Beispiel"');
+    expect(tasks).not.toContain('Erika Beispiel');
+    expect(tasks).not.toContain('erika@example.test');
   }, 30_000);
 
   it('cancels a running orchestration only with the current revision and explicit confirmation', async () => {

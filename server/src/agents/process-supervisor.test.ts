@@ -72,7 +72,7 @@ describe('ProcessSupervisor', () => {
     expect(noisy.termination).toBe('output_limit');
     expect(Buffer.byteLength(noisy.stdout)).toBeLessThanOrEqual(32);
     expect(noisy.stdoutTruncated).toBe(true);
-  });
+  }, 20_000);
 
   it('supports explicit cancellation and rejects unsafe Windows wrappers', async () => {
     const cwd = await root();

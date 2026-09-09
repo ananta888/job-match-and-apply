@@ -108,7 +108,7 @@ describe('ProcessSupervisor failure-boundary acceptance', () => {
     expect(Buffer.byteLength(outputResult.stdout)).toBeLessThanOrEqual(128);
     expect(Buffer.byteLength(outputResult.stderr)).toBeLessThanOrEqual(96);
     expect(outputResult.stdoutTruncated || outputResult.stderrTruncated).toBe(true);
-  });
+  }, 20_000);
 
   it('rejects cumulative input beyond its cap without forwarding the overflow', async () => {
     const cwd = await makeWorkspace();

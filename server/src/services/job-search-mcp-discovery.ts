@@ -72,9 +72,16 @@ export async function buildJobSearchMcpRuntimeSettings(
   runtimeTarget: 'windows' | 'wsl', config: AppConfig, projectRoot: string,
 ): Promise<McpSettings> {
   const distribution = config.mcp.distribution && isSafeWslDistribution(config.mcp.distribution) ? config.mcp.distribution : 'Ubuntu';
-  const candidate = runtimeTarget === 'windows'
-    ? nativeCandidateSettings(projectRoot, config.mcp.env)
-    : await wslCandidateSettings(projectRoot, distribution, config.mcp.env);
+  let candidate: McpSettings;
+  try {
+    candidate = runtimeTarget === 'windows'
+      ? nativeCandidateSettings(projectRoot, config.mcp.env)
+      : await wslCandidateSettings(projectRoot, distribution, config.mcp.env);
+  } catch {
+    throw Object.assign(new Error(
+      `Die ${runtimeTarget === 'windows' ? 'native' : 'WSL'}-MCP-Runtime ist nicht verfügbar: Laufzeitpfade konnten nicht geprüft werden.`
+    ), { statusCode: 409 });
+  }
   const status = await inspectTrustedHostMcpRuntime(candidate, projectRoot);
   if (status.state !== 'ready_to_connect') {
     throw Object.assign(new Error(`Die ${runtimeTarget === 'windows' ? 'native' : 'WSL'}-MCP-Runtime ist nicht verfügbar: ${status.note}`), { statusCode: 409 });

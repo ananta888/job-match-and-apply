@@ -700,6 +700,19 @@ export class App implements OnInit, OnDestroy {
     if (target) this.loadProviderModels(target);
   }
 
+  readonly careerRoleOptions = [
+    {id: 'evidence' as const, label: 'Fakten prüfen'}, {id: 'author' as const, label: 'Dokument schreiben'},
+    {id: 'ats' as const, label: 'ATS prüfen'}, {id: 'style' as const, label: 'Sprache prüfen'},
+    {id: 'finalizer' as const, label: 'Dokument fertigstellen'},
+  ];
+  setCareerRoleSetting(provider: AgentProviderConfigProfile, role: 'evidence' | 'author' | 'ats' | 'style' | 'finalizer', key: 'model' | 'reasoning', value: string): void {
+    provider.roleSettings ??= {};
+    const setting = provider.roleSettings[role] ??= {};
+    if (key === 'model') setting.model = value.trim() || undefined;
+    else setting.reasoning = (value || undefined) as typeof setting.reasoning;
+    this.invalidateAgentConfigConfirmation();
+  }
+
   setAgentConfigProviderModel(provider: AgentProviderConfigProfile, model: string | undefined): void {
     provider.model = model?.trim() || undefined;
     this.invalidateAgentConfigConfirmation();

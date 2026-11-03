@@ -255,3 +255,14 @@ describe('AgentControlCenter', () => {
     await approvalCenter.dispose();
   });
 });
+
+it('allows two HTTP runs through a provider-specific limit while retaining CLI defaults', async () => {
+  const root = await workspace();
+  const provider = new FakeAgentProvider({steps: [{kind: 'agent_message_completed', data: {text: 'synthetic'}, delayMs: 80}], outcome: {state: 'succeeded'}});
+  const center = new AgentControlCenter(new MemoryAgentRunStore(), [provider], {maxParallel: 2, maxParallelPerProvider: 1, providerParallelism: {fake: 2}, allowedWorkspaceRoots: [root]});
+  const runs = await Promise.all([center.enqueue(request(root)), center.enqueue(request(root))]);
+  await new Promise(resolve => setTimeout(resolve, 20));
+  expect((await center.getQueueDiagnostics()).active).toBe(2);
+  await Promise.all(runs.map(run => waitForTerminal(center, run.id)));
+  await center.dispose();
+});

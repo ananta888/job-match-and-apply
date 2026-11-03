@@ -1116,6 +1116,19 @@
                     </div>
                     <div class="agent-config-readonly"><span>Netzwerk: <strong>{{ provider.network === 'disabled' ? 'offline / gesperrt' : 'gespeicherte Regel: restricted; Runs bleiben derzeit offline' }}</strong></span><span>Modell: <strong>{{ provider.model || 'Providerstandard' }}</strong></span><span>Runtime-Regel: <strong>{{ agentConfigRuntimeLabel(provider) }}</strong></span></div>
                     <p class="agent-config-contract-note">Runtime und Sandbox werden vor dem Start serverseitig geprüft. Approval und Modell übersetzt ausschließlich der Server in die effektiven Run-Regeln; die Oberfläche behauptet daraus keine Werkzeugfreigabe.</p>
+                  @if (provider.provider === 'openrouter') {
+                      <details data-testid="career-role-settings"><summary>Fünf Agenten: Modell und Reasoning</summary>
+                        <p>Ohne eigene Vorgabe: Vorstufen aus (schnell), Dokument fertigstellen hoch. Neue Läufe frieren diese Einstellungen ein.</p>
+                        @for (role of careerRoleOptions; track role.id) {
+                          <fieldset><legend>{{ role.label }}</legend>
+                            <label>Modell (leer: oben gewähltes Modell)<input [ngModel]="provider.roleSettings?.[role.id]?.model || ''" (ngModelChange)="setCareerRoleSetting(provider, role.id, 'model', $event)" maxlength="192"></label>
+                            <label>Reasoning<select [ngModel]="provider.roleSettings?.[role.id]?.reasoning || ''" (ngModelChange)="setCareerRoleSetting(provider, role.id, 'reasoning', $event)">
+                              <option value="">Vorgabe übernehmen</option><option value="default">Anbieterstandard</option><option value="off">Aus (schnell)</option><option value="low">Niedrig</option><option value="medium">Mittel</option><option value="high">Hoch</option>
+                            </select></label>
+                          </fieldset>
+                        }
+                      </details>
+                    }
                   </fieldset>
                 }
               </div>

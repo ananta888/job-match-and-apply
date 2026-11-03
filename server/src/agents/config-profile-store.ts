@@ -1,3 +1,4 @@
+import { validateCareerSettings, type CareerReasoning, type CareerRoleSettings } from './career-role-settings.js';
 import { randomUUID } from 'node:crypto';
 import { lstat, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { isAbsolute, relative, resolve } from 'node:path';
@@ -15,6 +16,8 @@ export interface AgentProviderProfile {
   network: 'disabled' | 'restricted';
   approvalMode: 'deny' | 'explicit';
   model?: string;
+  reasoning?: CareerReasoning;
+  roleSettings?: CareerRoleSettings;
 }
 
 export interface AgentConfigProfile {
@@ -91,7 +94,7 @@ function optionalCostLimit(value: unknown): AgentConfigProfile['budgets']['maxCo
 function validateProvider(value: unknown): AgentProviderProfile {
   if (!value || typeof value !== 'object') throw new Error('agent_config_provider_invalid');
   const input = value as Record<string, unknown>;
-  assertExactKeys(input, ['provider', 'enabled', 'runtimeTarget', 'wslDistribution', 'sandbox', 'network', 'approvalMode', 'model'], 'agent_config_provider_unknown_field');
+  assertExactKeys(input, ['provider', 'enabled', 'runtimeTarget', 'wslDistribution', 'sandbox', 'network', 'approvalMode', 'model', 'reasoning', 'roleSettings'], 'agent_config_provider_unknown_field');
   if (typeof input.provider !== 'string' || !SAFE_ID.test(input.provider) || typeof input.enabled !== 'boolean'
     || !['windows', 'wsl', 'linux', 'darwin'].includes(String(input.runtimeTarget))
     || !['read-only', 'workspace-write'].includes(String(input.sandbox))
@@ -104,6 +107,7 @@ function validateProvider(value: unknown): AgentProviderProfile {
   if (input.model !== undefined && (typeof input.model !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,191}$/.test(input.model))) {
     throw new Error('agent_config_provider_invalid');
   }
+  validateCareerSettings(input.reasoning, input.roleSettings);
   return structuredClone(input) as unknown as AgentProviderProfile;
 }
 

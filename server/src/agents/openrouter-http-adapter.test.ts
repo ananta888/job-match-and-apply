@@ -73,6 +73,8 @@ describe('OpenRouterHttpAgentAdapter', () => {
     expect(result).toEqual({ state: 'succeeded' });
     expect(calls[0]?.body.model).toBe('deepseek/deepseek-v4.1-flash');
     expect(calls[0]?.body.reasoning).toEqual({ effort: 'low' });
+    expect(calls[0]?.body.temperature).toBe(0.2);
+    expect(calls[0]?.body.provider).toEqual({ sort: 'throughput' });
     expect(events.at(-1)).toMatchObject({ kind: 'agent_message_completed', data: { text: FINAL_HTML } });
     const usage = events.filter((event) => event.kind === 'usage_updated').at(-1);
     expect(usage?.data).toMatchObject({ inputTokens: 100, outputTokens: 50, totalTokens: 150, costMicros: 1_000, costEstimated: true });
@@ -210,4 +212,34 @@ describe('OpenRouterHttpAgentAdapter', () => {
     expect(reasoningParameter('off')).toEqual({ reasoning: { enabled: false } });
     expect(reasoningParameter('high')).toEqual({ reasoning: { effort: 'high' } });
   });
+});
+
+it('bounds generated tokens across correction calls and does not retry truncated answers', async () => {
+  const h = harness([jsonResponse({choices: [{finish_reason: 'length', message: {content: 'partial'}}], usage: {prompt_tokens: 40, completion_tokens: 80}})]);
+  const handle = await h.adapter.start(h.context({metadata: {outputRefs: ['final_html'], maxOutputTokens: 80}}));
+  expect((await handle.completion).state).toBe('failed');
+  expect(h.calls).toHaveLength(1);
+  expect(h.calls[0]?.body.max_tokens).toBe(80);
+  expect(h.events.some(e => e.data.code === 'openrouter_output_truncated')).toBe(true);
+});
+
+it('accepts editorial annotations without admitting unknown factual claims', () => {
+  expect(openrouterEvidenceProblem('Überschrift <!-- evidence:editorial -->', ['claim-known'])).toBeNull();
+  expect(openrouterEvidenceProblem('Behauptung <!-- evidence:claim-unknown -->', ['claim-known'])).toBeTruthy();
+});
+
+it('cannot spend a second answer allowance when the provider omits completion usage', async () => {
+  const h = harness([jsonResponse({choices: [{message: {content: 'invalid html'}}]})]);
+  const run = await h.adapter.start(h.context({metadata: {outputRefs: ['final_html'], maxOutputTokens: 100}}));
+  expect((await run.completion).state).toBe('failed');
+  expect(h.calls).toHaveLength(1);
+});
+it('subtracts known generated tokens before the correction request', async () => {
+  const h = harness([
+    jsonResponse({choices: [{message: {content: 'invalid html'}}], usage: {prompt_tokens: 10, completion_tokens: 30}}),
+    jsonResponse({choices: [{message: {content: FINAL_HTML}}], usage: {prompt_tokens: 20, completion_tokens: 40}})
+  ]);
+  const run = await h.adapter.start(h.context({metadata: {outputRefs: ['final_html'], maxOutputTokens: 100}}));
+  expect((await run.completion).state).toBe('succeeded');
+  expect(h.calls.map(call => call.body.max_tokens)).toEqual([100, 70]);
 });

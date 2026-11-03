@@ -1,3 +1,5 @@
+import { freezeCareerRoles, validateCareerSettings, type CareerReasoning, type CareerRoleSettings, type CareerNodeId } from './career-role-settings.js';
+import { evidenceIdsFromSnapshot } from '../services/candidate-evidence-prompt.js';
 import { createHash, randomUUID } from 'node:crypto';
 import type { AgentEvent, AgentRun, AgentRunRequest, RuntimeTarget } from '../ports/agent-runner.js';
 import type { AgentControlCenter } from './agent-control-center.js';
@@ -98,6 +100,8 @@ export interface CreateApplicationOrchestrationInput {
   /** Answers/instructions for the follow-up finalizer run; untrusted editing input. */
   finalizerRefinement?: FinalizerRefinement;
   model?: string;
+  reasoning?: CareerReasoning;
+  roleSettings?: CareerRoleSettings;
   profile?: string;
   approvalMode?: 'deny' | 'explicit';
   ownerId: string;
@@ -399,6 +403,7 @@ export class ApplicationAgentOrchestrationService {
   async create(input: CreateApplicationOrchestrationInput): Promise<ApplicationOrchestrationRecord> {
     await this.initialize();
     this.validateCreateInput(input);
+    input = {...clone(input), roleSettings: freezeCareerRoles(input)};
     const workflow = APPLICATION_AGENT_WORKFLOWS.find((candidate) => candidate.id === input.workflowId);
     if (!workflow) throw Object.assign(new Error('application_orchestration_workflow_unknown'), { statusCode: 404 });
     this.validateScope(workflow, input.scope);
@@ -446,6 +451,7 @@ export class ApplicationAgentOrchestrationService {
         ...(input.wslDistribution ? { wslDistribution: input.wslDistribution } : {}),
         ...(input.model ? { model: input.model } : {}),
         ...(input.profile ? { profile: input.profile } : {}),
+        roleSettings: clone(input.roleSettings),
         frozenAt: createdAt,
       },
       ...(input.clarifications === true ? { clarifications: true as const } : {}),
@@ -859,6 +865,9 @@ export class ApplicationAgentOrchestrationService {
       );
       const rootToolsSupported = await this.rootToolsAvailable(request.node.providerId, input.runtimeTarget);
       const runRequest = this.agentRunRequest(orchestrationId, input, workflow, request, inputDigests, task, rootToolsSupported);
+      const evidence = materialized.sections.find(section => section.reference === 'candidate_evidence');
+      const ids = evidence ? evidenceIdsFromSnapshot(evidence.content) : undefined;
+      if (ids) runRequest.metadata = {...runRequest.metadata, allowedEvidenceIds: [...ids.claimIds, ...ids.evidenceRefs]};
       if (input.finalizerRefinement && request.node.id === 'finalizer') {
         runRequest.metadata = { ...runRequest.metadata, finalizerRefinement: refinementBinding(input.finalizerRefinement) };
       }
@@ -1182,7 +1191,7 @@ export class ApplicationAgentOrchestrationService {
       sandbox: 'read-only',
       network: 'disabled',
       approvalMode: rootToolNames.length > 0 && input.approvalMode === 'explicit' ? 'explicit' : 'deny',
-      model: input.model,
+      model: input.roleSettings?.[request.node.id as CareerNodeId]?.model ?? input.model,
       profile: input.profile,
       applicationCaseId: input.scope.applicationCaseId,
       companyKey: input.scope.companyKey,
@@ -1204,6 +1213,7 @@ export class ApplicationAgentOrchestrationService {
         workflowVersion: workflow.version,
         nodeId: request.node.id,
         nodeRole: request.node.role,
+        reasoning: input.roleSettings?.[request.node.id as CareerNodeId]?.reasoning ?? input.reasoning ?? 'default',
         nodeAttempt: request.attempt,
         dependsOn: [...request.node.dependsOn],
         contextIsolationKey: request.node.contextIsolationKey,
@@ -1214,6 +1224,7 @@ export class ApplicationAgentOrchestrationService {
         inputDigests: clone(inputDigests),
         outputRefs: [...request.node.outputRefs],
         nodeBudget: clone(request.node.budget),
+        maxOutputTokens: request.node.id === 'author' ? 12_000 : request.node.id === 'finalizer' ? 10_000 : request.node.id === 'evidence' ? 8_000 : 6_000,
         identityMode: input.scope.identityMode,
         allowedApplicationCaseIds: input.scope.applicationCaseId ? [input.scope.applicationCaseId] : [],
         requiredRootMcpTools: rootToolNames,
@@ -1556,7 +1567,7 @@ export class ApplicationAgentOrchestrationService {
       const workflow = APPLICATION_AGENT_WORKFLOWS.find((candidate) => candidate.id === source.workflowId);
       if (!workflow || workflow.version !== source.workflowVersion) throw new Error('application_orchestration_workflow_contract_changed');
       const plan = workflow.plan(source.providerId);
-      const { input } = await this.retryContext(source, plan);
+      const { input, sections } = await this.retryContext(source, plan);
       const affected = new Set<string>([nodeId]);
       for (let grew = true; grew;) {
         grew = false;
@@ -1638,6 +1649,9 @@ export class ApplicationAgentOrchestrationService {
         ...clone(input),
         ...(refinement ? { finalizerRefinement: clone(refinement) } : {}),
       };
+      this.resolvedInputCache.set(newId, new Map(sections.map(section => [
+        section.reference, Promise.resolve({content: section.content, digest: sha256(section.content)}),
+      ])));
       this.pendingInputs.set(newId, clone(executionInput));
       const controller = new AbortController();
       this.controllers.set(newId, controller);
@@ -1660,13 +1674,11 @@ export class ApplicationAgentOrchestrationService {
   private async retryContext(
     source: ApplicationOrchestrationRecord,
     plan: OrchestrationPlan,
-  ): Promise<{ input: CreateApplicationOrchestrationInput }> {
+  ): Promise<{ input: CreateApplicationOrchestrationInput; sections: MaterializedInputSection[] }> {
     const unavailable = () => Object.assign(
       new Error('Die ursprünglichen Eingaben sind nicht mehr vollständig prüfbar. Bitte einen neuen Bewerbungslauf anlegen.'),
       { statusCode: 409 },
     );
-    const pending = this.pendingInputs.get(source.id);
-    if (pending) return { input: clone(pending) };
     for (const node of [...source.nodes].reverse()) {
       for (const runId of [...node.runIds].reverse()) {
         const run = await this.center.get(runId);
@@ -1680,13 +1692,14 @@ export class ApplicationAgentOrchestrationService {
           || !plan.inputRefs.every((reference) => checkpoint.sections!.some((section) => section.reference === reference && typeof section.content === 'string'))) {
           throw unavailable();
         }
-        return { input: clone(checkpoint.input) };
+        return { input: clone(checkpoint.input), sections: clone(checkpoint.sections) };
       }
     }
     throw unavailable();
   }
 
   private validateCreateInput(input: CreateApplicationOrchestrationInput): void {
+    validateCareerSettings(input.reasoning, input.roleSettings);
     assertSafeId(input.workflowId, 'workflow_id', true);
     assertSafeId(input.providerId, 'provider_id', true);
     if (input.providerVersion !== undefined && (typeof input.providerVersion !== 'string' || !/^[^\r\n\0]{1,120}$/.test(input.providerVersion))) throw new Error('application_orchestration_provider_version_invalid');

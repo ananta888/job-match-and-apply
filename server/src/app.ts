@@ -507,7 +507,7 @@ export function createDefaultAgentApiDependencies(memory = false): AgentApiDepen
   const budgetStops = new Set<string>();
   let center!: AgentControlCenter;
   center = new AgentControlCenter(store, providers, {
-    maxParallel: 2, maxParallelPerProvider: 1, allowedWorkspaceRoots: [workspaceRoot],
+    maxParallel: 2, maxParallelPerProvider: 1, providerParallelism: {openrouter: 2}, allowedWorkspaceRoots: [workspaceRoot],
     onQueueDepth: (depth) => telemetry.setQueueDepth(depth),
     onEvent: (event) => {
       const data = event.data as Record<string, unknown>;
@@ -1782,6 +1782,8 @@ export function createApp(
       providerVersion: orchestrationProvider.installation.version,
       providerExecutable: orchestrationProvider.installation.executable,
       model: orchestrationProvider.providerProfile?.model,
+      reasoning: orchestrationProvider.providerProfile?.reasoning,
+      roleSettings: orchestrationProvider.providerProfile?.roleSettings,
       profile: orchestrationProvider.profile?.profileId,
       approvalMode: orchestrationProvider.providerProfile?.approvalMode,
       ownerId: 'local-user', prompt: payload.prompt,

@@ -226,11 +226,13 @@ describe('ApplicationAgentOrchestrationService', () => {
     });
     const artifactStore = new AgentArtifactStore(join(root, 'artifacts'));
     const service = new ApplicationAgentOrchestrationService(
-      center, artifactStore, new MemoryApplicationOrchestrationStore(), gateAuthority, inputResolver,
+      center, artifactStore, new MemoryApplicationOrchestrationStore(), gateAuthority, {resolve: async args => args.reference === 'candidate_evidence'
+        ? {content: JSON.stringify({claims: [{id: 'claim-verified-1', evidenceRefs: ['source-synthetic']}]})}
+        : inputResolver.resolve(args)},
       { runPersistenceProtection: 'ephemeral', maxParallelNodes: 2, pollIntervalMs: 2 },
     );
 
-    const created = await service.create(applicationInput(root));
+    const created = await service.create({...applicationInput(root), reasoning: 'high', model: 'synthetic/model'});
     expect(created.status).toBe('queued');
     expect(created.redactedSummary).not.toContain('Frank');
     const completed = await waitForStatus(service, created.id);
@@ -263,6 +265,9 @@ describe('ApplicationAgentOrchestrationService', () => {
     for (const role of ['author', 'ats_reviewer', 'recruiter_style_reviewer', 'finalizer']) {
       const run = runs.find((candidate) => candidate.request.metadata?.nodeRole === role);
       expect(run?.request.task).toContain('<input reference="candidate_evidence">');
+      expect(run?.request.metadata?.reasoning).toBe('high');
+      expect(run?.request.metadata?.allowedEvidenceIds).toEqual(['claim-verified-1', 'source-synthetic']);
+      expect(run?.request.model).toBe('synthetic/model');
       expect(run?.request.task).toContain('<input reference="job">');
     }
     for (const role of ['author', 'recruiter_style_reviewer', 'finalizer']) {
@@ -627,4 +632,38 @@ describe('ApplicationAgentOrchestrationService', () => {
       recovery: { processAdoptionAllowed: false, reason: 'server_restart_no_pid_adoption' },
     });
   });
+});
+
+it('retries with the frozen raw sections instead of resolving changed candidate inputs', async () => {
+  const root = await temporaryRoot();
+  let changed = false;
+  const resolver: ApplicationOrchestrationInputResolver = {resolve: async args => ({content: (changed ? 'changed ' : 'original ') + args.reference})};
+  let failed = false;
+  class RetryProvider extends RoleOutputProvider {
+    override start(context: ProviderRunContext): Promise<AgentRunHandle> {
+      if (context.request.metadata?.nodeId === 'ats' && !failed) {
+        failed = true;
+        return new FakeAgentProvider({steps: [], outcome: {state: 'failed', failure: {code: 'validation_contract_violation', message: 'synthetic', retryable: false}}}).start(context);
+      }
+      return super.start(context);
+    }
+  }
+  const center = new AgentControlCenter(new MemoryAgentRunStore(), [new RetryProvider()], {maxParallel: 2, maxParallelPerProvider: 2, allowedWorkspaceRoots: [root]});
+  const service = new ApplicationAgentOrchestrationService(center, new AgentArtifactStore(join(root, 'artifacts')), new MemoryApplicationOrchestrationStore(), gateAuthority, resolver, {runPersistenceProtection: 'ephemeral', pollIntervalMs: 2});
+  const input = {...applicationInput(root), roleSettings: {ats: {model: 'synthetic/frozen', reasoning: 'off' as const}}};
+  const source = await service.create(input);
+  const stopped = await waitForStatus(service, source.id);
+  const oldNode = stopped.nodes.find(n => n.nodeId === 'ats')!;
+  changed = true; input.roleSettings.ats.model = 'synthetic/changed';
+  const fork = await service.retryNode(source.id, 'ats');
+  const resumed = await waitForStatus(service, fork.id);
+  expect(resumed.status).toBe('succeeded');
+  const node = resumed.nodes.find(n => n.nodeId === 'ats')!;
+  expect(node.inputDigests).toEqual(oldNode.inputDigests);
+  const run = await center.get(node.runIds[0]!);
+  expect(run?.request.task).toContain('original candidate_evidence');
+  expect(run?.request.task).not.toContain('changed candidate_evidence');
+  expect(run?.request.model).toBe('synthetic/frozen');
+  expect(run?.request.metadata?.reasoning).toBe('off');
+  await center.dispose();
 });

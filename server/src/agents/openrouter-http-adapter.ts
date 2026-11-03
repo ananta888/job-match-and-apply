@@ -93,7 +93,7 @@ export function openrouterEvidenceProblem(
   EVIDENCE_COMMENT.lastIndex = 0;
   for (const match of trimmed.matchAll(EVIDENCE_COMMENT)) {
     const id = match[1]!;
-    if (allowedEvidenceIds && !allowedEvidenceIds.includes(id)) {
+    if (id !== 'editorial' && allowedEvidenceIds && !allowedEvidenceIds.includes(id)) {
       return `Die Evidence-Annotation ${id} verweist auf keinen freigegebenen Claim.`;
     }
   }
@@ -113,6 +113,7 @@ interface ChatCompletionResult {
   outputTokens?: number;
   costMicros?: number;
   effectiveReasoning: OpenRouterReasoning;
+  truncated?: boolean;
 }
 
 export class OpenRouterHttpAgentAdapter implements AgentRunnerPort {
@@ -250,6 +251,11 @@ export class OpenRouterHttpAgentAdapter implements AgentRunnerPort {
     }
     let effectiveReasoning = normalizeReasoning((request.metadata as Record<string, unknown> | undefined)?.reasoning);
     const wallTimeMs = Math.max(1_000, Math.min(request.limits?.wallTimeMs ?? DEFAULT_WALL_TIME_MS, DEFAULT_WALL_TIME_MS));
+    const configuredOutput = request.metadata?.maxOutputTokens;
+    const maxOutputTokens = typeof configuredOutput === 'number' && Number.isSafeInteger(configuredOutput) && configuredOutput > 0
+      ? Math.min(configuredOutput, 32_768) : 8_000;
+    let remainingOutputTokens = maxOutputTokens;
+    const deadline = Date.now() + wallTimeMs;
     const totals = { inputTokens: 0, outputTokens: 0, costMicros: undefined as number | undefined };
     let messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
       { role: 'user', content: `${request.task}\n\n${OPENROUTER_RESULT_INSTRUCTION}` },
@@ -257,8 +263,10 @@ export class OpenRouterHttpAgentAdapter implements AgentRunnerPort {
     await emit({ kind: 'process_started', data: { transport: 'openrouter-chat-completions-v1', model, reasoning: effectiveReasoning } }).catch(() => undefined);
     try {
       for (let round = 1; round <= MAX_CORRECTION_ROUNDS; round += 1) {
-        const result = await this.complete(messages, key, model, effectiveReasoning, controller, wallTimeMs);
+        const result = await this.complete(messages, key, model, effectiveReasoning, controller, Math.max(1, deadline - Date.now()), Math.max(1, remainingOutputTokens));
         effectiveReasoning = result.effectiveReasoning;
+        // Missing usage cannot create a fresh allowance for a second paid call.
+        remainingOutputTokens = result.outputTokens === undefined ? 0 : Math.max(0, remainingOutputTokens - result.outputTokens);
         totals.inputTokens += result.inputTokens ?? 0;
         totals.outputTokens += result.outputTokens ?? 0;
         if (result.costMicros !== undefined) totals.costMicros = (totals.costMicros ?? 0) + result.costMicros;
@@ -274,6 +282,7 @@ export class OpenRouterHttpAgentAdapter implements AgentRunnerPort {
               ? { costMicros: totals.costMicros, costEstimated: true }
               : { costUnknown: true }),
             reasoning: effectiveReasoning, call: round,
+            ...(result.outputTokens === undefined ? { outputUsageUnknown: true } : {}),
           },
         }).catch(() => undefined);
         if (totals.costMicros === undefined) {
@@ -282,13 +291,20 @@ export class OpenRouterHttpAgentAdapter implements AgentRunnerPort {
             data: { code: 'openrouter_usage_without_cost', message: 'Der Anbieter hat keine Kosten gemeldet; es werden keine Kosten erfunden.' },
           }).catch(() => undefined);
         }
+        if (result.truncated || remainingOutputTokens <= 0) {
+          // A complete answer at the exact boundary is acceptable; truncated JSON/HTML never is.
+          if (result.truncated || openrouterOutputProblem(result.text, outputRefs)) {
+            await emit({kind: 'error', data: {code: 'openrouter_output_truncated', message: 'Das Antwortbudget ist ausgeschöpft; keine weitere kostenpflichtige Korrekturrunde.'}});
+            return {state: 'failed', failure: {code: 'validation_contract_violation', message: 'Das Modell hat das Antwortbudget ausgeschöpft.', retryable: false}};
+          }
+        }
         const problem = openrouterOutputProblem(result.text, outputRefs)
           ?? openrouterEvidenceProblem(result.text, allowedEvidenceIds);
         if (!problem) {
           await emit({ kind: 'agent_message_completed', data: { text: result.text } }).catch(() => undefined);
           return { state: 'succeeded' };
         }
-        if (round >= MAX_CORRECTION_ROUNDS) {
+        if (round >= MAX_CORRECTION_ROUNDS || remainingOutputTokens <= 0) {
           await emit({ kind: 'error', data: { code: 'validation_contract_violation', message: problem } }).catch(() => undefined);
           return {
             state: 'failed',
@@ -350,6 +366,7 @@ export class OpenRouterHttpAgentAdapter implements AgentRunnerPort {
     reasoning: OpenRouterReasoning,
     runController: AbortController,
     wallTimeMs: number,
+    maxOutputTokens: number,
   ): Promise<ChatCompletionResult> {
     const fetchImpl = this.options.fetchImpl ?? fetch;
     const controller = new AbortController();
@@ -366,6 +383,9 @@ export class OpenRouterHttpAgentAdapter implements AgentRunnerPort {
           body: JSON.stringify({
             model,
             messages,
+            temperature: 0.2,
+            max_tokens: maxOutputTokens,
+            provider: { sort: 'throughput' },
             ...reasoningParameter(effective),
             usage: { include: true },
           }),
@@ -397,11 +417,11 @@ export class OpenRouterHttpAgentAdapter implements AgentRunnerPort {
       if (raw.byteLength > MAX_RESPONSE_BYTES) {
         throw Object.assign(new Error('Die Modellantwort ist zu groß.'), { code: 'validation_contract_violation', retryable: false });
       }
-      let payload: { choices?: Array<{ message?: { content?: unknown } }>; usage?: { prompt_tokens?: unknown; completion_tokens?: unknown; total_tokens?: unknown; cost?: unknown } };
+      let payload: { choices?: Array<{ finish_reason?: string; message?: { content?: unknown } }>; usage?: { prompt_tokens?: unknown; completion_tokens?: unknown; total_tokens?: unknown; cost?: unknown } };
       try { payload = JSON.parse(raw.toString('utf8')); }
       catch { throw Object.assign(new Error('Die Modellantwort ist ungültig.'), { code: 'validation_contract_violation', retryable: false }); }
       const content = payload.choices?.[0]?.message?.content;
-      if (typeof content !== 'string' || !content.trim()) {
+      if ((typeof content !== 'string' || !content.trim()) && payload.choices?.[0]?.finish_reason !== 'length') {
         throw Object.assign(new Error('Die Modellantwort enthält keine Ausgabe.'), { code: 'validation_contract_violation', retryable: false });
       }
       const usage = payload.usage ?? {};
@@ -411,7 +431,8 @@ export class OpenRouterHttpAgentAdapter implements AgentRunnerPort {
       const costMicros = typeof usage.cost === 'number' && Number.isFinite(usage.cost) && usage.cost >= 0
         ? Math.floor(usage.cost * 1_000_000) : undefined;
       return {
-        text: content,
+        text: typeof content === 'string' ? content : '',
+        truncated: payload.choices?.[0]?.finish_reason === 'length',
         inputTokens: promptTokens,
         outputTokens: completionTokens,
         costMicros,

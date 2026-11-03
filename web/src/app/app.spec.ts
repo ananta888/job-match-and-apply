@@ -2606,4 +2606,17 @@ describe('App', () => {
     expect(apiMock['selectMcpRuntime']).toHaveBeenCalledWith('wsl', expect.any(Number));
     fixture.destroy();
   });
+  it('keeps per-role reasoning and model edits in the unsaved provider draft', () => {
+    const fixture = TestBed.createComponent(App);
+    const component = fixture.componentInstance;
+    const provider = {provider: 'openrouter', enabled: true, runtimeTarget: 'linux', sandbox: 'read-only', network: 'disabled', approvalMode: 'deny'} as const;
+    const draft = {...provider};
+    component.agentConfigProfileConfirmed = true;
+    component.setCareerRoleSetting(draft, 'finalizer', 'reasoning', 'high');
+    component.setCareerRoleSetting(draft, 'author', 'model', 'synthetic/model');
+    expect((draft as import('./models').AgentProviderConfigProfile).roleSettings).toEqual({finalizer: {reasoning: 'high'}, author: {model: 'synthetic/model'}});
+    expect(component.agentConfigProfileConfirmed).toBe(false);
+    fixture.destroy();
+  });
+
 });

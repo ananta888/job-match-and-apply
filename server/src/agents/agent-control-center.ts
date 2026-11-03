@@ -59,6 +59,7 @@ export interface AgentQueueDiagnostics {
   limits: {
     global: number;
     perProvider: number;
+    providerOverrides?: Record<string, number>;
     perWorkspace?: number;
     perOwner?: number;
     queuedGlobal?: number;
@@ -107,6 +108,7 @@ export class AgentQueueLimitError extends Error {
 export interface AgentControlCenterOptions {
   maxParallel: number;
   maxParallelPerProvider: number;
+  providerParallelism?: Readonly<Record<string, number>>;
   maxParallelPerWorkspace?: number;
   maxParallelPerOwner?: number;
   maxQueued?: number;
@@ -168,6 +170,7 @@ export class AgentControlCenter {
   constructor(private readonly store: AgentRunStore, providers: readonly AgentRunnerPort[], private readonly options: AgentControlCenterOptions) {
     this.domainToolFactory = options.domainToolFactory;
     if (!Number.isSafeInteger(options.maxParallel) || options.maxParallel < 1) throw new Error('Globale Parallelität muss mindestens 1 sein.');
+    if (Object.values(options.providerParallelism ?? {}).some(limit => !Number.isSafeInteger(limit) || limit < 1)) throw new Error('Providerparallelität muss mindestens 1 sein.');
     if (!Number.isSafeInteger(options.maxParallelPerProvider) || options.maxParallelPerProvider < 1) throw new Error('Providerparallelität muss mindestens 1 sein.');
     assertOptionalLimit('Workspaceparallelitaet', options.maxParallelPerWorkspace);
     assertOptionalLimit('Ownerparallelitaet', options.maxParallelPerOwner);
@@ -266,6 +269,7 @@ export class AgentControlCenter {
       limits: {
         global: this.options.maxParallel,
         perProvider: this.options.maxParallelPerProvider,
+        providerOverrides: {...this.options.providerParallelism},
         perWorkspace: this.options.maxParallelPerWorkspace,
         perOwner: this.options.maxParallelPerOwner,
         queuedGlobal: this.options.maxQueued,
@@ -506,7 +510,7 @@ export class AgentControlCenter {
   ): AgentQueueBlockReason[] {
     const reasons: AgentQueueBlockReason[] = [];
     if (this.inFlight.size >= this.options.maxParallel) reasons.push('global_limit');
-    if ((activeByProvider[provider] ?? 0) >= this.options.maxParallelPerProvider) reasons.push('provider_limit');
+    if ((activeByProvider[provider] ?? 0) >= (this.options.providerParallelism?.[provider] ?? this.options.maxParallelPerProvider)) reasons.push('provider_limit');
     if (this.options.maxParallelPerWorkspace !== undefined && (activeByWorkspace[item.workspaceKey] ?? 0) >= this.options.maxParallelPerWorkspace) reasons.push('workspace_limit');
     if (item.ownerId !== undefined && this.options.maxParallelPerOwner !== undefined && (activeByOwner[item.ownerId] ?? 0) >= this.options.maxParallelPerOwner) reasons.push('owner_limit');
     return reasons;

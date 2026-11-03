@@ -110,3 +110,13 @@ describe('AgentConfigProfileStore', () => {
     expect(disk.providers.some((entry) => entry.provider === 'acp')).toBe(false);
   });
 });
+
+it('persists explicit reasoning per role and rejects unsupported levels or roles', async () => {
+  const store = new AgentConfigProfileStore(await mkdtemp(join(tmpdir(), 'agent-role-config-')));
+  const base = safeDefaultAgentConfigProfile();
+  base.providers = [{...base.providers[0]!, provider: 'openrouter', reasoning: 'off', roleSettings: {finalizer: {model: 'deepseek/flash', reasoning: 'high'}}}];
+  expect((await store.save(base)).providers[0]).toMatchObject({reasoning: 'off', roleSettings: {finalizer: {reasoning: 'high'}}});
+  await expect(store.save({...base, providers: [{...base.providers[0], reasoning: 'unlimited'}]})).rejects.toThrow();
+  await expect(store.save({...base, providers: [{...base.providers[0], reasoning: ['high']}]})).rejects.toThrow();
+  await expect(store.save({...base, providers: [{...base.providers[0], roleSettings: {unknown: {reasoning: 'high'}}}]})).rejects.toThrow();
+});

@@ -1,3 +1,4 @@
+import { validateCareerSettings, type CareerRoleSettings } from './career-role-settings.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, relative, resolve } from 'node:path';
@@ -118,6 +119,7 @@ export interface ApplicationOrchestrationRecord {
     wslDistribution?: string;
     model?: string;
     profile?: string;
+    roleSettings?: CareerRoleSettings;
     frozenAt: string;
   };
   /** Fork binding: this record retries exactly one failed node of its parent. */
@@ -218,6 +220,7 @@ function validateRecord(value: ApplicationOrchestrationRecord): ApplicationOrche
   }
   if (value.runConfig !== undefined) {
     const config = value.runConfig;
+    validateCareerSettings(undefined, config.roleSettings);
     if (typeof config.workflowVersion !== 'string' || !/^\d+\.\d+\.\d+$/.test(config.workflowVersion)
       || !ID.test(config.providerId) || !['windows', 'wsl', 'linux', 'darwin'].includes(config.runtimeTarget)
       || (config.wslDistribution !== undefined && !SAFE.test(config.wslDistribution))

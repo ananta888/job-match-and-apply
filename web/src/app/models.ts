@@ -759,6 +759,9 @@ export interface AgentProvider {
   };
 }
 
+export type CareerReasoning = 'default' | 'off' | 'low' | 'medium' | 'high';
+export type CareerNodeId = 'evidence' | 'author' | 'ats' | 'style' | 'finalizer';
+export interface CareerRoleSetting { model?: string; reasoning?: CareerReasoning }
 export interface AgentProviderConfigProfile {
   provider: string;
   enabled: boolean;
@@ -768,6 +771,8 @@ export interface AgentProviderConfigProfile {
   network: 'disabled' | 'restricted';
   approvalMode: 'deny' | 'explicit';
   model?: string;
+  reasoning?: CareerReasoning;
+  roleSettings?: Partial<Record<CareerNodeId, CareerRoleSetting>>;
 }
 
 export interface ModelCatalogEntry {

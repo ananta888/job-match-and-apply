@@ -18,6 +18,8 @@ import { readVerifiedArtifactRevision } from './artifact-revisions.js';
 import type { ApplicationPipelineProofAuthority } from './application-pipeline-proof.js';
 import type { ApplicationCase } from '../domain/models.js';
 
+import { compactCandidateEvidence } from './candidate-evidence-prompt.js';
+
 const sha256 = (value: string): string => createHash('sha256').update(value, 'utf8').digest('hex');
 
 interface ConfirmationBody {
@@ -176,7 +178,7 @@ implements ApplicationOrchestrationGateAuthority, ApplicationOrchestrationInputR
         }
         const snapshot = await profileAdapter.evidence(application.documentType);
         if (!snapshot.valid) throw new Error('orchestration_candidate_profile_invalid');
-        value = {
+        value = compactCandidateEvidence({
           contract: 'candidate-evidence-snapshot',
           contractVersion: snapshot.contractVersion,
           outputType: snapshot.outputType,
@@ -190,7 +192,7 @@ implements ApplicationOrchestrationGateAuthority, ApplicationOrchestrationInputR
               sourceReference: sourceReference(`candidate-record:${collection}:${String(record.id ?? '')}`),
             })),
           ])),
-        };
+        });
         break;
       }
       case 'style_profile': {

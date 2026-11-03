@@ -121,3 +121,36 @@ describe('discoverProviderModelCatalog', () => {
     expect(catalog.note).toContain('frei');
   });
 });
+
+
+describe('OpenRouter HTTP model catalog', () => {
+  it('loads the actual provider list, validates ids and retains more than one hundred models', async () => {
+    const data = Array.from({ length: 150 }, (_, i) => ({ id: 'provider/model-' + i, name: 'Model ' + i }));
+    const fetchImpl = vi.fn(async () => Response.json({ data: [...data, data[0], { id: 'invalid model' }] }));
+    const catalog = await discoverProviderModelCatalog(
+      { providerId: 'openrouter', runtimeTarget: 'linux' }, { executor: { run: noCommand }, fetchImpl },
+    );
+    expect(catalog.source).toBe('openrouter-api');
+    expect(catalog.models).toHaveLength(150);
+    expect(catalog.models.find(model => model.id === 'provider/model-0')?.label).toBe('Model 0');
+    expect(catalog.supportsCustom).toBe(true);
+  });
+
+  it('explains HTTP errors and never returns raw transport diagnostics', async () => {
+    for (const fetchImpl of [
+      async () => new Response('', { status: 429 }),
+      async () => { throw new Error('synthetic-private-error'); },
+      async () => Response.json({ data: 'invalid' }),
+    ]) {
+      const catalog = await discoverProviderModelCatalog(
+        { providerId: 'openrouter', runtimeTarget: 'linux' }, { executor: { run: noCommand }, fetchImpl },
+      );
+      expect(catalog.models).toEqual([]);
+      expect(catalog.note).toContain('OpenRouter');
+      expect(catalog.note).not.toContain('synthetic-private-error');
+    }
+  });
+});
+async function noCommand(): Promise<DiscoveryCommandResult> {
+  throw new Error('HTTP model discovery must not execute a CLI');
+}

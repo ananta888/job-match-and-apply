@@ -30,7 +30,7 @@ export interface ProviderModelCatalog {
   providerId: string;
   runtimeTarget: RuntimeTarget;
   wslDistribution?: string;
-  source: 'codex-models-cache' | 'claude-stats-cache' | 'opencode-cli' | 'none';
+  source: 'codex-models-cache' | 'claude-stats-cache' | 'opencode-cli' | 'openrouter-api' | 'none';
   models: ModelCatalogEntry[];
   currentModel?: string;
   supportsCustom: boolean;
@@ -38,6 +38,7 @@ export interface ProviderModelCatalog {
 }
 
 export interface ModelCatalogDeps {
+  fetchImpl?: typeof fetch;
   executor?: DiscoveryCommandExecutor;
   readLocalFile?: (path: string) => Promise<string>;
   homeDir?: string;
@@ -137,6 +138,47 @@ export async function discoverProviderModelCatalog(
     ...(input.wslDistribution ? { wslDistribution: input.wslDistribution } : {}),
     supportsCustom: true,
   } as const;
+
+  if (input.providerId === 'openrouter') {
+    try {
+      const response = await (deps.fetchImpl ?? fetch)('https://openrouter.ai/api/v1/models', {
+        method: 'GET', headers: { accept: 'application/json' }, signal: AbortSignal.timeout(12_000),
+      });
+      if (!response.ok) return { ...base, source: 'none', models: [], note: 'OpenRouter-Modellkatalog antwortet mit HTTP ' + response.status + '. Bitte erneut versuchen.' };
+      if (!response.body) throw new Error('catalog_body_missing');
+      const reader = response.body.getReader();
+      const chunks: Uint8Array[] = [];
+      let bytes = 0;
+      try {
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          bytes += value.byteLength;
+          if (bytes > 8 * 1024 * 1024) { await reader.cancel(); throw new Error('catalog_too_large'); }
+          chunks.push(value);
+        }
+      } finally { reader.releaseLock(); }
+      const payload = record(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+      if (!Array.isArray(payload?.data)) throw new Error('catalog_invalid');
+      const seen = new Set<string>();
+      const models: ModelCatalogEntry[] = [];
+      for (const raw of payload.data) {
+        const model = record(raw);
+        const id = model?.id;
+        if (typeof id !== 'string' || !MODEL_ID_WITH_SLASH.test(id) || seen.has(id)) continue;
+        const outputs = record(model?.architecture)?.output_modalities;
+        if (Array.isArray(outputs) && !outputs.includes('text')) continue;
+        seen.add(id);
+        models.push({ id, ...(typeof model?.name === 'string' ? { label: model.name.slice(0, 200) } : {}) });
+        if (models.length >= 2000) break;
+      }
+      models.sort((a, b) => a.id.localeCompare(b.id));
+      return { ...base, source: 'openrouter-api', models,
+        ...(models.length ? {} : { note: 'Der OpenRouter-Modellkatalog enthält aktuell keine passenden Textmodelle.' }) };
+    } catch {
+      return { ...base, source: 'none', models: [], note: 'Der OpenRouter-Modellkatalog ist nicht erreichbar oder die Antwort ist ungültig. Bitte erneut versuchen oder die Modellkennung eingeben.' };
+    }
+  }
 
   // Reads a config file for the selected runtime. On WSL the path is expanded by
   // the guest shell so per-user home resolution stays inside the distribution.

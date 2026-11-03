@@ -1096,8 +1096,14 @@
                           <datalist [attr.id]="'models-' + provider.provider + '-' + provider.runtimeTarget">
                             @for (model of catalog.models; track model.id) { <option [value]="model.id">{{ model.label || model.id }}{{ model.note ? ' — ' + model.note : '' }}</option> }
                           </datalist>
+                          @if (catalog.models.length) {
+                            <select data-testid="provider-model-select" aria-label="Modell aus dem Katalog auswählen" [ngModel]="provider.model || ''" (ngModelChange)="setAgentConfigProviderModel(provider, $event)">
+                              <option value="">Providerstandard / Modell auswählen</option>
+                              @for (model of catalog.models; track model.id) { <option [value]="model.id">{{ model.label || model.id }} · {{ model.id }}</option> }
+                            </select>
+                          }
                           <small class="agent-config-model-hint">
-                            @if (catalog.models.length) { {{ catalog.models.length }} Modelle aus dem Tool @if (catalog.currentModel) { · aktiv im Tool: {{ catalog.currentModel }} } } @else { {{ catalog.note || 'Keine Liste – Name frei eingeben.' }} }
+                            @if (catalog.models.length) { {{ catalog.models.length }} Modelle {{ catalog.source === 'openrouter-api' ? 'von OpenRouter' : 'aus dem Tool' }} @if (catalog.currentModel) { · aktiv im Tool: {{ catalog.currentModel }} } } @else { {{ catalog.note || 'Keine Liste – Name frei eingeben.' }} }
                           </small>
                         } @else if (agentModelCatalogError[modelCatalogKey(provider)]) {
                           <small class="agent-config-model-hint error">{{ agentModelCatalogError[modelCatalogKey(provider)] }}</small>

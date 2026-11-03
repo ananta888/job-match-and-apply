@@ -2102,6 +2102,28 @@ describe('App', () => {
     fixture.destroy();
   });
 
+  it('shows loaded OpenRouter models in a visible selector and applies the chosen model', async () => {
+    const profile = structuredClone(agentConfigProfileFixture);
+    profile.profile.providers.push({ provider: 'openrouter', enabled: true, runtimeTarget: 'linux', sandbox: 'read-only', network: 'disabled', approvalMode: 'deny' });
+    apiMock['agentConfigProfile'].mockReturnValue(of(profile));
+    apiMock['agentProviders'].mockReturnValue(of([{ id: 'openrouter', name: 'OpenRouter', available: true, installations: [] }]));
+    apiMock['providerModels'] = vi.fn().mockReturnValue(of({
+      providerId: 'openrouter', runtimeTarget: 'linux', source: 'openrouter-api', supportsCustom: true,
+      models: [{ id: 'provider/model', label: 'Catalog model' }]
+    }));
+    const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
+    const component = fixture.componentInstance; component.select('agents');
+    const rule = component.agentConfigProfileDraft!.providers.find(p => p.provider === 'openrouter')!;
+    component.loadProviderModels(rule); fixture.detectChanges(); await fixture.whenStable();
+    const panel = (fixture.nativeElement as HTMLElement).querySelector('[data-provider-config="openrouter"]')!;
+    const select = panel.querySelector<HTMLSelectElement>('[data-testid="provider-model-select"]')!;
+    expect(select).toBeTruthy();
+    expect(select.textContent).toContain('Catalog model');
+    select.value = 'provider/model'; select.dispatchEvent(new Event('change')); fixture.detectChanges();
+    expect(rule.model).toBe('provider/model');
+    fixture.destroy();
+  });
+
   it('refreshes OpenRouter availability after saving and removing its key', async () => {
     const provider = (available: boolean) => ({ id: 'openrouter', name: 'OpenRouter', available, installations: [] });
     apiMock['agentProviders'].mockReturnValue(of([provider(false)]));

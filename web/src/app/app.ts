@@ -663,8 +663,8 @@ export class App implements OnInit, OnDestroy {
     this.agentModelCatalogBusy[key] = true;
     this.agentModelCatalogError[key] = '';
     this.api.providerModels(provider.provider, provider.runtimeTarget, provider.wslDistribution).subscribe({
-      next: (catalog) => { this.agentModelCatalogs[key] = catalog; this.agentModelCatalogBusy[key] = false; },
-      error: (error) => { this.agentModelCatalogBusy[key] = false; this.agentModelCatalogError[key] = this.message(error); }
+      next: (catalog) => { this.agentModelCatalogs[key] = catalog; this.agentModelCatalogBusy[key] = false; this.refreshView(); },
+      error: (error) => { this.agentModelCatalogBusy[key] = false; this.agentModelCatalogError[key] = this.message(error); this.refreshView(); }
     });
   }
 

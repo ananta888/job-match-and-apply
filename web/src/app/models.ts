@@ -780,7 +780,7 @@ export interface ProviderModelCatalog {
   providerId: string;
   runtimeTarget: AgentRuntimeTarget;
   wslDistribution?: string;
-  source: 'codex-models-cache' | 'claude-stats-cache' | 'opencode-cli' | 'none';
+  source: 'codex-models-cache' | 'claude-stats-cache' | 'opencode-cli' | 'openrouter-api' | 'none';
   models: ModelCatalogEntry[];
   currentModel?: string;
   supportsCustom: boolean;

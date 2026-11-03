@@ -174,11 +174,15 @@ export class AgentRuntimeDiscovery {
     return installations;
   }
 
-  async discoverWsl(definition: ProviderDiscoveryDefinition, wslExecutable = defaultWslHostExecutable()): Promise<AgentProviderInstallation[]> {
+  async listWslDistributions(wslExecutable = defaultWslHostExecutable()): Promise<string[]> {
     if (!isSafeWslHostExecutable(wslExecutable)) throw new Error('WSL-Host-Executable ist ungueltig.');
     const listed = await this.executor.run(wslExecutable, ['--list', '--quiet']);
     if (listed.exitCode !== 0) return [];
-    const distributions = listed.stdout.replace(/\0/g, '').split(/\r?\n/).map((line) => line.trim()).filter(isSafeWslDistribution);
+    return listed.stdout.replace(/\0/g, '').split(/\r?\n/).map((line) => line.trim()).filter(isSafeWslDistribution);
+  }
+
+  async discoverWsl(definition: ProviderDiscoveryDefinition, wslExecutable = defaultWslHostExecutable()): Promise<AgentProviderInstallation[]> {
+    const distributions = await this.listWslDistributions(wslExecutable);
     const installations: AgentProviderInstallation[] = [];
     for (const distribution of distributions) {
       for (const name of definition.executableNames) {

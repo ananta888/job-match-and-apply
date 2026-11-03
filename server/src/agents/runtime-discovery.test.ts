@@ -56,6 +56,23 @@ describe('AgentRuntimeDiscovery', () => {
     expect(calls[1]?.args).toEqual(['-d', 'Ubuntu', '--', 'bash', '-lc', 'command -v -- synthetic-agent']);
   });
 
+  it('lists WSL distributions exactly as wsl --list reports them', async () => {
+    const executor: DiscoveryCommandExecutor = {
+      async run(_executable, args) {
+        if (args[0] === '--list' && args[1] === '--quiet') {
+          return { exitCode: 0, stdout: 'Ubuntu-24.04\0\r\nDebian\r\n\r\n[Docker]\r\n', stderr: '' };
+        }
+        return { exitCode: 1, stdout: '', stderr: '' };
+      }
+    };
+    const discovery = new AgentRuntimeDiscovery(executor);
+    expect(await discovery.listWslDistributions()).toEqual(['Ubuntu-24.04', 'Debian']);
+    const failing: DiscoveryCommandExecutor = {
+      async run() { return { exitCode: 1, stdout: '', stderr: 'wsl not found' }; }
+    };
+    expect(await new AgentRuntimeDiscovery(failing).listWslDistributions()).toEqual([]);
+  });
+
   it('upgrades an untested WSL version only through an exact local user approval', async () => {
     const executor: DiscoveryCommandExecutor = {
       async run(executable, args) {

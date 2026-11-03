@@ -381,6 +381,7 @@ export interface AgentApiDependencies {
   configProfiles?: AgentConfigProfileStore;
   versionApprovals?: VersionApprovalStore;
   providerCredentials?: ProviderCredentialStorePort;
+  runtimeDiscovery?: AgentRuntimeDiscovery;
   observability?: AgentLocalObservability;
   idempotency?: JsonAgentIdempotencyStore;
 }
@@ -587,6 +588,7 @@ export function createDefaultAgentApiDependencies(memory = false): AgentApiDepen
     configProfiles,
     versionApprovals,
     providerCredentials,
+    runtimeDiscovery: sharedDiscovery,
     observability,
     idempotency: memory ? undefined : new JsonAgentIdempotencyStore(resolve(workspaceRoot, '.local-data', 'agent-idempotency')),
   };
@@ -1210,7 +1212,8 @@ export function createApp(
             runtimeTarget: item.runtimeTarget, distribution: item.distribution, version: item.version,
             adapterVersion: item.capabilities?.adapterVersion ?? (item === preferred ? capabilities.adapterVersion : undefined),
             executable: item.runtimeExecutable ?? item.executable,
-            support: item.support, authStatus: item.authStatus, note: item.reason ?? item.authNote
+            support: item.support, authStatus: item.authStatus, note: item.reason ?? item.authNote,
+            userApproved: item.userApproved
           })),
           note: available ? (provider.provider === 'fake' ? 'Offline-Testprovider ohne Konto oder Netzwerk.' : `Gefunden auf ${preferred.runtimeTarget}: ${preferred.executable}${preferred.authNote ? ` · ${preferred.authNote}` : ''}`) : preferred.reason
         };
@@ -1311,6 +1314,39 @@ export function createApp(
     });
     response.setHeader('cache-control', 'no-store');
     response.json(snapshot);
+  }));
+
+  app.get('/api/agents/wsl-distributions', asyncRoute(async (_request, response) => {
+    let names: string[] = [];
+    let available = false;
+    let note = 'Kein WSL-Discovery-Hook konfiguriert.';
+    if (agentApi.runtimeDiscovery) {
+      try {
+        names = await agentApi.runtimeDiscovery.listWslDistributions();
+        available = true;
+        note = names.length ? 'Distributionen wurden lokal über wsl --list aufgezählt.' : 'Keine WSL-Distribution gefunden.';
+      } catch (error) {
+        note = `WSL-Aufzählung fehlgeschlagen: ${error instanceof Error ? error.message : String(error)}`;
+      }
+    }
+    const providers = await discoverAgentProviders(false);
+    const byName = new Map<string, { name: string; enumerated: boolean; installations: number; supported: number }>();
+    for (const name of names) byName.set(name, { name, enumerated: true, installations: 0, supported: 0 });
+    for (const provider of providers) {
+      for (const installation of provider.installations ?? []) {
+        if (installation.runtimeTarget !== 'wsl' || !installation.distribution) continue;
+        const entry = byName.get(installation.distribution)
+          ?? { name: installation.distribution, enumerated: false, installations: 0, supported: 0 };
+        entry.installations += 1;
+        if (installation.support === 'supported') entry.supported += 1;
+        byName.set(installation.distribution, entry);
+      }
+    }
+    response.setHeader('cache-control', 'no-store');
+    response.json({
+      contract: 'agent-wsl-distributions', contractVersion: '1.0', available,
+      distributions: [...byName.values()], note
+    });
   }));
 
   app.get('/api/agents/providers/credentials', asyncRoute(async (_request, response) => {

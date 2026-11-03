@@ -38,9 +38,11 @@
     },
     {
       "id": "M2",
-      "title": "Angular-UI Provider-Einrichtung",
+      "title": "Angular-UI Provider-Einrichtung und Laufzeitauswahl",
       "task_ids": [
-        "PS-005"
+        "PS-005",
+        "PS-006",
+        "PS-007"
       ],
       "status": "done"
     }
@@ -133,37 +135,74 @@
         "web/src/app/models.ts",
         "web/src/app/app.spec.ts"
       ]
+    },
+    {
+      "id": "PS-006",
+      "title": "Explizite Installationswahl bei mehreren Versionen derselben Laufzeit",
+      "status": "done",
+      "priority": "high",
+      "risk": "medium",
+      "progress_percent": 100,
+      "acceptance_criteria": [
+        "Der Installationsschlüssel umfasst Laufzeit, Distribution, Version und Executable, sodass mehrere Installationen desselben Providers unterschieden werden.",
+        "Die ausdrücklich gewählte Installation bleibt gewählt; Standard bleibt die erste unterstützte Installation (z. B. opencode 1.14.41 statt untested 1.18.34)."
+      ],
+      "evidence": [
+        "web/src/app/app.ts",
+        "web/src/app/app.html",
+        "web/src/app/app.spec.ts"
+      ]
+    },
+    {
+      "id": "PS-007",
+      "title": "Verfügbare WSL-Distributionen direkt in der Oberfläche anzeigen",
+      "status": "done",
+      "priority": "medium",
+      "risk": "low",
+      "progress_percent": 100,
+      "acceptance_criteria": [
+        "GET /api/agents/wsl-distributions zählt Distributionen per wsl --list auf und ergänzt je Distribution Anzahl erkannter Installationen und unterstützter Installationen.",
+        "Im Sicherheitsprofil ersetzt eine Auswahl mit Verfügbarkeitsangaben das freie Textfeld, sobald Distributionen erkannt wurden; sonst bleibt das Textfeld mit Serverhinweis."
+      ],
+      "evidence": [
+        "server/src/agents/runtime-discovery.ts",
+        "server/src/app.ts",
+        "server/src/agent-provider-setup-api.test.ts",
+        "web/src/app/app.ts",
+        "web/src/app/app.html"
+      ]
     }
   ],
   "critical_path_tasks": [
     "PS-001",
     "PS-002",
     "PS-004",
-    "PS-005"
+    "PS-005",
+    "PS-006"
   ],
   "tasks_status_summary": {
-    "total": 5,
+    "total": 7,
     "by_status": {
       "todo": 0,
       "in_progress": 0,
       "partial": 0,
       "blocked": 0,
-      "done": 5
+      "done": 7
     },
     "progress_percent_done": 100,
     "by_priority": {
-      "high": 4,
-      "medium": 1,
+      "high": 5,
+      "medium": 2,
       "low": 0
     },
     "by_risk": {
       "high": 1,
-      "medium": 4,
-      "low": 0
+      "medium": 5,
+      "low": 1
     },
     "critical_path": {
-      "total": 4,
-      "done": 4,
+      "total": 5,
+      "done": 5,
       "remaining": 0
     },
     "milestones": {
@@ -180,11 +219,12 @@
     "in_progress": 0,
     "partial": 0,
     "blocked": 0,
-    "done": 5
+    "done": 7
   },
   "summary_notes": [
     "Freigaben heben ausschließlich untested auf supported; Auth-Status und Hülle bleiben unabhängig härtere Sperren.",
     "API-Keys werden nie im Klartext zurückgegeben, protokolliert oder im Git abgelegt; Profil-Secret-Verbot bleibt unangetastet.",
-    "Serversuite 752 grün (12 neue Tests), Websuite 63 grün (1 neuer Test), beide Builds grün; Smoke-Test gegen den Dev-Server bestätigt Freigabe, Revoke, Speichern und Löschen."
+    "Serversuite 752 grün (12 neue Tests), Websuite 63 grün (1 neuer Test), beide Builds grün; Smoke-Test gegen den Dev-Server bestätigt Freigabe, Revoke, Speichern und Löschen.",
+    "Installationsschlüssel und WSL-Aufzählung sind reine UI-Verträge; der Server zieht Laufzeit und Version weiterhin aus der bewerteten Discovery."
   ]
 }

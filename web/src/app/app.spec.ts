@@ -433,6 +433,9 @@ describe('App', () => {
       saveVersionApproval: vi.fn(),
       revokeVersionApproval: vi.fn(),
       providerCredentials: vi.fn().mockReturnValue(of([])),
+      agentWslDistributions: vi.fn().mockReturnValue(of({
+        contract: 'agent-wsl-distributions', contractVersion: '1.0', available: false, distributions: []
+      })),
       saveProviderCredentials: vi.fn(),
       deleteProviderCredentials: vi.fn(),
       saveAgentConfigProfile: vi.fn().mockImplementation((_current, profile) => of({
@@ -695,7 +698,10 @@ describe('App', () => {
     expect(element.textContent).toContain('Installation und Laufzeit');
     expect(element.textContent).toContain('Konfiguration vor dem Start');
     expect(element.textContent).toContain('Windows-Anmeldung aktiv');
-    component.selectAgentInstallation('wsl:Ubuntu-24.04');
+    const wslInstallation = component.agentProviderInstallations()
+      .find((item) => item.runtimeTarget === 'wsl' && item.distribution === 'Ubuntu-24.04');
+    expect(wslInstallation).toBeTruthy();
+    component.selectAgentInstallation(component.agentInstallationKey(wslInstallation!));
     component.setAgentPrompt('Analysiere den lokalen Teststand');
     component.refreshAgentPreflight();
     fixture.detectChanges();
@@ -2123,6 +2129,33 @@ describe('App', () => {
     const panelText = element.querySelector('[data-testid="agent-provider-setup"]')?.textContent ?? '';
     expect(panelText).not.toContain(secret);
     expect(element.querySelector('[data-testid="credential-save"]')).toBeTruthy();
+    fixture.destroy();
+  });
+
+  it('keeps the explicitly chosen installation when a provider offers several on the same runtime', async () => {
+    apiMock['agentProviders'].mockReturnValue(of([{
+      id: 'opencode', name: 'opencode', available: true,
+      installations: [
+        { runtimeTarget: 'linux', version: '1.18.34', support: 'untested', executable: '/home/krusty/.opencode/bin/opencode' },
+        { runtimeTarget: 'linux', version: '1.14.41', support: 'supported', executable: '/usr/local/lib/node_modules/opencode-ai/bin/opencode' }
+      ]
+    }]));
+    const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
+    const component = fixture.componentInstance;
+    component.select('agents'); fixture.detectChanges(); await fixture.whenStable();
+
+    const installations = component.agentOrchestrationInstallations();
+    expect(component.agentInstallationKey(installations[0])).not.toBe(component.agentInstallationKey(installations[1]));
+    component.agentOrchestrationForm.providerId = 'opencode';
+    component.selectAgentOrchestrationProvider('opencode');
+    expect(component.selectedAgentOrchestrationInstallation()?.version).toBe('1.14.41');
+
+    component.selectAgentOrchestrationInstallation(component.agentInstallationKey(installations[0]));
+    expect(component.selectedAgentOrchestrationInstallation()?.version).toBe('1.18.34');
+    expect(component.selectedAgentOrchestrationInstallation()?.support).toBe('untested');
+
+    component.selectAgentOrchestrationInstallation(component.agentInstallationKey(installations[1]));
+    expect(component.selectedAgentOrchestrationInstallation()?.version).toBe('1.14.41');
     fixture.destroy();
   });
 

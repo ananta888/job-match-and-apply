@@ -13,6 +13,24 @@ function fixture() {
   return { app, dependencies };
 }
 
+describe('agent wsl distribution view', () => {
+  it('reports enumerated distributions plus discovered installations without secrets', async () => {
+    const { app } = fixture();
+    const response = await request(app).get('/api/agents/wsl-distributions').expect(200);
+    expect(response.headers['cache-control']).toBe('no-store');
+    expect(response.body).toEqual(expect.objectContaining({
+      contract: 'agent-wsl-distributions', contractVersion: '1.0',
+      available: expect.any(Boolean), distributions: expect.any(Array), note: expect.any(String),
+    }));
+    for (const distribution of response.body.distributions) {
+      expect(distribution).toEqual(expect.objectContaining({
+        name: expect.any(String), enumerated: expect.any(Boolean),
+        installations: expect.any(Number), supported: expect.any(Number),
+      }));
+    }
+  });
+});
+
 const approval = {
   provider: 'opencode',
   executable: 'C:\\tools\\opencode.exe',

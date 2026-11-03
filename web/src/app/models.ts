@@ -718,6 +718,21 @@ export interface VersionApprovalSnapshot {
   approvals: VersionApproval[];
 }
 
+export interface AgentWslDistribution {
+  name: string;
+  enumerated: boolean;
+  installations: number;
+  supported: number;
+}
+
+export interface AgentWslDistributionsView {
+  contract: string;
+  contractVersion: string;
+  available: boolean;
+  distributions: AgentWslDistribution[];
+  note?: string;
+}
+
 export interface ProviderCredentialSummary {
   providerId: string;
   hasSecret: boolean;

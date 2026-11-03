@@ -4,7 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { DomSanitizer, type SafeResourceUrl } from '@angular/platform-browser';
 import { ApiService } from './api.service';
 import { forkJoin, type Subscription } from 'rxjs';
-import type { AgentApproval, AgentArtifactContent, AgentArtifactRecord, AgentConfigProfile, AgentConfigProfileView, AgentOrchestrationConfirmationInput, AgentOrchestrationConflict, AgentOrchestrationConflictStrategy, AgentOrchestrationCreateRequest, AgentOrchestrationGate, AgentOrchestrationRecord, AgentProvider, AgentProviderConfigProfile, AgentProviderInstallation, AgentQueueBlockReason, AgentQueueSnapshot, AgentRecoveryDecision, AgentRecoveryLease, AgentRecoveryRun, AgentRun, AgentRunEvent, AgentRunPreflight, AgentRunRequest, AgentRunStatus, AgentRuntimeTarget, AgentWorkflow, AgentWorkspaceMode, AppConfig, ApplicationCase, ApplicationSourceCvCandidate, ApplicationDraft, ApplicationExportResult, ApplicationNextActionsProposalProjection, ApplicationProfileSetupStatus, ApplicationStyleDocumentType, ApplicationStyleExampleDocumentType, ApplicationStyleProfileView, ArtifactRevision, CandidateMatchAnalysis, CandidateProfileSummary, CompanyCrm, CorrelatedMail, CvAiProviderSelection, CvAiStructuringOptions, CvAiStructuringPublicRun, CvAiStructuringSelection, CvAiStructuringSuggestion, CvAdoptionLedgerEntry, CvFact, CvFactCategory, CvFactDecision, CvFactOperation, CvImportRecord, CvImportSummary, CvIncognitoPreview, CvProfileSnapshotSummary, CvRecognitionVersionList, CvRecognitionVersionSummary, CvTheme, CvLayoutFingerprint, CvLayoutSection, CvThemeOriginalLayout, CvLayoutPalette, JobInventoryView, JobInventoryCategory, SearchRunSummary, AtsCheckReport, JobSearchMcpRuntimeCandidate, DataInventory, EditableApplicationStyleProfile, EmployerResponseTriageProposalProjection, IdentityProfile, JobDecision, JobMatch, JobSourceCapabilities, LanguageCheckResult, MailAccount, McpRuntimeStatus, ProfileImportPreview, ProviderModelCatalog, ProviderCredentialSummary, SearchSchedule, Section, SourceCapability, SourceStatus, VersionApproval, VersionApprovalSnapshot } from './models';
+import type { AgentApproval, AgentArtifactContent, AgentArtifactRecord, AgentConfigProfile, AgentConfigProfileView, AgentOrchestrationConfirmationInput, AgentOrchestrationConflict, AgentOrchestrationConflictStrategy, AgentOrchestrationCreateRequest, AgentOrchestrationGate, AgentOrchestrationRecord, AgentProvider, AgentProviderConfigProfile, AgentProviderInstallation, AgentQueueBlockReason, AgentQueueSnapshot, AgentRecoveryDecision, AgentRecoveryLease, AgentRecoveryRun, AgentRun, AgentRunEvent, AgentRunPreflight, AgentRunRequest, AgentRunStatus, AgentRuntimeTarget, AgentWorkflow, AgentWorkspaceMode, AppConfig, ApplicationCase, ApplicationSourceCvCandidate, ApplicationDraft, ApplicationExportResult, ApplicationNextActionsProposalProjection, ApplicationProfileSetupStatus, ApplicationStyleDocumentType, ApplicationStyleExampleDocumentType, ApplicationStyleProfileView, ArtifactRevision, CandidateMatchAnalysis, CandidateProfileSummary, CompanyCrm, CorrelatedMail, CvAiProviderSelection, CvAiStructuringOptions, CvAiStructuringPublicRun, CvAiStructuringSelection, CvAiStructuringSuggestion, CvAdoptionLedgerEntry, CvFact, CvFactCategory, CvFactDecision, CvFactOperation, CvImportRecord, CvImportSummary, CvIncognitoPreview, CvProfileSnapshotSummary, CvRecognitionVersionList, CvRecognitionVersionSummary, CvTheme, CvLayoutFingerprint, CvLayoutSection, CvThemeOriginalLayout, CvLayoutPalette, JobInventoryView, JobInventoryCategory, SearchRunSummary, AtsCheckReport, JobSearchMcpRuntimeCandidate, DataInventory, EditableApplicationStyleProfile, EmployerResponseTriageProposalProjection, IdentityProfile, JobDecision, JobMatch, JobSourceCapabilities, LanguageCheckResult, MailAccount, McpRuntimeStatus, ProfileImportPreview, ProviderModelCatalog, ProviderCredentialSummary, AgentWslDistribution, AgentWslDistributionsView, SearchSchedule, Section, SourceCapability, SourceStatus, VersionApproval, VersionApprovalSnapshot } from './models';
 
 type AgentEventLevelFilter = 'all' | 'debug' | 'info' | 'warning' | 'error';
 type AgentTimelineView = 'readable' | 'diagnostic';
@@ -240,6 +240,9 @@ export class App implements OnInit, OnDestroy {
   agentConfigProfileError = '';
   agentVersionApprovals: VersionApprovalSnapshot = { schemaVersion: 1, updatedAt: null, approvals: [] };
   agentProviderCredentials: ProviderCredentialSummary[] = [];
+  agentWslDistributions?: AgentWslDistributionsView;
+  agentRunInstallationKey = '';
+  agentOrchestrationInstallationKey = '';
   agentProviderSetupBusy = false;
   agentProviderSetupError = '';
   agentCredentialDraft: { providerId: string; envKey: string; envSecret: string; confirmed: boolean } =
@@ -444,6 +447,7 @@ export class App implements OnInit, OnDestroy {
     this.loadAgentConfigProfile();
     this.loadAgentProviders();
     this.loadAgentProviderSetup();
+    this.loadAgentWslDistributions();
     this.api.applicationCases().subscribe({ next: (items) => { this.applicationCases = items; this.refreshView(); } });
     this.api.agentWorkflows().subscribe({ next: (items) => { this.agentWorkflows = items; this.refreshView(); } });
     this.refreshAgentRuns();
@@ -482,6 +486,20 @@ export class App implements OnInit, OnDestroy {
         this.refreshView();
       }
     });
+  }
+
+  loadAgentWslDistributions(): void {
+    this.api.agentWslDistributions().subscribe({
+      next: (view) => { this.agentWslDistributions = view; this.refreshView(); },
+      error: () => { this.agentWslDistributions = undefined; this.refreshView(); }
+    });
+  }
+
+  agentWslDistributionLabel(distribution: AgentWslDistribution): string {
+    const stats = distribution.installations
+      ? ` · ${distribution.installations} Installation(en), ${distribution.supported} unterstützt`
+      : ' · keine Agenten-Installation gefunden';
+    return `${distribution.name}${distribution.enumerated ? '' : ' (aus Discovery)'}${stats}`;
   }
 
   loadAgentProviderSetup(): void {
@@ -893,7 +911,11 @@ export class App implements OnInit, OnDestroy {
   }
   agentOrchestrationInstallations(): AgentProviderInstallation[] { return this.agentProviderInstallations(this.agentOrchestrationProvider()); }
   selectedAgentOrchestrationInstallation(): AgentProviderInstallation | undefined {
-    return this.agentOrchestrationInstallations().find((item) => item.runtimeTarget === this.agentOrchestrationForm.runtimeTarget
+    const installations = this.agentOrchestrationInstallations();
+    const keyed = this.agentOrchestrationInstallationKey
+      ? installations.find((item) => this.agentInstallationKey(item) === this.agentOrchestrationInstallationKey) : undefined;
+    if (keyed) return keyed;
+    return installations.find((item) => item.runtimeTarget === this.agentOrchestrationForm.runtimeTarget
       && (item.runtimeTarget !== 'wsl' || item.distribution === this.agentOrchestrationForm.wslDistribution));
   }
   selectedAgentOrchestrationInstallationKey(): string {
@@ -1480,6 +1502,7 @@ export class App implements OnInit, OnDestroy {
   loadAgentReplayTemplate(): void {
     const run = this.selectedAgentRun; if (!run) return;
     this.agentRunForm = { ...run.request, parentRunId: run.id, network: false, budget: { ...run.request.budget } };
+    this.agentRunInstallationKey = '';
     this.ensureAgentRuntimeSelection();
     if (!this.agentProviderSupportsWorkspace(this.agentRunForm.workspaceMode)) this.agentRunForm.workspaceMode = 'read_only';
     this.notice = 'Run als neue Vorlage geladen. Netzwerkzugriff bleibt für den Replay standardmäßig aus.';
@@ -1518,13 +1541,21 @@ export class App implements OnInit, OnDestroy {
   }
   selectedAgentInstallation(): AgentProviderInstallation | undefined {
     const installations = this.agentProviderInstallations();
+    const keyed = this.agentRunInstallationKey
+      ? installations.find((item) => this.agentInstallationKey(item) === this.agentRunInstallationKey) : undefined;
+    if (keyed) return keyed;
     return installations.find((item) => item.runtimeTarget === this.agentRunForm.runtimeTarget
       && (item.runtimeTarget !== 'wsl' || item.distribution === this.agentRunForm.wslDistribution))
       ?? (this.agentRunForm.runtimeTarget === 'wsl' && !this.agentRunForm.wslDistribution
         ? installations.find((item) => item.runtimeTarget === 'wsl') : undefined);
   }
   agentInstallationKey(installation: AgentProviderInstallation): string {
-    return `${installation.runtimeTarget}:${encodeURIComponent(installation.distribution ?? '')}`;
+    return [
+      installation.runtimeTarget,
+      encodeURIComponent(installation.distribution ?? ''),
+      encodeURIComponent(installation.version ?? ''),
+      encodeURIComponent(installation.executable ?? '')
+    ].join(':');
   }
   selectedAgentInstallationKey(): string {
     const installation = this.selectedAgentInstallation();
@@ -1626,10 +1657,12 @@ export class App implements OnInit, OnDestroy {
   private applyAgentInstallation(installation: AgentProviderInstallation): void {
     this.agentRunForm.runtimeTarget = installation.runtimeTarget;
     this.agentRunForm.wslDistribution = installation.runtimeTarget === 'wsl' ? installation.distribution : undefined;
+    this.agentRunInstallationKey = this.agentInstallationKey(installation);
   }
   private applyAgentOrchestrationInstallation(installation: AgentProviderInstallation): void {
     this.agentOrchestrationForm.runtimeTarget = installation.runtimeTarget;
     this.agentOrchestrationForm.wslDistribution = installation.runtimeTarget === 'wsl' ? installation.distribution : undefined;
+    this.agentOrchestrationInstallationKey = this.agentInstallationKey(installation);
   }
   selectedAgentWorkflow(): AgentWorkflow | undefined { return this.agentWorkflows.find((item) => item.id === this.agentRunForm.workflowId); }
   agentProviderSupportsNetwork(): boolean { return false; }

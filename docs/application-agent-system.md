@@ -55,7 +55,7 @@ vollständigen SHA-256 gebunden und müssen den Profilvalidator des Bewerbungs-S
 
 Die Rollenverträge werden nicht im Hauptprojekt neu erfunden. Maßgeblich sind `SKILL.md` und
 `references/iteration-loop.md` des Bewerbungs-Submodules. Der lokal verdrahtete Root-Workflow
-`evidence-application-package@1.1.0` erzeugt für Evidence, Author, ATS, Recruiter/Style und
+`evidence-application-package@1.2.0` erzeugt für Evidence, Author, ATS, Recruiter/Style und
 Finalizer jeweils einen eigenen Node-Run. Jeder Run erhält nur deklarierte Rohartefakte und
 rollenspezifische Kriterien; ATS und Recruiter/Style prüfen den Author-Entwurf getrennt. Der
 Finalizer erhält beide Reviews automatisch als komplementäre Eingaben; weder ein `user_input`-Gate

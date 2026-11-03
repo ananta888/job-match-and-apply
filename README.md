@@ -124,7 +124,7 @@ Architektur, Sicherheitsgrenzen und Providerstrategie des Agent Control Centers 
 Die Seite **Agenten** enthält den vollständigen lokalen Bedienpfad: Providerdiagnose, sichere
 Run-Erstellung, Queue, Live-/Replay-Timeline, Rückfragen, Freigaben, Abbruch und redigierten Export.
 Sie steuert außerdem die versionierten Multi-Agent-Workflows und zeigt deren Rollen und Budgets.
-`evidence-application-package@1.1.0` läuft nach einem Start vollständig bis zum fünften Agenten und
+`evidence-application-package@1.2.0` läuft nach einem Start vollständig bis zum fünften Agenten und
 blendet dessen hashgebundenes `final_html` automatisch als sandboxed HTML-Seite ein. Dafür sind
 weder JSON-Ansicht noch Review, Adoption oder Fallfreigabe nötig. Eine spätere externe Verwendung,
 ein Export oder Versand bleibt davon getrennt. `fake` ist der konto- und netzwerkfreie

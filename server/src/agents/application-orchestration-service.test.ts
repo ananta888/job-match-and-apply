@@ -271,7 +271,8 @@ describe('ApplicationAgentOrchestrationService', () => {
     }
     const finalizer = runs.find((run) => run.request.metadata?.nodeRole === 'finalizer');
     expect(finalizer?.request.task).toContain('Evidence-backed synthetic content');
-    expect(finalizer?.request.task).toContain('both raw reviews');
+    expect(finalizer?.request.task).toContain('Combine the available reviews');
+    expect(finalizer?.request.task).toContain('Document: CV');
     expect(finalizer?.request.task).toContain('Closed output contract (mandatory)');
     expect(finalizer?.request.task).toContain('Return exactly one complete HTML5 document');
     expect(finalizer?.request.task).not.toContain('Return exactly one JSON object');

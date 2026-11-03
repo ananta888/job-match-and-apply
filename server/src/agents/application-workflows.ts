@@ -9,7 +9,7 @@ function budget(tokens: number, toolCalls = 4, wallTimeMs = 10 * 60_000) {
 
 export interface ApplicationAgentWorkflowTemplate {
   id: string;
-  version: '1.0.0' | '1.1.0';
+  version: '1.0.0' | '1.1.0' | '1.2.0';
   title: string;
   description: string;
   requiredScope: 'search_profile' | 'application_case' | 'company';
@@ -34,17 +34,17 @@ export const APPLICATION_AGENT_WORKFLOWS: readonly ApplicationAgentWorkflowTempl
     })
   },
   {
-    id: 'evidence-application-package', version: '1.1.0', title: 'Evidence-basierte Bewerbungsunterlagen',
+    id: 'evidence-application-package', version: '1.2.0', title: 'Evidence-basierte Bewerbungsunterlagen',
     description: 'Führt Evidence, Author, ATS, Recruiter/Style und Finalizer vollständig aus und liefert die finale HTML-Seite direkt aus.',
     requiredScope: 'application_case', producesSuggestionsOnly: true,
     prohibitedActions: ['invent_claim', 'publish_unverified_claim', 'finalize_incognito', 'send_application'],
     plan: (providerId) => ({
-      id: 'evidence-application-package', version: '1.1.0', allowedProviders: [providerId], inputRefs: ['job', 'candidate_evidence', 'application_case', 'application_pipeline_analysis', 'style_profile'],
+      id: 'evidence-application-package', version: '1.2.0', allowedProviders: [providerId], inputRefs: ['job', 'candidate_evidence', 'application_case', 'application_pipeline_analysis', 'style_profile'],
       totalBudget: { wallTimeMs: 45 * 60_000, tokens: 70_000, costMicros: 20_000_000, toolCalls: 70, iterations: 10 },
       nodes: [
-        { id: 'evidence', role: 'evidence_reviewer', providerId, dependsOn: [], inputRefs: ['job', 'candidate_evidence', 'application_pipeline_analysis'], outputRefs: ['evidence_matrix'], gates: ['evidence_complete'], contextIsolationKey: 'evidence', declaredIndependentAgent: true, sideEffect: 'none', budget: budget(8_000, 12), retry: safeRetry, failureStrategy: 'fail_fast' },
+        { id: 'evidence', role: 'evidence_reviewer', providerId, dependsOn: [], inputRefs: ['job', 'candidate_evidence', 'application_case', 'application_pipeline_analysis'], outputRefs: ['evidence_matrix'], gates: ['evidence_complete'], contextIsolationKey: 'evidence', declaredIndependentAgent: true, sideEffect: 'none', budget: budget(8_000, 12), retry: safeRetry, failureStrategy: 'fail_fast' },
         { id: 'author', role: 'author', providerId, dependsOn: ['evidence'], inputRefs: ['job', 'candidate_evidence', 'application_case', 'application_pipeline_analysis', 'style_profile', 'evidence_matrix'], outputRefs: ['annotated_draft'], gates: [], contextIsolationKey: 'author', declaredIndependentAgent: false, sideEffect: 'none', budget: budget(12_000, 15, 15 * 60_000), retry: safeRetry, failureStrategy: 'fail_fast' },
-        { id: 'ats', role: 'ats_reviewer', providerId, dependsOn: ['author'], inputRefs: ['job', 'candidate_evidence', 'application_pipeline_analysis', 'annotated_draft', 'evidence_matrix'], outputRefs: ['ats_review'], gates: [], contextIsolationKey: 'ats', declaredIndependentAgent: false, sideEffect: 'none', budget: budget(6_000, 15), retry: safeRetry, failureStrategy: 'continue_unrelated' },
+        { id: 'ats', role: 'ats_reviewer', providerId, dependsOn: ['author'], inputRefs: ['job', 'candidate_evidence', 'application_case', 'application_pipeline_analysis', 'annotated_draft', 'evidence_matrix'], outputRefs: ['ats_review'], gates: [], contextIsolationKey: 'ats', declaredIndependentAgent: false, sideEffect: 'none', budget: budget(6_000, 15), retry: safeRetry, failureStrategy: 'continue_unrelated' },
         { id: 'style', role: 'recruiter_style_reviewer', providerId, dependsOn: ['author'], inputRefs: ['job', 'candidate_evidence', 'application_case', 'style_profile', 'annotated_draft', 'evidence_matrix'], outputRefs: ['style_review'], gates: [], contextIsolationKey: 'style', declaredIndependentAgent: false, sideEffect: 'none', budget: budget(6_000, 15), retry: safeRetry, failureStrategy: 'continue_unrelated' },
         { id: 'finalizer', role: 'finalizer', providerId, dependsOn: ['ats', 'style'], inputRefs: ['job', 'candidate_evidence', 'application_case', 'application_pipeline_analysis', 'style_profile', 'annotated_draft', 'ats_review', 'style_review', 'evidence_matrix'], outputRefs: ['final_html'], gates: [], contextIsolationKey: 'final', declaredIndependentAgent: false, sideEffect: 'idempotent_local', idempotencyKey: 'assigned-per-run', budget: budget(10_000, 15, 15 * 60_000), retry: noRetrySideEffect, failureStrategy: 'fail_fast' }
       ]

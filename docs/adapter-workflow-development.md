@@ -51,7 +51,7 @@ und Artefaktprovenienz.
 Fan-in entscheidet nicht durch Mehrheitsfiktion: ATS und Recruiter/Style bleiben getrennte
 Rollenläufe und werden als komplementäre Rohreviews vollständig an den Finalizer übergeben.
 
-Im aktuellen `evidence-application-package@1.1.0` läuft der Finalizer ohne Browser-Gate. Sein
+Im aktuellen `evidence-application-package@1.2.0` läuft der Finalizer ohne Browser-Gate. Sein
 Output-Ref `final_html` verlangt ein vollständiges HTML5-Dokument und verbietet JSON, Skripte,
 Formulare, Navigation und externe Ressourcen. Neue Workflowänderungen an Gates oder Outputformat
 benötigen eine neue Workflowversion; alte `package_proposal`-Artefakte bleiben nur als

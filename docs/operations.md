@@ -243,7 +243,7 @@ UI-Run. Der Workflow `evidence-application-package` führt fünf getrennte Node-
 Evidence → Author → ATS und Recruiter/Style → Finalizer. Scope, Input-Digests, Rollenprompt,
 Abhängigkeiten, Budgets, Retryregeln und Artefakte werden serverseitig gebunden. Evidence-Gates
 kommen ausschließlich aus dem lokalen Kandidatenprofil. Im aktuellen
-`evidence-application-package@1.1.0` läuft der Finalizer ohne Browser-Gate und erhält ATS- sowie
+`evidence-application-package@1.2.0` läuft der Finalizer ohne Browser-Gate und erhält ATS- sowie
 Recruiter/Style-Review automatisch. Er erzeugt direkt `final_html`; JSON-Paket, Fortsetzen-Dialog
 und Fan-in-Freigabe gehören nicht zum aktuellen Lauf. Nach Erfolg liefert die hashgebundene
 `result.html`-Route eine CSP-geschützte Seite, die Angular automatisch sandboxed anzeigt. Ein

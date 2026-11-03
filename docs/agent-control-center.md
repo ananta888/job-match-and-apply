@@ -158,7 +158,7 @@ Der Server löst Inputs aus dem aktuellen Suchprofil, Job, Kandidatenprofil, Bew
 vorherigen Rohartefakten auf und speichert ihre Digests. Nur `verified` und `user_confirmed` Claims
 mit Evidence-Referenzen erfüllen das servereigene Evidence-Gate. ATS und Recruiter/Style prüfen
 weiterhin getrennt; beide Rohreviews werden automatisch an den Finalizer übergeben. Im
-`evidence-application-package@1.1.0` gibt es weder ein browserauflösbares `user_input`-Gate noch
+`evidence-application-package@1.2.0` gibt es weder ein browserauflösbares `user_input`-Gate noch
 eine manuelle Fan-in-Entscheidung. Cancel bleibt revisionsgebunden.
 
 Der Finalizer liefert ausschließlich ein vollständiges HTML5-Dokument als `final_html`, kein

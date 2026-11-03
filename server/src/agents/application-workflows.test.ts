@@ -18,8 +18,13 @@ describe('application agent workflows', () => {
     const plan = workflow.plan('fake');
     const roles = plan.nodes.map((node) => node.role);
     expect(roles).toEqual(expect.arrayContaining(['author', 'evidence_reviewer', 'ats_reviewer', 'recruiter_style_reviewer', 'finalizer']));
-    expect(workflow.version).toBe('1.1.0');
+    expect(workflow.version).toBe('1.2.0');
     expect(plan.nodes.find((node) => node.role === 'finalizer')).toMatchObject({ gates: [], outputRefs: ['final_html'] });
+    for (const node of plan.nodes) {
+      if (['evidence_reviewer', 'author', 'ats_reviewer', 'recruiter_style_reviewer', 'finalizer'].includes(node.role)) {
+        expect(node.inputRefs).toContain('application_case');
+      }
+    }
     expect(plan.totalBudget.toolCalls).toBeGreaterThanOrEqual(70);
     for (const node of plan.nodes) expect(node.budget.toolCalls).toBeGreaterThanOrEqual(12);
     for (const role of ['author', 'finalizer']) {

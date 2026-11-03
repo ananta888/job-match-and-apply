@@ -1,7 +1,7 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
-import type { AtsCheckReport, AgentArtifactAdoptionResult, AgentArtifactContent, AgentArtifactRecord, AgentConfigProfile, AgentConfigProfileView, AgentOrchestrationConfirmationInput, AgentOrchestrationConflict, AgentOrchestrationConflictResolutionRequest, AgentOrchestrationCreateRequest, AgentOrchestrationRecord, AgentProvider, AgentQueueSnapshot, AgentRecoveryDecision, AgentRecoveryLease, AgentRecoveryResolution, AgentRecoverySnapshot, AgentRun, AgentRunEvent, AgentRunEventsPage, AgentRunPreflight, AgentRunRequest, AgentWorkflow, AppConfig, ApplicationCase, ApplicationDraft, ApplicationExportResult, ApplicationPipelineFinalizeResult, ApplicationProfileSetupStatus, ApplicationStyleProfileView, ArtifactRevision, CandidateMatchAnalysis, CandidateProfileSummary, CompanyCrm, CorrelatedMail, CvAiProviderSelection, CvAiStructuringOptions, CvAiStructuringPublicRun, CvAiStructuringSelection, CvAdoptionRevocationCandidates, CvFactOperation, CvIncognitoPreview, CvImportRecord, CvProfileSnapshotList, CvImportSummary, CvRecognitionVersionList, CvTheme, DataInventory, EditableApplicationStyleProfile, IdentityProfile, JobDecision, JobInventoryCategory, JobInventoryView, JobMatch, JobSearchMcpRuntimeCandidate, JobSourceCapabilities, LanguageCheckResult, MailAccount, McpRuntimeStatus, ProfileImportPreview, ProviderModelCatalog, SearchProfile, SearchRunSummary, SearchSchedule, SourceStatus } from './models';
+import type { AtsCheckReport, AgentArtifactAdoptionResult, AgentArtifactContent, AgentArtifactRecord, AgentConfigProfile, AgentConfigProfileView, AgentOrchestrationConfirmationInput, AgentOrchestrationConflict, AgentOrchestrationConflictResolutionRequest, AgentOrchestrationCreateRequest, AgentOrchestrationRecord, AgentProvider, AgentQueueSnapshot, AgentRecoveryDecision, AgentRecoveryLease, AgentRecoveryResolution, AgentRecoverySnapshot, AgentRun, AgentRunEvent, AgentRunEventsPage, AgentRunPreflight, AgentRunRequest, AgentWorkflow, AppConfig, ApplicationCase, ApplicationSourceCvCandidate, ApplicationDraft, ApplicationExportResult, ApplicationPipelineFinalizeResult, ApplicationProfileSetupStatus, ApplicationStyleProfileView, ArtifactRevision, CandidateMatchAnalysis, CandidateProfileSummary, CompanyCrm, CorrelatedMail, CvAiProviderSelection, CvAiStructuringOptions, CvAiStructuringPublicRun, CvAiStructuringSelection, CvAdoptionRevocationCandidates, CvFactOperation, CvIncognitoPreview, CvImportRecord, CvProfileSnapshotList, CvImportSummary, CvRecognitionVersionList, CvTheme, DataInventory, EditableApplicationStyleProfile, IdentityProfile, JobDecision, JobInventoryCategory, JobInventoryView, JobMatch, JobSearchMcpRuntimeCandidate, JobSourceCapabilities, LanguageCheckResult, MailAccount, McpRuntimeStatus, ProfileImportPreview, ProviderModelCatalog, SearchProfile, SearchRunSummary, SearchSchedule, SourceStatus } from './models';
 
 @Injectable({ providedIn: 'root' })
 export class ApiService {
@@ -488,8 +488,20 @@ export class ApiService {
   languageCheck(content: string, language = 'de-DE'): Observable<LanguageCheckResult> {
     return this.http.post<LanguageCheckResult>('/api/language-check', { content, language });
   }
-  createApplicationCase(match: JobMatch, identityId: string, documentType: 'cv' | 'cover_letter' | 'email'): Observable<ApplicationCase> {
-    return this.http.post<ApplicationCase>('/api/application-cases', { match, identityId, documentType });
+  createApplicationCase(
+    match: JobMatch,
+    identityId: string,
+    documentType: 'cv' | 'cover_letter' | 'email',
+    options?: { documentPurpose?: 'profile_cv' | 'vacancy_cv'; sourceCv?: { caseId: string; revisionId: string; sha256: string } }
+  ): Observable<ApplicationCase> {
+    return this.http.post<ApplicationCase>('/api/application-cases', {
+      match, identityId, documentType,
+      ...(options?.documentPurpose ? { documentPurpose: options.documentPurpose } : {}),
+      ...(options?.sourceCv ? { sourceCv: options.sourceCv } : {})
+    });
+  }
+  applicationSourceCvCandidates(): Observable<ApplicationSourceCvCandidate[]> {
+    return this.http.get<ApplicationSourceCvCandidate[]>('/api/application-cases/source-cv-candidates');
   }
   transitionApplicationCase(caseId: string, state: string, approvedRevision?: { revisionId: string; expectedSha256: string }): Observable<ApplicationCase> {
     return this.http.post<ApplicationCase>(`/api/application-cases/${encodeURIComponent(caseId)}/transition`, {

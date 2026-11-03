@@ -4,7 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { DomSanitizer, type SafeResourceUrl } from '@angular/platform-browser';
 import { ApiService } from './api.service';
 import { forkJoin, type Subscription } from 'rxjs';
-import type { AgentApproval, AgentArtifactContent, AgentArtifactRecord, AgentConfigProfile, AgentConfigProfileView, AgentOrchestrationConfirmationInput, AgentOrchestrationConflict, AgentOrchestrationConflictStrategy, AgentOrchestrationCreateRequest, AgentOrchestrationGate, AgentOrchestrationRecord, AgentProvider, AgentProviderConfigProfile, AgentProviderInstallation, AgentQueueBlockReason, AgentQueueSnapshot, AgentRecoveryDecision, AgentRecoveryLease, AgentRecoveryRun, AgentRun, AgentRunEvent, AgentRunPreflight, AgentRunRequest, AgentRunStatus, AgentRuntimeTarget, AgentWorkflow, AgentWorkspaceMode, AppConfig, ApplicationCase, ApplicationDraft, ApplicationExportResult, ApplicationNextActionsProposalProjection, ApplicationProfileSetupStatus, ApplicationStyleDocumentType, ApplicationStyleExampleDocumentType, ApplicationStyleProfileView, ArtifactRevision, CandidateMatchAnalysis, CandidateProfileSummary, CompanyCrm, CorrelatedMail, CvAiProviderSelection, CvAiStructuringOptions, CvAiStructuringPublicRun, CvAiStructuringSelection, CvAiStructuringSuggestion, CvAdoptionLedgerEntry, CvFact, CvFactCategory, CvFactDecision, CvFactOperation, CvImportRecord, CvImportSummary, CvIncognitoPreview, CvProfileSnapshotSummary, CvRecognitionVersionList, CvRecognitionVersionSummary, CvTheme, CvLayoutFingerprint, CvLayoutSection, CvThemeOriginalLayout, CvLayoutPalette, JobInventoryView, JobInventoryCategory, SearchRunSummary, AtsCheckReport, JobSearchMcpRuntimeCandidate, DataInventory, EditableApplicationStyleProfile, EmployerResponseTriageProposalProjection, IdentityProfile, JobDecision, JobMatch, JobSourceCapabilities, LanguageCheckResult, MailAccount, McpRuntimeStatus, ProfileImportPreview, ProviderModelCatalog, SearchSchedule, Section, SourceCapability, SourceStatus } from './models';
+import type { AgentApproval, AgentArtifactContent, AgentArtifactRecord, AgentConfigProfile, AgentConfigProfileView, AgentOrchestrationConfirmationInput, AgentOrchestrationConflict, AgentOrchestrationConflictStrategy, AgentOrchestrationCreateRequest, AgentOrchestrationGate, AgentOrchestrationRecord, AgentProvider, AgentProviderConfigProfile, AgentProviderInstallation, AgentQueueBlockReason, AgentQueueSnapshot, AgentRecoveryDecision, AgentRecoveryLease, AgentRecoveryRun, AgentRun, AgentRunEvent, AgentRunPreflight, AgentRunRequest, AgentRunStatus, AgentRuntimeTarget, AgentWorkflow, AgentWorkspaceMode, AppConfig, ApplicationCase, ApplicationSourceCvCandidate, ApplicationDraft, ApplicationExportResult, ApplicationNextActionsProposalProjection, ApplicationProfileSetupStatus, ApplicationStyleDocumentType, ApplicationStyleExampleDocumentType, ApplicationStyleProfileView, ArtifactRevision, CandidateMatchAnalysis, CandidateProfileSummary, CompanyCrm, CorrelatedMail, CvAiProviderSelection, CvAiStructuringOptions, CvAiStructuringPublicRun, CvAiStructuringSelection, CvAiStructuringSuggestion, CvAdoptionLedgerEntry, CvFact, CvFactCategory, CvFactDecision, CvFactOperation, CvImportRecord, CvImportSummary, CvIncognitoPreview, CvProfileSnapshotSummary, CvRecognitionVersionList, CvRecognitionVersionSummary, CvTheme, CvLayoutFingerprint, CvLayoutSection, CvThemeOriginalLayout, CvLayoutPalette, JobInventoryView, JobInventoryCategory, SearchRunSummary, AtsCheckReport, JobSearchMcpRuntimeCandidate, DataInventory, EditableApplicationStyleProfile, EmployerResponseTriageProposalProjection, IdentityProfile, JobDecision, JobMatch, JobSourceCapabilities, LanguageCheckResult, MailAccount, McpRuntimeStatus, ProfileImportPreview, ProviderModelCatalog, SearchSchedule, Section, SourceCapability, SourceStatus } from './models';
 
 type AgentEventLevelFilter = 'all' | 'debug' | 'info' | 'warning' | 'error';
 type AgentTimelineView = 'readable' | 'diagnostic';
@@ -120,6 +120,10 @@ export class App implements OnInit, OnDestroy {
   applicationCases: ApplicationCase[] = [];
   selectedApplicationCaseId?: string;
   applicationArtifacts: Record<string, ArtifactRevision[]> = {};
+  sourceCvCandidates: ApplicationSourceCvCandidate[] = [];
+  sourceCvSelection = '';
+  sourceCvCandidatesBusy = false;
+  applicationAgentOrchestrationId?: string;
   private readonly pipelineDraftsByCase: Record<string, { annotatedContent: string; iterationManifest: string }> = {};
   pipelineAnnotatedContent = '';
   pipelineIterationManifest = '';
@@ -404,13 +408,23 @@ export class App implements OnInit, OnDestroy {
 
   select(section: Section): void {
     this.section = section; this.notice = ''; this.error = '';
-    if (section !== 'agents' && section !== 'cv') this.stopAgentPolling();
+    if (section !== 'agents' && section !== 'cv' && section !== 'applications') this.stopAgentPolling();
     if (section !== 'agents') { this.stopAgentStream(); this.closeAgentRecoveryDialog(); }
     if (section !== 'cv') this.stopCvAiPolling();
     if (section === 'jobs') this.loadJobs();
     if (section === 'identity') { this.loadProfileSetup(); this.loadCandidateProfile(); }
     if (section === 'cv') this.loadCvStudio();
-    if (section === 'applications') this.loadApplicationCases();
+    if (section === 'applications') {
+      this.loadApplicationCases();
+      this.loadSourceCvCandidates();
+      if (!this.agentProviders.length) this.loadAgentProviders();
+      if (!this.agentWorkflows.length) this.api.agentWorkflows().subscribe({
+        next: (items) => { this.agentWorkflows = items; this.refreshView(); },
+        error: (error) => { this.error = this.message(error); this.refreshView(); }
+      });
+      this.refreshAgentOrchestrations();
+      this.startAgentPolling();
+    }
     if (section === 'crm') this.loadCrm();
     if (section === 'agents') { this.configureAgentMotionPreference(); this.loadAgentCenter(); }
     if (section === 'operations') this.loadOperations();
@@ -803,6 +817,8 @@ export class App implements OnInit, OnDestroy {
         this.selectAgentOrchestration(created, false);
         if (this.section === 'cv' && created.workflowId === 'evidence-application-package'
           && created.scope.applicationCaseId === this.cvSelectedApplicationCaseId) this.cvAgentOrchestrationId = created.id;
+        if (this.section === 'applications' && created.workflowId === 'evidence-application-package'
+          && created.scope.applicationCaseId === this.selectedApplicationCaseId) this.applicationAgentOrchestrationId = created.id;
         this.agentOrchestrationForm.prompt = '';
         this.agentOrchestrationForm.userInputConfirmed = false;
         this.notice = created.workflowId === 'evidence-application-package'
@@ -2248,16 +2264,102 @@ export class App implements OnInit, OnDestroy {
 
   createApplicationCase(): void {
     if (!this.selectedMatch || !this.config) return;
+    const sourceCv = this.sourceCvBindingForCreation();
     this.busy = true;
-    this.api.createApplicationCase(this.selectedMatch, this.config.activeIdentityId, this.documentType).subscribe({
+    this.api.createApplicationCase(this.selectedMatch, this.config.activeIdentityId, this.documentType, {
+      ...(this.documentType === 'cv' ? { documentPurpose: 'vacancy_cv' as const } : {}),
+      ...(sourceCv ? { sourceCv } : {})
+    }).subscribe({
       next: (application) => {
         this.applicationCases.unshift(application);
         this.selectApplicationCase(application);
         this.applicationArtifacts[application.id] = [];
-        this.busy = false; this.notice = 'Bewerbungsfall lokal angelegt und an die Werkstatt gebunden.'; this.refreshView();
+        this.sourceCvSelection = '';
+        this.busy = false;
+        this.notice = sourceCv
+          ? 'Bewerbungsfall lokal angelegt und an den freigegebenen Lebenslauf gebunden.'
+          : 'Bewerbungsfall lokal angelegt und an die Werkstatt gebunden.';
+        this.refreshView();
       },
       error: (error) => this.fail(error)
     });
+  }
+
+  loadSourceCvCandidates(): void {
+    this.sourceCvCandidatesBusy = true;
+    this.api.applicationSourceCvCandidates().subscribe({
+      next: (items) => { this.sourceCvCandidates = items; this.sourceCvCandidatesBusy = false; this.refreshView(); },
+      error: (error) => { this.sourceCvCandidatesBusy = false; this.fail(error); }
+    });
+  }
+
+  sourceCvCandidateKey(candidate: ApplicationSourceCvCandidate): string {
+    return `${candidate.caseId}::${candidate.revisionId}`;
+  }
+
+  selectedSourceCvCandidate(): ApplicationSourceCvCandidate | undefined {
+    return this.sourceCvCandidates.find((item) => this.sourceCvCandidateKey(item) === this.sourceCvSelection);
+  }
+
+  sourceCvBindingForCreation(): { caseId: string; revisionId: string; sha256: string } | undefined {
+    if (this.documentType === 'cv') return undefined;
+    const candidate = this.selectedSourceCvCandidate();
+    return candidate ? { caseId: candidate.caseId, revisionId: candidate.revisionId, sha256: candidate.sha256 } : undefined;
+  }
+
+  startApplicationAgentOrchestration(): void {
+    const application = this.selectedApplicationCase();
+    const unavailable = this.applicationAgentStartUnavailableReason();
+    if (unavailable || !application) { this.agentOrchestrationError = unavailable; this.refreshView(); return; }
+    const workflow = this.agentWorkflows.find((item) => item.id === 'evidence-application-package');
+    if (!workflow) return;
+    const providerId = this.agentOrchestrationForm.providerId || this.agentProviders.find((item) => item.available)?.id || '';
+    const binding = application.sourceCv
+      ? ` Verwende den serverseitig gebundenen Lebenslauf (Fall ${application.sourceCv.caseId}, Revision ${application.sourceCv.revisionId}, SHA-256 ${application.sourceCv.sha256}).`
+      : '';
+    const promptByType: Record<ApplicationCase['documentType'], string> = {
+      cv: `Erstelle einen belegbasierten ATS-sicheren Lebenslauf für den ausgewählten Bewerbungsfall ${application.id}. Verwende ausschließlich bestätigte CandidateProfile-Claims und die serverseitig gespeicherten Stilvorgaben. Der fünfte Agent liefert die direkt sichtbare finale HTML-Fassung.`,
+      cover_letter: `Erstelle ein belegbasiertes, ATS-taugliches Anschreiben für den ausgewählten Bewerbungsfall ${application.id}. Baue es logisch auf dem Lebenslauf des Falls auf: gleiche belegte Stationen, konsistente Zeitangaben und keine neuen Fakten.${binding} Der fünfte Agent liefert die direkt sichtbare finale HTML-Fassung.`,
+      email: `Erstelle eine kurze, belegbasierte Bewerbungs-E-Mail für den ausgewählten Bewerbungsfall ${application.id}, konsistent mit dem Lebenslauf des Falls.${binding} Der fünfte Agent liefert die direkt sichtbare finale HTML-Fassung.`
+    };
+    this.agentOrchestrationError = '';
+    this.agentOrchestrationForm = {
+      workflowId: workflow.id, providerId,
+      prompt: promptByType[application.documentType],
+      runtimeTarget: this.agentOrchestrationForm.runtimeTarget,
+      ...(this.agentOrchestrationForm.runtimeTarget === 'wsl' && this.agentOrchestrationForm.wslDistribution
+        ? { wslDistribution: this.agentOrchestrationForm.wslDistribution } : {}),
+      applicationCaseId: application.id, userInputConfirmed: false
+    };
+    this.createAgentOrchestration();
+  }
+
+  applicationAgentStartUnavailableReason(): string {
+    const application = this.selectedApplicationCase();
+    if (!application) return 'Wähle in der Werkstatt einen Bewerbungsfall.';
+    if (!this.agentWorkflows.some((item) => item.id === 'evidence-application-package')) {
+      return 'Der versionierte Evidence-Agentenworkflow ist serverseitig nicht verfügbar.';
+    }
+    const provider = this.agentProviders.find((item) => item.id === this.agentOrchestrationForm.providerId);
+    if (!provider?.available) return 'Wähle einen verfügbaren Agentenprovider.';
+    if (this.selectedAgentOrchestrationInstallation()?.support !== 'supported') return 'Wähle eine versionsgenau freigegebene Provider-Laufzeit.';
+    return '';
+  }
+
+  applicationAgentOrchestration(): AgentOrchestrationRecord | undefined {
+    if (this.applicationAgentOrchestrationId) return this.agentOrchestrations.find((item) => item.id === this.applicationAgentOrchestrationId)
+      ?? (this.selectedAgentOrchestration?.id === this.applicationAgentOrchestrationId ? this.selectedAgentOrchestration : undefined);
+    return undefined;
+  }
+
+  openApplicationAgentOrchestration(): void {
+    const orchestration = this.applicationAgentOrchestration();
+    this.select('agents');
+    if (orchestration) this.selectAgentOrchestration(orchestration, false);
+  }
+
+  refreshApplicationAgentStatus(): void {
+    this.refreshAgentOrchestrations();
   }
 
   nextApplicationState(application: ApplicationCase): string | undefined {
@@ -2318,6 +2420,8 @@ export class App implements OnInit, OnDestroy {
     this.selectedApplicationCaseId = application.id;
     this.languageCheckResult = undefined;
     this.applicationExportResult = undefined;
+    this.applicationAgentOrchestrationId = undefined;
+    this.agentOrchestrationError = '';
     if (previousCaseId !== application.id) {
       const localDraft = this.pipelineDraftsByCase[application.id];
       this.pipelineAnnotatedContent = localDraft?.annotatedContent ?? (this.draft?.jobId === application.job.id ? this.draft.content : '');

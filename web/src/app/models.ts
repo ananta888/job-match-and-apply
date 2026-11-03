@@ -201,9 +201,15 @@ export interface CandidateMatchAnalysis { jobAnalysis: Record<string, unknown>; 
 export type ApplicationCaseState = 'selected' | 'analysis' | 'questions' | 'draft' | 'review' | 'approved' | 'exported' | 'dry_run' | 'submitted' | 'closed';
 export interface ApplicationCase {
   id: string; job: JobPosting; identityId: string; identityMode: 'real' | 'incognito'; documentType: 'cv' | 'cover_letter' | 'email';
+  documentPurpose?: 'profile_cv' | 'vacancy_cv';
+  sourceCv?: { caseId: string; revisionId: string; sha256: string; profileSha256: string };
   state: ApplicationCaseState; createdAt: string; updatedAt: string; revision: number;
   artifactNames: string[]; warnings: string[];
   approvedArtifactRevisionId?: string; approvedArtifactSha256?: string; approvedAt?: string;
+}
+export interface ApplicationSourceCvCandidate {
+  caseId: string; revisionId: string; sha256: string;
+  jobTitle: string; company: string; createdAt: string;
 }
 export interface JobDecision { jobId: string; state: 'saved' | 'hidden' | 'neutral'; updatedAt: string }
 export interface DataInventory { generatedAt: string; stores: Array<{ id: string; location: string; purpose: string; records: number | null; encryptedFields: string[] }> }

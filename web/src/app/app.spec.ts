@@ -402,6 +402,8 @@ describe('App', () => {
       downloadCvProposal: vi.fn(),
       applicationCases: vi.fn().mockReturnValue(of([])),
       applicationArtifacts: vi.fn().mockReturnValue(of([])),
+      applicationSourceCvCandidates: vi.fn().mockReturnValue(of([])),
+      createApplicationCase: vi.fn(),
       languageCheck: vi.fn().mockReturnValue(of({ available: true, backend: 'nspell-local', issues: [], disclosure: 'Lokal geprüft.' })),
       finalizeApplicationCase: vi.fn(),
       reviewApplicationArtifact: vi.fn(),
@@ -2020,6 +2022,59 @@ describe('App', () => {
     expect(element.querySelector('[data-testid="cv-pipeline-step"]')?.textContent).toContain('Proof-verifizierter HTML-Lebenslauf');
     expect(element.querySelector('[data-testid="cv-html-download"]')).toBeTruthy();
     expect(apiMock['downloadCvProposal']).not.toHaveBeenCalled();
+    fixture.destroy();
+  });
+
+  it('binds a cover-letter case to an approved CV revision and starts the five-agent chain from the workshop', async () => {
+    const candidate = {
+      caseId: applicationCaseFixture.id,
+      revisionId: '22222222-2222-4222-8222-222222222222',
+      sha256: 'a'.repeat(64),
+      jobTitle: 'Angular Engineer', company: 'Beispiel GmbH', createdAt: '2026-08-14T08:05:00Z'
+    };
+    apiMock['applicationSourceCvCandidates'].mockReturnValue(of([candidate]));
+    apiMock['agentWorkflows'].mockReturnValue(of([{
+      id: 'evidence-application-package', version: '1.2.0', title: 'Evidence-Bewerbungspaket', description: 'Fixture',
+      requiredScope: 'application_case', producesSuggestionsOnly: true, prohibitedActions: ['submit_application']
+    }]));
+    apiMock['createAgentOrchestration'].mockReturnValue(of(orchestrationFixture('running')));
+    apiMock['createApplicationCase'].mockReturnValue(of(structuredClone(applicationCaseFixture)));
+    const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
+    const component = fixture.componentInstance;
+    component.select('applications'); fixture.detectChanges(); await fixture.whenStable();
+
+    component.documentType = 'cover_letter';
+    component.sourceCvCandidates = [candidate];
+    component.sourceCvSelection = component.sourceCvCandidateKey(candidate);
+    expect(component.sourceCvBindingForCreation()).toEqual({
+      caseId: candidate.caseId, revisionId: candidate.revisionId, sha256: candidate.sha256
+    });
+    component.selectedMatch = { job: structuredClone(applicationCaseFixture.job) } as never;
+    component.config = component.config ? { ...component.config, activeIdentityId: 'real-fixture' } : component.config;
+    component.createApplicationCase();
+    expect(apiMock['createApplicationCase']).toHaveBeenCalledWith(
+      expect.objectContaining({ job: applicationCaseFixture.job }),
+      'real-fixture',
+      'cover_letter',
+      expect.objectContaining({ sourceCv: { caseId: candidate.caseId, revisionId: candidate.revisionId, sha256: candidate.sha256 } })
+    );
+
+    const boundCase: ApplicationCase = {
+      ...structuredClone(applicationCaseFixture),
+      documentType: 'cover_letter',
+      sourceCv: { caseId: candidate.caseId, revisionId: candidate.revisionId, sha256: candidate.sha256, profileSha256: 'b'.repeat(64) }
+    };
+    component.applicationCases = [boundCase];
+    component.selectedApplicationCaseId = boundCase.id;
+    component.agentOrchestrationForm = { ...component.agentOrchestrationForm, providerId: 'codex', runtimeTarget: 'windows' };
+    component.startApplicationAgentOrchestration();
+    const request = apiMock['createAgentOrchestration'].mock.calls[0]?.[0];
+    expect(request).toEqual(expect.objectContaining({
+      workflowId: 'evidence-application-package', providerId: 'codex', applicationCaseId: boundCase.id
+    }));
+    expect(String(request?.prompt)).toContain('logisch auf dem Lebenslauf');
+    expect(String(request?.prompt)).toContain(candidate.sha256);
+    expect(component.applicationAgentOrchestrationId).toBe('33333333-3333-4333-8333-333333333333');
     fixture.destroy();
   });
 

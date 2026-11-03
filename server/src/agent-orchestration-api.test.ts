@@ -278,6 +278,27 @@ describe('public agent orchestration API', () => {
     });
     expect(String(created.body.sourceCv.profileSha256)).toMatch(/^[a-f0-9]{64}$/);
 
+    await value.workspace.saveArtifactRevision({
+      ...revision,
+      id: '66666666-6666-4666-8666-666666666666',
+      lifecycle: 'proposed',
+      artifactPath: `${sourceCase.id}/revisions/66666666-6666-4666-8666-666666666666.md`,
+    });
+    await value.workspace.saveArtifactRevision({
+      ...revision,
+      id: '77777777-7777-4777-8777-777777777777',
+      type: 'cover_letter',
+      artifactPath: `${sourceCase.id}/revisions/77777777-7777-4777-8777-777777777777.md`,
+    });
+    const candidates = await request(value.app).get('/api/application-cases/source-cv-candidates');
+    expect(candidates.status, candidates.text).toBe(200);
+    expect(candidates.body).toEqual([
+      expect.objectContaining({
+        caseId: sourceCase.id, revisionId: revision.id, sha256: revision.sha256,
+        jobTitle: sourceCase.job.title, company: sourceCase.job.company,
+      }),
+    ]);
+
     const wrongSha = await request(value.app).post('/api/application-cases').send({
       match: { job: sourceCase.job }, identityId: realIdentity.id, documentType: 'cover_letter',
       sourceCv: { caseId: sourceCase.id, revisionId: revision.id, sha256: '0'.repeat(64) },

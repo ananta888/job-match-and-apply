@@ -2824,6 +2824,28 @@ export function createApp(
     response.json(await workspace.listApplicationCases());
   }));
 
+  app.get('/api/application-cases/source-cv-candidates', asyncRoute(async (_request, response) => {
+    const [applications, revisions] = await Promise.all([
+      workspace.listApplicationCases(),
+      workspace.listArtifactRevisions()
+    ]);
+    const cases = new Map(applications.map((item) => [item.id, item]));
+    response.json(revisions
+      .filter((revision) => revision.type === 'cv' && revision.lifecycle === 'approved' && cases.has(revision.applicationCaseId))
+      .map((revision) => {
+        const application = cases.get(revision.applicationCaseId)!;
+        return {
+          caseId: revision.applicationCaseId,
+          revisionId: revision.id,
+          sha256: revision.sha256,
+          jobTitle: application.job.title,
+          company: application.job.company,
+          createdAt: revision.createdAt
+        };
+      })
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt)));
+  }));
+
   app.get('/api/crm/companies', asyncRoute(async (_request, response) => {
     const applications = await workspace.listApplicationCases();
     const tracking = (await Promise.all(applications.map((item) => workspace.listTrackingEvents(item.id)))).flat();

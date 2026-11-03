@@ -217,7 +217,7 @@ describe('OpenRouterHttpAgentAdapter', () => {
 it('bounds generated tokens across correction calls and does not retry truncated answers', async () => {
   const h = harness([jsonResponse({choices: [{finish_reason: 'length', message: {content: 'partial'}}], usage: {prompt_tokens: 40, completion_tokens: 80}})]);
   const handle = await h.adapter.start(h.context({metadata: {outputRefs: ['final_html'], maxOutputTokens: 80}}));
-  expect((await handle.completion).state).toBe('failed');
+  expect(await handle.completion).toMatchObject({state: 'failed', failure: {code: 'openrouter_output_truncated'}});
   expect(h.calls).toHaveLength(1);
   expect(h.calls[0]?.body.max_tokens).toBe(80);
   expect(h.events.some(e => e.data.code === 'openrouter_output_truncated')).toBe(true);
@@ -242,4 +242,16 @@ it('subtracts known generated tokens before the correction request', async () =>
   const run = await h.adapter.start(h.context({metadata: {outputRefs: ['final_html'], maxOutputTokens: 100}}));
   expect((await run.completion).state).toBe('succeeded');
   expect(h.calls.map(call => call.body.max_tokens)).toEqual([100, 70]);
+});
+
+it('passes the reasoning-inclusive finalizer allowance and reports only numerical reasoning diagnostics', async () => {
+  const h = harness([jsonResponse({
+    choices: [{finish_reason: 'stop', message: {content: FINAL_HTML, reasoning: 'PRIVATE-THOUGHT-CANARY'}}],
+    usage: {prompt_tokens: 29_832, completion_tokens: 15_000, completion_tokens_details: {reasoning_tokens: 9_000}}
+  })]);
+  const run = await h.adapter.start(h.context({metadata: {outputRefs: ['final_html'], maxOutputTokens: 50_000, reasoning: 'high'}}));
+  expect((await run.completion).state).toBe('succeeded');
+  expect(h.calls[0]?.body.max_tokens).toBe(50_000);
+  expect(h.events.find(e => e.kind === 'usage_updated')?.data).toMatchObject({reasoningTokens: 9_000, finishReason: 'stop', answerCharacters: FINAL_HTML.length});
+  expect(JSON.stringify(h.events)).not.toContain('PRIVATE-THOUGHT-CANARY');
 });

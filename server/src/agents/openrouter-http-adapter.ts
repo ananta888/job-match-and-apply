@@ -114,6 +114,8 @@ interface ChatCompletionResult {
   costMicros?: number;
   effectiveReasoning: OpenRouterReasoning;
   truncated?: boolean;
+  reasoningTokens?: number;
+  finishReason?: string;
 }
 
 export class OpenRouterHttpAgentAdapter implements AgentRunnerPort {
@@ -253,9 +255,10 @@ export class OpenRouterHttpAgentAdapter implements AgentRunnerPort {
     const wallTimeMs = Math.max(1_000, Math.min(request.limits?.wallTimeMs ?? DEFAULT_WALL_TIME_MS, DEFAULT_WALL_TIME_MS));
     const configuredOutput = request.metadata?.maxOutputTokens;
     const maxOutputTokens = typeof configuredOutput === 'number' && Number.isSafeInteger(configuredOutput) && configuredOutput > 0
-      ? Math.min(configuredOutput, 32_768) : 8_000;
+      ? Math.min(configuredOutput, 65_536) : 8_000;
     let remainingOutputTokens = maxOutputTokens;
     const deadline = Date.now() + wallTimeMs;
+    let reasoningTokens = 0, reasoningKnown = true;
     const totals = { inputTokens: 0, outputTokens: 0, costMicros: undefined as number | undefined };
     let messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
       { role: 'user', content: `${request.task}\n\n${OPENROUTER_RESULT_INSTRUCTION}` },
@@ -267,6 +270,8 @@ export class OpenRouterHttpAgentAdapter implements AgentRunnerPort {
         effectiveReasoning = result.effectiveReasoning;
         // Missing usage cannot create a fresh allowance for a second paid call.
         remainingOutputTokens = result.outputTokens === undefined ? 0 : Math.max(0, remainingOutputTokens - result.outputTokens);
+        if (result.reasoningTokens === undefined) reasoningKnown = false;
+        else reasoningTokens += result.reasoningTokens;
         totals.inputTokens += result.inputTokens ?? 0;
         totals.outputTokens += result.outputTokens ?? 0;
         if (result.costMicros !== undefined) totals.costMicros = (totals.costMicros ?? 0) + result.costMicros;
@@ -282,6 +287,9 @@ export class OpenRouterHttpAgentAdapter implements AgentRunnerPort {
               ? { costMicros: totals.costMicros, costEstimated: true }
               : { costUnknown: true }),
             reasoning: effectiveReasoning, call: round,
+            answerCharacters: result.text.length,
+            ...(result.finishReason ? {finishReason: result.finishReason} : {}),
+            ...(reasoningKnown ? {reasoningTokens} : {}),
             ...(result.outputTokens === undefined ? { outputUsageUnknown: true } : {}),
           },
         }).catch(() => undefined);
@@ -291,11 +299,11 @@ export class OpenRouterHttpAgentAdapter implements AgentRunnerPort {
             data: { code: 'openrouter_usage_without_cost', message: 'Der Anbieter hat keine Kosten gemeldet; es werden keine Kosten erfunden.' },
           }).catch(() => undefined);
         }
-        if (result.truncated || remainingOutputTokens <= 0) {
+        if (result.truncated || (result.outputTokens !== undefined && remainingOutputTokens <= 0)) {
           // A complete answer at the exact boundary is acceptable; truncated JSON/HTML never is.
           if (result.truncated || openrouterOutputProblem(result.text, outputRefs)) {
             await emit({kind: 'error', data: {code: 'openrouter_output_truncated', message: 'Das Antwortbudget ist ausgeschöpft; keine weitere kostenpflichtige Korrekturrunde.'}});
-            return {state: 'failed', failure: {code: 'validation_contract_violation', message: 'Das Modell hat das Antwortbudget ausgeschöpft.', retryable: false}};
+            return {state: 'failed', failure: {code: 'openrouter_output_truncated', message: 'Das Modell hat das Antwortbudget ausgeschöpft.', retryable: false}};
           }
         }
         const problem = openrouterOutputProblem(result.text, outputRefs)
@@ -417,7 +425,7 @@ export class OpenRouterHttpAgentAdapter implements AgentRunnerPort {
       if (raw.byteLength > MAX_RESPONSE_BYTES) {
         throw Object.assign(new Error('Die Modellantwort ist zu groß.'), { code: 'validation_contract_violation', retryable: false });
       }
-      let payload: { choices?: Array<{ finish_reason?: string; message?: { content?: unknown } }>; usage?: { prompt_tokens?: unknown; completion_tokens?: unknown; total_tokens?: unknown; cost?: unknown } };
+      let payload: { choices?: Array<{ finish_reason?: string; message?: { content?: unknown } }>; usage?: { prompt_tokens?: unknown; completion_tokens?: unknown; completion_tokens_details?: {reasoning_tokens?: unknown}; total_tokens?: unknown; cost?: unknown } };
       try { payload = JSON.parse(raw.toString('utf8')); }
       catch { throw Object.assign(new Error('Die Modellantwort ist ungültig.'), { code: 'validation_contract_violation', retryable: false }); }
       const content = payload.choices?.[0]?.message?.content;
@@ -427,12 +435,18 @@ export class OpenRouterHttpAgentAdapter implements AgentRunnerPort {
       const usage = payload.usage ?? {};
       const promptTokens = typeof usage.prompt_tokens === 'number' && Number.isFinite(usage.prompt_tokens) ? Math.floor(usage.prompt_tokens) : undefined;
       const completionTokens = typeof usage.completion_tokens === 'number' && Number.isFinite(usage.completion_tokens) ? Math.floor(usage.completion_tokens) : undefined;
+      const reportedReasoning = usage.completion_tokens_details?.reasoning_tokens;
+      const reasoningTokens = typeof reportedReasoning === 'number' && Number.isSafeInteger(reportedReasoning) && reportedReasoning >= 0
+        && (completionTokens === undefined || reportedReasoning <= completionTokens) ? reportedReasoning : undefined;
+      const finish = payload.choices?.[0]?.finish_reason;
       // Costs are never invented: only a provider-reported number becomes costMicros.
       const costMicros = typeof usage.cost === 'number' && Number.isFinite(usage.cost) && usage.cost >= 0
         ? Math.floor(usage.cost * 1_000_000) : undefined;
       return {
         text: typeof content === 'string' ? content : '',
-        truncated: payload.choices?.[0]?.finish_reason === 'length',
+        truncated: finish === 'length',
+        ...(finish && ['stop', 'length', 'content_filter', 'tool_calls'].includes(finish) ? {finishReason: finish} : {}),
+        ...(reasoningTokens !== undefined ? {reasoningTokens} : {}),
         inputTokens: promptTokens,
         outputTokens: completionTokens,
         costMicros,

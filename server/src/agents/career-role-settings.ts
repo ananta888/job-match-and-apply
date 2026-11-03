@@ -21,3 +21,11 @@ export function freezeCareerRoles(input: {providerId: string; model?: string; re
     reasoning: input.roleSettings?.[role]?.reasoning ?? input.reasoning ?? (input.providerId === 'openrouter' ? (role === 'finalizer' ? 'high' : 'off') : 'default')
   }]));
 }
+
+/** Completion tokens include reasoning. Keep room for a 10k-token document
+ * even at high effort (about 80% reasoning on providers that map by ratio).
+ * This is a ceiling, not a prediction or a guarantee about model behaviour. */
+export function careerCompletionTokenLimit(nodeId: string, reasoning: CareerReasoning): number {
+  if (nodeId !== 'finalizer') return nodeId === 'author' ? 12_000 : nodeId === 'evidence' ? 8_000 : 6_000;
+  return reasoning === 'off' ? 10_000 : reasoning === 'low' ? 12_500 : reasoning === 'medium' ? 20_000 : 50_000;
+}

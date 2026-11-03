@@ -1162,6 +1162,14 @@ export class App implements OnInit, OnDestroy {
       error: (error) => { this.agentOrchestrationBusy = false; this.agentOrchestrationError = this.message(error); this.refreshView(); }
     });
   }
+  agentOrchestrationFailureLabel(run: AgentOrchestrationRecord): string {
+    const reasons = [run.failureReason, ...run.nodes.map(node => node.reason)];
+    const legacyBudgetError = run.nodes.some(node => node.status === 'failed'
+      && this.agentRuns.some(agent => node.runIds.includes(agent.id) && agent.error === 'Das Modell hat das Antwortbudget ausgeschöpft.'));
+    if (reasons.includes('openrouter_output_truncated') || legacyBudgetError) return 'Das Antwortbudget eines Agenten wurde ausgeschöpft. Reasoning und fertiges Dokument teilen sich dieses Limit. Die erfolgreichen Vorstufen können bei einer gezielten Wiederholung erhalten bleiben.';
+    if (reasons.includes('budget_exceeded:tokens')) return 'Das Tokenbudget des Laufs wurde überschritten. Es liegt kein fertiges Dokument vor.';
+    return run.failureReason || 'Ohne neuen Lauf entsteht kein Ergebnis.';
+  }
   agentOrchestrationStatusLabel(status: AgentOrchestrationRecord['status']): string {
     return ({ queued: 'Eingereiht', running: 'Läuft', waiting_for_gate: 'Gate offen', cancelling: 'Wird abgebrochen', cancelled: 'Abgebrochen', succeeded: 'Erfolgreich', failed: 'Fehlgeschlagen', orphaned: 'Verwaist' } as const)[status];
   }

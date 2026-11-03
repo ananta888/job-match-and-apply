@@ -91,7 +91,7 @@ export function applicationDocumentCriteria(
     ] : []),
     ...(styleReview ? ['Review communication quality: opening, two or three concrete examples, contribution to the role, natural voice and one-page length. Flag repeated CV bullets, generic praise and unsupported motivation. Every paragraph should contribute useful information.'] : []),
     ...(role === 'finalizer' ? [
-      'Resolve the actual reviews and polish the letter while preserving exact record binding and internal claim annotations. Keep it concise and ready for the shared HTML letter layout.',
+      'Resolve the actual reviews and polish the letter while preserving exact record binding. Keep claim annotations in the upstream draft only; omit them from the final HTML. Keep it concise and ready for the shared HTML letter layout.',
       'Return a proposal only. Approval, used-state, export and submission are separate server gates.',
     ] : []),
     ...review,
@@ -143,7 +143,7 @@ export function applicationDocumentCriteria(
     ...(styleReview ? ['Review the raw annotated draft independently against the complete job, candidate records and style profile. Check whether a recruiter can understand target fit, recent career history and core skills in a fast scan; flag generic language and unsupported persuasion.'
       + (profile.profileCv ? ' For a general profile CV, assess a clear career overview without judging vacancy fit.' : '')] : []),
     ...(role === 'finalizer' ? [
-      'Combine the available reviews only after they finish. Resolve factual/structural and language findings in one polished document, preserve supported content and evidence annotations, and never manufacture an independent review that did not run.',
+      'Combine the available reviews only after they finish. Resolve factual/structural and language findings in one polished document, preserve supported content and leave evidence annotations in upstream artifacts only; never manufacture an independent review that did not run.',
       'Return a proposal only. Approval, used-state, export and submission are separate server gates.',
     ] : []),
     ...review,

@@ -2619,4 +2619,14 @@ describe('App', () => {
     fixture.destroy();
   });
 
+  it('shows a useful finalizer budget failure instead of orchestration_failed', () => {
+    const fixture = TestBed.createComponent(App);
+    const component = fixture.componentInstance;
+    const run = orchestrationFixture('failed');
+    run.failureReason = 'openrouter_output_truncated';
+    expect(component.agentOrchestrationFailureLabel(run)).toContain('Antwortbudget');
+    expect(component.agentOrchestrationFailureLabel(run)).not.toContain('orchestration_failed');
+    fixture.destroy();
+  });
+
 });

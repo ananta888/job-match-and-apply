@@ -1,4 +1,4 @@
-import { freezeCareerRoles, validateCareerSettings, type CareerReasoning, type CareerRoleSettings, type CareerNodeId } from './career-role-settings.js';
+import { careerCompletionTokenLimit, freezeCareerRoles, validateCareerSettings, type CareerReasoning, type CareerRoleSettings, type CareerNodeId } from './career-role-settings.js';
 import { evidenceIdsFromSnapshot } from '../services/candidate-evidence-prompt.js';
 import { createHash, randomUUID } from 'node:crypto';
 import type { AgentEvent, AgentRun, AgentRunRequest, RuntimeTarget } from '../ports/agent-runner.js';
@@ -293,7 +293,7 @@ function classifyFailure(run: AgentRun): AgentFailureCategory {
   if (/rate.?limit|too many requests|429/.test(value)) return 'rate_limit';
   if (/unavailable|not found|installation|auth|provider/.test(value)) return 'provider_unavailable';
   if (/transport|broken pipe|connection|stream|eof/.test(value)) return 'transport_interrupted';
-  if (/validation|invalid|schema/.test(value)) return 'validation';
+  if (/validation|invalid|schema|output_truncated/.test(value)) return 'validation';
   if (/policy|forbidden|denied|blocked/.test(value)) return 'policy_blocked';
   return 'unknown';
 }
@@ -810,7 +810,7 @@ export class ApplicationAgentOrchestrationService {
         unresolvedGates: report.unresolvedGates,
         updatedAt: finishedAt,
         ...(['succeeded', 'failed', 'cancelled'].includes(status) ? { finishedAt } : { finishedAt: undefined }),
-        ...(status === 'failed' ? { failureReason: budgetFailure ?? 'orchestration_failed' } : {}),
+        ...(status === 'failed' ? { failureReason: budgetFailure ?? (nodes.some(node => node.reason === 'openrouter_output_truncated') ? 'openrouter_output_truncated' : 'orchestration_failed') } : {}),
         ...(status === 'cancelled' ? { failureReason: 'orchestration_cancelled' } : {}),
       };
     });
@@ -1088,7 +1088,8 @@ export class ApplicationAgentOrchestrationService {
           'Closed output contract (mandatory):',
           '- Return exactly one complete HTML5 document and no JSON, Markdown fence or surrounding prose.',
           '- Start with <!doctype html> and include html, head, title and body.',
-          '- Put the finished, directly readable application document in the body.',
+          '- Put the finished, directly readable application document in <body data-result="final-agent-html">. This exact delivery marker is mandatory.',
+          '- Resolve the supplied reviews once, then write the complete HTML once. Use compact semantic markup and minimal CSS; do not reproduce analysis, alternatives or review reports.',
           '- Use semantic HTML only. Do not include scripts, forms, iframes, event handlers, remote resources, navigation or external links.',
           '- Resolve both reviews in the final document without exposing internal evidence annotations, review logs or iteration metadata.',
           '- Do not show claim IDs, source references, evidence status, unsupported-requirement lists, gap tables or lifecycle disclaimers.',
@@ -1224,7 +1225,7 @@ export class ApplicationAgentOrchestrationService {
         inputDigests: clone(inputDigests),
         outputRefs: [...request.node.outputRefs],
         nodeBudget: clone(request.node.budget),
-        maxOutputTokens: request.node.id === 'author' ? 12_000 : request.node.id === 'finalizer' ? 10_000 : request.node.id === 'evidence' ? 8_000 : 6_000,
+        maxOutputTokens: careerCompletionTokenLimit(request.node.id, input.roleSettings?.[request.node.id as CareerNodeId]?.reasoning ?? input.reasoning ?? 'default'),
         identityMode: input.scope.identityMode,
         allowedApplicationCaseIds: input.scope.applicationCaseId ? [input.scope.applicationCaseId] : [],
         requiredRootMcpTools: rootToolNames,

@@ -278,6 +278,9 @@ describe('ApplicationAgentOrchestrationService', () => {
     expect(finalizer?.request.task).toContain('Evidence-backed synthetic content');
     expect(finalizer?.request.task).toContain('Combine the available reviews');
     expect(finalizer?.request.task).toContain('Document: CV');
+    expect(finalizer?.request.task).toContain('<body data-result="final-agent-html">');
+    expect(finalizer?.request.metadata?.maxOutputTokens).toBe(50_000);
+    expect(finalizer?.request.task).not.toContain('preserve supported content and evidence annotations');
     expect(finalizer?.request.task).toContain('Closed output contract (mandatory)');
     expect(finalizer?.request.task).toContain('Return exactly one complete HTML5 document');
     expect(finalizer?.request.task).not.toContain('Return exactly one JSON object');

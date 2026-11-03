@@ -10,3 +10,5 @@ dist/
 !.env.example
 /integrations/job-search-mcp/.venv-wsl/
 %SystemDrive%/
+uebergabe/
+.opencode/

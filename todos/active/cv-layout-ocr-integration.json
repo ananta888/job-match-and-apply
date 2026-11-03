@@ -1,0 +1,136 @@
+{
+  "$schema": "../todo.track.schema.json",
+  "version": 1,
+  "owner": "job-match-and-apply",
+  "track": "cv-layout-ocr-integration",
+  "created": "2026-11-03",
+  "updated": "2026-11-03",
+  "purpose": "Bessere Lebensläufe durch Layout- und OCR-Erkennung vor der KI-Strukturierung: cv_layout.py (pdftotext -bbox-layout + Tesseract, Words/Lines/Blocks/Columns/Lesereihenfolge) im Bewerbungs-Submodule, dazu Root-Adapter und Durchreichen der Layout-Blöcke bis zur KI-Materialisierung.",
+  "goal": "Gescannte und designlastige PDFs liefern dieselbe Erkennungsqualität wie Text-PDFs; Layout-Blöcke erreichen den KI-Strukturierungsprompt; Seiten werden nur transient während des Imports gerendert und nicht persistent gespeichert.",
+  "status_scale": ["todo", "in_progress", "partial", "blocked", "done"],
+  "priority_scale": ["low", "medium", "high"],
+  "risk_scale": ["low", "medium", "high"],
+  "planning_policy": {
+    "root_scope": "Adapter-Spawn, Prompt-Erweiterung, diagnose-Check, Pointer-Update und Verifikation.",
+    "submodule_scope": "cv_layout.py entsteht im Bewerbungs-Submodule mit eigenem Commit und eigenem Submodule-Todo; hier steht nur die Integration.",
+    "data_policy": "Seitenbilder nur transient im Importprozess (verschlüsselt/lokal, nach Import gelöscht); keine persistenten Originale (Backlog-Entscheidung BL-001). Keine Personendaten in Git oder Todos.",
+    "external_action_policy": "Keine neuen externen Aufrufe; Poppler und Tesseract sind lokale Systempakete."
+  },
+  "non_goals": [
+    "Keine persistente Original-/Seitenbild-Ablage (bleibt Backlog-Entscheidung).",
+    "Keine Interpretation von Fakten im Layout-Schritt; das bleibt cv_import_contract.py normalize-extraction.",
+    "Keine Captcha- oder Portaltechnik aus job-search-mcp."
+  ],
+  "milestones": [
+    {
+      "id": "M1",
+      "title": "Submodule-Vertrag cv-extraction",
+      "task_ids": ["LO-001"],
+      "status": "todo"
+    },
+    {
+      "id": "M2",
+      "title": "Root-Integration",
+      "task_ids": ["LO-002", "LO-003", "LO-004"],
+      "status": "todo"
+    },
+    {
+      "id": "M3",
+      "title": "Verifikation",
+      "task_ids": ["LO-005"],
+      "status": "todo"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "LO-001",
+      "title": "Submodule-Release cv_layout.py einbinden",
+      "type": "integration",
+      "status": "todo",
+      "priority": "high",
+      "risk": "medium",
+      "progress_percent": 0,
+      "acceptance_criteria": [
+        "cv_layout.py ist im Submodule committet (Vertrag cv-extraction 1.0, CLI + JSON-Ausgabe, Poppler/Tesseract mit Timeouts und Limits) inkl. Submodule-Tests; Detail-Todo liegt im Submodule.",
+        "Submodule-Pointer in diesem Repository wird erst nach Submodule-Commit aktualisiert.",
+        "Kein Duplikat des Submodule-Todos im Root-System."
+      ],
+      "verification_evidence": [
+        "Referenz: uebergabe/latest-reference/jobsuche-backend/integrations/bewerbungs-schreib-assistent/scripts/cv_layout.py (539 Zeilen, SHA-geprüft)."
+      ]
+    },
+    {
+      "id": "LO-002",
+      "title": "Root-Adapter für Layout-Extraktion",
+      "type": "feature",
+      "status": "todo",
+      "priority": "high",
+      "risk": "medium",
+      "progress_percent": 0,
+      "acceptance_criteria": [
+        "Import ruft die Layout-Extraktion über den bestehenden Submodule-CLI-Spawn auf (Pfad-, Timeout- und stdout-Limits wie cv_import_contract).",
+        "Textschicht und OCR werden vereinigt; low_pdf_text-Fälle werden über OCR heilbar, ohne still zu verschlechtern.",
+        "Seitenrender nur transient; nach Import liegen keine Bilder mehr im lokalen Speicher.",
+        "Fehlende Tools (poppler-utils, tesseract) führen zu klaren diagnose-Fehlern, nicht zu stillen Ausfällen."
+      ],
+      "verification_evidence": []
+    },
+    {
+      "id": "LO-003",
+      "title": "Layout-Blöcke bis zur KI-Materialisierung durchreichen",
+      "type": "feature",
+      "status": "todo",
+      "priority": "medium",
+      "risk": "medium",
+      "progress_percent": 0,
+      "acceptance_criteria": [
+        "cv_import_contract.py akzeptiert Layout-Blöcke als zusätzliches Material und validiert sie.",
+        "KI-Strukturierungsprompt erhält Layout-Blöcke zusätzlich zum Zeilenmanifest; Anker bleiben exakt und prüfbar.",
+        "Ohne Layout-Quelle bleibt der bestehende Ablauf unverändert."
+      ],
+      "verification_evidence": []
+    },
+    {
+      "id": "LO-004",
+      "title": "diagnose-Check und Doku für Poppler/Tesseract",
+      "type": "documentation",
+      "status": "todo",
+      "priority": "medium",
+      "risk": "low",
+      "progress_percent": 0,
+      "acceptance_criteria": [
+        "scripts/diagnose.mjs prüft pdftotext, pdftoppm und tesseract inkl. Version.",
+        "README/docs nennen die neuen lokalen Systemabhängigkeiten."
+      ],
+      "verification_evidence": []
+    },
+    {
+      "id": "LO-005",
+      "title": "Verifikation gegen Referenz-PDF",
+      "type": "verification",
+      "status": "todo",
+      "priority": "high",
+      "risk": "low",
+      "progress_percent": 0,
+      "acceptance_criteria": [
+        "Durchlauf mit lokaler Referenz-PDF (ohne Personendaten in Git) durch alle Studio-Schritte.",
+        "npm test und npm run build grün; cv-studio e2e grün.",
+        "Abgleich mit offenem Punkt 'KI-Stand gegen deterministischen Stand' aus cv-studio-real-pdf-walkthrough, ohne Todo-Duplikat."
+      ],
+      "verification_evidence": []
+    }
+  ],
+  "critical_path_tasks": ["LO-001", "LO-002", "LO-003", "LO-005"],
+  "tasks_status_summary": {
+    "total": 5,
+    "by_status": { "todo": 5, "in_progress": 0, "partial": 0, "blocked": 0, "done": 0 },
+    "progress_percent_done": 0,
+    "by_priority": { "high": 3, "medium": 2, "low": 0 },
+    "by_risk": { "high": 0, "medium": 3, "low": 2 },
+    "milestones": { "total": 3, "todo": 3, "in_progress": 0, "partial": 0, "blocked": 0, "done": 0 }
+  },
+  "progress_summary": { "state": "todo", "todo_remaining": 5, "in_progress": 0, "partial": 0, "blocked": 0, "done": 0 },
+  "summary_notes": [
+    "Startet nach oder parallel zu M1 des Tracks dokumentqualitaet-anschreiben-cv; Submodule-Release-Takt bestimmt das Timing."
+  ]
+}

@@ -1,0 +1,134 @@
+{
+  "$schema": "../todo.track.schema.json",
+  "version": 1,
+  "owner": "job-match-and-apply",
+  "track": "laufsteuerung-privatsphaere-zu-pruefen",
+  "created": "2026-11-03",
+  "updated": "2026-11-03",
+  "purpose": "Backlog der geprüften, aber vom Nutzer bewusst zurückgestellten Übergabe-Empfehlungen: Laufsteuerung, Persistenz-Details, Originale-Retention und echte Provider-Vergleiche. Alles nur zu prüfen, nichts davon blockiert bessere/schnellere Lebensläufe und Anschreiben.",
+  "goal": "Jeder Punkt ist mit Beleglage, Konflikt und Prüfbedingung dokumentiert, damit später ohne Re-Analyse entschieden werden kann.",
+  "status_scale": ["todo", "in_progress", "partial", "blocked", "done"],
+  "priority_scale": ["low", "medium", "high"],
+  "risk_scale": ["low", "medium", "high"],
+  "planning_policy": {
+    "root_scope": "Nur Dokumentation und Entscheidungsgrundlagen in diesem Repository.",
+    "submodule_scope": "Keine Änderungen.",
+    "data_policy": "Keine Personendaten in Git oder Todos.",
+    "external_action_policy": "Echte Provider-Vergleiche (BL-005) nur nach ausdrücklicher Nutzerfreigabe und Kostenklärung."
+  },
+  "non_goals": [
+    "Keine Umsetzung ohne erneute Nutzerentscheidung.",
+    "Keine Aufweichung der bestehenden Datenschutz-Standardentscheidung (Original-Löschung nach Extraktion) durch BL-001."
+  ],
+  "milestones": [
+    {
+      "id": "M1",
+      "title": "Prüfliste vollständig dokumentiert",
+      "task_ids": ["BL-001", "BL-002", "BL-003", "BL-004", "BL-005", "BL-006"],
+      "status": "todo"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "BL-001",
+      "title": "Originale/Seitenbilder persistent speichern (Privatsphäre-Entscheidung)",
+      "type": "decision",
+      "status": "todo",
+      "priority": "low",
+      "risk": "high",
+      "progress_percent": 0,
+      "acceptance_criteria": [
+        "Entscheidungsvorlage: Nutzen (erneute Erkennung ohne Reimport, Originaltreue) gegen Risiko (mehr lokale Personendaten) mit Opt-in-, Verschlüsselungs- und Provider-Freigabegate-Design.",
+        "Erst nach Nutzerentscheidung Umsetzung; Standard bleibt Löschen nach Extraktion."
+      ],
+      "verification_evidence": [
+        "Heutiges Design: retention 'upload_deleted_after_local_extraction', cv-imports.ts; Übergabe fordert verschlüsselte, hash-gebundene Originale plus separater Freigabe für Provider-Weitergabe."
+      ]
+    },
+    {
+      "id": "BL-002",
+      "title": "model/profile/approvalMode pro Orchestration persistieren",
+      "type": "improvement",
+      "status": "todo",
+      "priority": "low",
+      "risk": "medium",
+      "progress_percent": 0,
+      "acceptance_criteria": [
+        "Prüfen: Restart-Kontinuität von Läufen ohne Verlust der Modellkonfiguration; Store-Schema-Migration und Abwärtskompatibilität.",
+        "Heute persistiert nur providerId (application-orchestration-store.ts:104); Rest liegt transient in pendingInputs."
+      ],
+      "verification_evidence": []
+    },
+    {
+      "id": "BL-003",
+      "title": "Einzelne fehlgeschlagene Knoten wiederholen",
+      "type": "improvement",
+      "status": "todo",
+      "priority": "low",
+      "risk": "medium",
+      "progress_percent": 0,
+      "acceptance_criteria": [
+        "Prüfen: Retry einzelner Knoten ohne neuen Gesamtrun unter Wahrung von Budget-Kumulation und Proof-Integrität.",
+        "Heute: continue() nur ab waiting_for_gate; Fehlschlag erzeugt neuen Run (application-orchestration-service.ts:519-527)."
+      ],
+      "verification_evidence": []
+    },
+    {
+      "id": "BL-004",
+      "title": "review-coordinator: Fakten- vs. Sprachprüfung trennen",
+      "type": "improvement",
+      "status": "todo",
+      "priority": "low",
+      "risk": "low",
+      "progress_percent": 0,
+      "acceptance_criteria": [
+        "Prüfen, ob die lokale Pipeline (evidence_ats_reviewer, sequential_single_agent) getrennte Kontexte lohnt; Agenten-Pfad hat bereits getrennte Isolations-Kontexte.",
+        "Konsistenz mit mergedReview-Variante aus DL-001 wahren."
+      ],
+      "verification_evidence": []
+    },
+    {
+      "id": "BL-005",
+      "title": "Echter Provider-Ergebnisvergleich",
+      "type": "verification",
+      "status": "todo",
+      "priority": "low",
+      "risk": "medium",
+      "progress_percent": 0,
+      "acceptance_criteria": [
+        "Vergleichsläufe auf identischer, bestätigter Faktenbasis und gleicher Stelle: fehlende Stationen/Zertifikate, erfundene Aussagen, Stellenbezug, Lesbarkeit, Vertragsfehler, Laufzeit, Kosten.",
+        "Nur nach Nutzerfreigabe (Providerkosten); fake-Provider-Vergleich bleibt Teil von DL-007."
+      ],
+      "verification_evidence": [
+        "Übergabe §69: Modellnamen aus September-Versuchen sind historische Konfigurationen, keine Empfehlung."
+      ]
+    },
+    {
+      "id": "BL-006",
+      "title": "Budget-Grundsatz final festlegen",
+      "type": "decision",
+      "status": "todo",
+      "priority": "low",
+      "risk": "low",
+      "progress_percent": 0,
+      "acceptance_criteria": [
+        "Nach DL-006-Messung entscheiden, ob 45 min/70k gesamt bleibt oder dokumentierte Stufen (z. B. Lab: 25 min gesamt, Finalizer 10 min) übernommen werden.",
+        "Ohne Messbeleg keine Änderung."
+      ],
+      "verification_evidence": []
+    }
+  ],
+  "critical_path_tasks": [],
+  "tasks_status_summary": {
+    "total": 6,
+    "by_status": { "todo": 6, "in_progress": 0, "partial": 0, "blocked": 0, "done": 0 },
+    "progress_percent_done": 0,
+    "by_priority": { "high": 0, "medium": 0, "low": 6 },
+    "by_risk": { "high": 1, "medium": 3, "low": 2 },
+    "milestones": { "total": 1, "todo": 1, "in_progress": 0, "partial": 0, "blocked": 0, "done": 0 }
+  },
+  "progress_summary": { "state": "todo", "todo_remaining": 6, "in_progress": 0, "partial": 0, "blocked": 0, "done": 0 },
+  "summary_notes": [
+    "Vom Nutzer am 2026-11-03 entschieden: nur dokumentieren und als zu prüfen zurückstellen."
+  ]
+}

@@ -1,0 +1,186 @@
+{
+  "$schema": "../todo.track.schema.json",
+  "version": 1,
+  "owner": "job-match-and-apply",
+  "track": "dokumentqualitaet-anschreiben-cv",
+  "created": "2026-11-03",
+  "updated": "2026-11-03",
+  "purpose": "Bessere und schnellere Lebensläufe und Anschreiben: dokumentabhängige Rollen-Kriterien, gezielte Finalizer-Rückfragen, CV-Revision-Bindung sowie belegte Budget-Straffung. Grundlage ist die geprüfte Übergabe uebergabe/UEBERGABE.md (Referenzdateien unter uebergabe/latest-reference).",
+  "goal": "Die Fünf-Rollen-Kette erzeugt dokumenttypgerechte Entwürfe (Anschreiben, Stellen-CV, allgemeiner CV), fragt vor dem Finalisieren gezielt nach, bindet Dokumente an eine exakte freigegebene CV-Revision, und die Laufzeiten sind gemessen und begründet gestrafft. Alles andere ist im Backlog-Todo dokumentiert.",
+  "status_scale": ["todo", "in_progress", "partial", "blocked", "done"],
+  "priority_scale": ["low", "medium", "high"],
+  "risk_scale": ["low", "medium", "high"],
+  "planning_policy": {
+    "root_scope": "Orchestrierungs-Kriterien, Rückfrage-Vertrag mit API/UI, Case-Bindung, Budget-Messung und Verifikation in diesem Repository.",
+    "submodule_scope": "Keine Änderungen am Bewerbungs-Submodule in diesem Track; Layout/OCR liegt im Track cv-layout-ocr-integration.",
+    "data_policy": "Keine Personendaten in Git oder Todos. Rückfragen-Antworten sind unvertrauter Bearbeitungstext, niemals Candidate Evidence.",
+    "external_action_policy": "Kein Mailversand, kein Portal-Submit, keine Finalisierung mit Inkognito, keine KI-Läufe mit echten Providern ohne ausdrückliche Freigabe."
+  },
+  "non_goals": [
+    "Keine Lockerung der Evidence Policy, kein Erfinden von Kandidatenfakten oder Motivation.",
+    "Kein Import des Lab-Ausgabevertrags oder der OpenRouter-Frozen-Config; der Root-final_html-Vertrag bleibt.",
+    "Keine blinden Budget-Kürzungen ohne Messbeleg.",
+    "Kein UI-Neubau; nur gezielte Ergänzungen im Agent-Center."
+  ],
+  "milestones": [
+    {
+      "id": "M1",
+      "title": "Dokumentabhängige Kriterien und CV-Bindung",
+      "task_ids": ["DL-001", "DL-004", "DL-005"],
+      "status": "in_progress"
+    },
+    {
+      "id": "M2",
+      "title": "Gezielte Finalizer-Rückfragen",
+      "task_ids": ["DL-002", "DL-003"],
+      "status": "todo"
+    },
+    {
+      "id": "M3",
+      "title": "Geschwindigkeit und Verifikation",
+      "task_ids": ["DL-006", "DL-007"],
+      "status": "todo"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "DL-001",
+      "title": "Dokumentabhängige Rollen-Kriterien portieren",
+      "type": "feature",
+      "status": "done",
+      "priority": "high",
+      "risk": "medium",
+      "progress_percent": 100,
+      "acceptance_criteria": [
+        "application-document-criteria.ts unterscheidet cover_letter, email, Stellen-CV und allgemeinen CV (documentPurpose profile_cv) je Rolle.",
+        "Anschreiben-Autor erhält Briefkriterien statt CV-Kriterien; allgemeiner CV ohne Stellen-Keyword-Prüfung.",
+        "Bestehende Root-Invarianten (Evidence-only, kein ATS-Score-Missbrauch, Proposal-only, Annotationen) bleiben erhalten.",
+        "Fokussierte Unit-Tests decken Kriterienauswahl und Grenzfälle (fehlende application_case-Sektion, ungültiges JSON) ab."
+      ],
+      "verification_evidence": [
+        "Referenz: uebergabe/latest-reference/jobsuche-backend/server/src/agents/application-document-criteria.ts (SHA-geprüft).",
+        "server/src/agents/application-document-criteria.ts neu; Verdrahtung in application-orchestration-service.ts buildNodeTask; fünf dokumentrollen-spezifische ROLE_CRITERIA-Einträge entfernt (Invarianten wanderten in das Modul).",
+        "Workflow evidence-application-package auf 1.2.0 gebumpt; evidence- und ats-Knoten erhalten jetzt application_case als Eingabe (application-workflows.ts, Test aktualisiert).",
+        "10 Unit-Tests grün (application-document-criteria.test.ts); Serversuite: 735 passed, nur 4 vorbestehende Umwelt-Fehler (fake-agent-cli/Node-Permission-Modell, auch auf sauberem HEAD reproduziert); tsc-Build grün.",
+        "Doku aktualisiert: README, contracts, application-agent-system, agent-control-center, operations, adapter-workflow-development, release-matrix (historische 'Seit 1.1.0'-Aussagen belassen)."
+      ]
+    },
+    {
+      "id": "DL-002",
+      "title": "Finalizer-Rückfrage-Vertrag serverseitig",
+      "type": "feature",
+      "status": "todo",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 0,
+      "acceptance_criteria": [
+        "Finalizer kann statt final_html maximal drei geprüfte Fragen (strikter JSON-Vertrag, needs_input) liefern.",
+        "Antworten (inkl. 'Keine Ergänzung') starten den zweiten Finalizer-Lauf als unvertrauten Bearbeitungstext.",
+        "Fragen und Antworten werden im Orchestrations-Store persistiert und im Proof berücksichtigt; kein Rückschreiben in Candidate Evidence.",
+        "Ungültige Frage-Objekte werden abgelehnt, nicht repariert; Abbruch bleibt möglich."
+      ],
+      "verification_evidence": [
+        "Referenz: uebergabe/latest-reference/jobsuche-backend/server/src/agents/finalizer-questions.ts."
+      ]
+    },
+    {
+      "id": "DL-003",
+      "title": "Rückfragen in API und Agent-Center-UI",
+      "type": "feature",
+      "status": "todo",
+      "priority": "medium",
+      "risk": "medium",
+      "progress_percent": 0,
+      "acceptance_criteria": [
+        "Agent-Center zeigt offene Finalizer-Fragen mit Antwortfeldern und 'Keine Ergänzung'-Aktion.",
+        "Antworten führen sichtbar in den zweiten Lauf; Timeline zeigt Frage- und Antwortereignis.",
+        "E2E-Test mit fake-Provider deckt den Frage-Antwort-Zyklus ab."
+      ],
+      "verification_evidence": []
+    },
+    {
+      "id": "DL-004",
+      "title": "Dokumente an exakte CV-Revision binden",
+      "type": "feature",
+      "status": "partial",
+      "priority": "high",
+      "risk": "medium",
+      "progress_percent": 80,
+      "acceptance_criteria": [
+        "ApplicationCase trägt optional sourceCv (revisionId, sha256, artifactId) und documentPurpose ('profile_cv' | 'vacancy_cv').",
+        "Anschreiben- und Stellen-CV-Läufe lösen die Faktenbasis an die gebundene CV-Revision statt an die live Profil-Datei auf.",
+        "Ohne Bindung bleibt das heutige Verhalten unverändert; Bindungswechsel erfordert neue Bestätigung.",
+        "ProfileCv-Kette erzeugt einen allgemeinen Lebenslauf ohne Stellenbezug."
+      ],
+      "verification_evidence": [
+        "Referenz: uebergabe/latest-reference/jobsuche-backend/server/src/agents/cv-tailoring.ts (Bindingsinvarianz).",
+        "models.ts: ApplicationCaseSourceCv {caseId, revisionId, sha256, profileSha256} + documentPurpose ('profile_cv'|'vacancy_cv'), optional und abwärtskompatibel.",
+        "POST /api/application-cases validiert die Bindung serverseitig: Revision muss existieren, Typ cv, lifecycle approved, exakter SHA-256; profileSha256 wird bei Erstellung gepinnt; Fehler 409/400.",
+        "Resolver: application_case-Sektion enthält documentPurpose + sourceCv-Bindung; Materialisierung fail-closed bei orchestration_source_cv_binding_broken (Revision weg/geändert/nicht mehr approved) und orchestration_candidate_profile_changed_since_binding (Profil-Datei änderte sich seit Bindung).",
+        "Integrationstest agent-orchestration-api.test.ts: 201 mit gepinntem profileSha256, 409 bei falschem/unbekanntem Hash, 400 bei malformed; Lauf succeeded mit 'Bound CV: application_case.sourceCv' im Author-Task; beide Broken-Bindung-Läufe failed mit den erwarteten Fehlern.",
+        "Offen (80%): Angular-Auswahl der Bindung im Bewerbungsfall-Dialog; wird zusammen mit DL-003 (Rückfragen-UI) in einer UI-Session gebaut. Bindungswechsel = neue Bindung mit voller Neuvalidierung (kein stiller Wechsel)."
+      ]
+    },
+    {
+      "id": "DL-005",
+      "title": "Editorial-Marker-Policy",
+      "type": "feature",
+      "status": "todo",
+      "priority": "low",
+      "risk": "low",
+      "progress_percent": 0,
+      "acceptance_criteria": [
+        "serverseitige Policy: editorial-Marker nur für Grußformeln/Anreden, nie für Fakten; Audit verwirft faktischen Missbrauch.",
+        "Dokumentiert im Style-Profil-Kontext."
+      ],
+      "verification_evidence": []
+    },
+    {
+      "id": "DL-006",
+      "title": "Laufzeiten messen und Budgets begründet straffen",
+      "type": "improvement",
+      "status": "todo",
+      "priority": "medium",
+      "risk": "medium",
+      "progress_percent": 0,
+      "acceptance_criteria": [
+        "Bestehende Runs (fake und real) werden auf Wandzeit je Knoten und Gesamtlaufzeit ausgewertet.",
+        "Budget-Anpassung (aktuell 45 min / 70k Tokens gesamt, 15 min Autor/Finalizer) nur mit Messbeleg; Lab-Werte (25 min gesamt, 10 min Finalizer) sind Vergleichswerte, keine Vorgabe.",
+        "Entscheidung und Beleg im Todo dokumentiert."
+      ],
+      "verification_evidence": [
+        "Lab-Beleg: dokumentierter Finalizer-Abbruch bei ~302 s vor der Budget-Anpassung (Patch 018)."
+      ]
+    },
+    {
+      "id": "DL-007",
+      "title": "Gesamtverifikation",
+      "type": "verification",
+      "status": "todo",
+      "priority": "high",
+      "risk": "low",
+      "progress_percent": 0,
+      "acceptance_criteria": [
+        "npm test und npm run build sind grün.",
+        "fake-Provider-Durchlauf erzeugt Anschreiben und CV mit dokumenttypgerechten Kriterien und (nach M2) Frage-Antwort-Zyklus.",
+        "Diff-Review: keine Secrets, keine Personendaten, keine unerwünschten Vertragsänderungen."
+      ],
+      "verification_evidence": []
+    }
+  ],
+  "critical_path_tasks": ["DL-001", "DL-004", "DL-002", "DL-007"],
+  "tasks_status_summary": {
+    "total": 7,
+    "by_status": { "todo": 5, "in_progress": 0, "partial": 1, "blocked": 0, "done": 1 },
+    "progress_percent_done": 25.71,
+    "by_priority": { "high": 4, "medium": 2, "low": 1 },
+    "by_risk": { "high": 1, "medium": 4, "low": 2 },
+    "milestones": { "total": 3, "in_progress": 1, "todo": 2, "partial": 0, "blocked": 0, "done": 0 }
+  },
+  "progress_summary": { "state": "in_progress", "todo_remaining": 5, "in_progress": 0, "partial": 1, "blocked": 0, "done": 1 },
+  "summary_notes": [
+    "Scope vom Nutzer bestätigt: Fokus auf bessere/schnellere Lebensläufe und Anschreiben; Laufsteuerung-Rest, Originale-Retention und Echt-Vergleich liegen im Backlog-Todo laufsteuerung-privatsphaere-zu-pruefen.",
+    "Übergabe-Abweichung dokumentiert: Dokumentlogik vor Layout/OCR, weil nur Root-Repo berührt ist und der Nutzen für Anschreiben sofort wirksam wird; Reihenfolge in der Übergabe war Faktenbasis zuerst.",
+    "Verifikationshinweis Umgebung: PYTHON_EXECUTABLE=python3 setzen (Adapter rufen 'python' auf, Ubuntu kennt nur python3); fake-agent-cli.integration.test.ts scheitert vorbestehend am strengeren Node-Permission-Modell dieser Umgebung (Exit 9 statt 0/23), auch auf sauberem HEAD."
+  ]
+}

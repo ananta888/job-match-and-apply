@@ -103,6 +103,35 @@ export interface ApplicationOrchestrationRecord {
   workflowVersion: string;
   providerId: string;
   status: ApplicationOrchestrationStatus;
+  /** Discovery-validated installation pin frozen at creation; retries reuse it. */
+  providerInstallation?: {
+    runtimeTarget: string;
+    wslDistribution?: string;
+    version: string;
+    executable: string;
+  };
+  /** Frozen per-role execution configuration; later config changes never rewrite it. */
+  runConfig?: {
+    workflowVersion: string;
+    providerId: string;
+    runtimeTarget: string;
+    wslDistribution?: string;
+    model?: string;
+    profile?: string;
+    frozenAt: string;
+  };
+  /** Fork binding: this record retries exactly one failed node of its parent. */
+  retryOf?: { orchestrationId: string; nodeId: string };
+  /** Opaque refinement binding (instructions/answers hashes), never raw answers. */
+  refinement?: { instructionsSha256: string; answersSha256?: string; previousArtifactSha256?: string };
+  /** Persisted finalizer clarification round, bound to the asking run. */
+  finalizerQuestions?: {
+    nodeId: string;
+    runId: string;
+    questions: Array<{ id: string; question: string; why?: string }>;
+    askedAt: string;
+  };
+  clarifications?: true;
   producesSuggestionsOnly: true;
   promptSha256: string;
   /** Server-generated and workflow-generic; never copied from the user prompt. */
@@ -156,6 +185,10 @@ function assertTimestamp(value: string | undefined, label: string): void {
   if (value !== undefined && !Number.isFinite(Date.parse(value))) throw new Error(`application_orchestration_${label}_invalid`);
 }
 
+function assertTimestampSafe(value: unknown): boolean {
+  return typeof value === 'string' && Number.isFinite(Date.parse(value));
+}
+
 function validateRecord(value: ApplicationOrchestrationRecord): ApplicationOrchestrationRecord {
   if (!value || value.schemaVersion !== 1) throw new Error('application_orchestration_record_invalid');
   assertId(value.id, 'id');
@@ -182,6 +215,49 @@ function validateRecord(value: ApplicationOrchestrationRecord): ApplicationOrche
   }
   if (value.scope.applicationCaseId && value.scope.applicationCaseRevision === undefined) {
     throw new Error('application_orchestration_case_revision_required');
+  }
+  if (value.runConfig !== undefined) {
+    const config = value.runConfig;
+    if (typeof config.workflowVersion !== 'string' || !/^\d+\.\d+\.\d+$/.test(config.workflowVersion)
+      || !ID.test(config.providerId) || !['windows', 'wsl', 'linux', 'darwin'].includes(config.runtimeTarget)
+      || (config.wslDistribution !== undefined && !SAFE.test(config.wslDistribution))
+      || (config.model !== undefined && (typeof config.model !== 'string' || !/^[^\r\n\0]{1,192}$/.test(config.model)))
+      || (config.profile !== undefined && !SAFE.test(config.profile))
+      || !assertTimestampSafe(config.frozenAt)) {
+      throw new Error('application_orchestration_run_config_invalid');
+    }
+  }
+  if (value.retryOf !== undefined
+    && (!ID.test(value.retryOf.orchestrationId) || !ID.test(value.retryOf.nodeId))) {
+    throw new Error('application_orchestration_retry_of_invalid');
+  }
+  if (value.refinement !== undefined
+    && (!HASH.test(value.refinement.instructionsSha256)
+      || (value.refinement.answersSha256 !== undefined && !HASH.test(value.refinement.answersSha256))
+      || (value.refinement.previousArtifactSha256 !== undefined && !HASH.test(value.refinement.previousArtifactSha256)))) {
+    throw new Error('application_orchestration_refinement_invalid');
+  }
+  if (value.finalizerQuestions !== undefined) {
+    const round = value.finalizerQuestions;
+    if (!ID.test(round.nodeId) || !ID.test(round.runId) || !assertTimestampSafe(round.askedAt)
+      || !Array.isArray(round.questions) || round.questions.length < 1 || round.questions.length > 3
+      || round.questions.some((question) => !question || typeof question.id !== 'string' || !/^q[1-3]$/.test(question.id)
+        || typeof question.question !== 'string' || !question.question.trim() || question.question.length > 400
+        || (question.why !== undefined && (typeof question.why !== 'string' || question.why.length > 300)))) {
+      throw new Error('application_orchestration_finalizer_questions_invalid');
+    }
+  }
+  if (value.clarifications !== undefined && value.clarifications !== true) {
+    throw new Error('application_orchestration_clarifications_invalid');
+  }
+  if (value.providerInstallation !== undefined) {
+    const pin = value.providerInstallation;
+    if (!['windows', 'wsl', 'linux', 'darwin'].includes(pin.runtimeTarget)
+      || typeof pin.version !== 'string' || !/^[^\r\n\0]{1,120}$/.test(pin.version)
+      || typeof pin.executable !== 'string' || !/^[^\r\n\0]{1,1024}$/.test(pin.executable)
+      || (pin.wslDistribution !== undefined && !SAFE.test(pin.wslDistribution))) {
+      throw new Error('application_orchestration_provider_installation_invalid');
+    }
   }
   assertTimestamp(value.createdAt, 'created_at');
   assertTimestamp(value.updatedAt, 'updated_at');

@@ -48,7 +48,7 @@ describe('exact provider conformance manifests', () => {
       extensions: {
         pause: false,
         pauseSemantics: 'unsupported_cancel_only',
-        externalSandbox: 'wsl-bubblewrap-v1',
+        externalSandbox: 'bubblewrap-v1',
         networkEnforcement: 'provider-tool-capability-policy',
         networkMechanism: 'server-owned-read-only-tool-allowlist',
         networkAccessClaim: 'provider-control-plane-only',

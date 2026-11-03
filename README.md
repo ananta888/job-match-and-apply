@@ -44,6 +44,20 @@ npm.cmd run dev
 Danach: <http://localhost:4201>. Port 4200 bleibt für andere lokale Anwendungen frei. Der Demo-Modus benötigt weder echte Accounts noch externe
 Portalzugriffe.
 
+## OpenRouter in der Oberfläche einrichten
+
+Unter **Agenten → Provider-Einrichtung → API-Keys pro Provider** den Provider
+**openrouter** auswählen. Als Schlüsselname **OPENROUTER_API_KEY** eintragen,
+den persönlichen API-Key in das Passwortfeld **Wert** eingeben, die Speicherung
+bestätigen und **API-Key speichern** wählen. Danach die Providerliste durch
+Neuladen der Seite aktualisieren.
+
+Es wird kein Dateipfad benötigt. Der Browser übermittelt den Wert an die lokale
+API; der Server speichert ihn verschlüsselt unter dem ignorierten .local-data/.
+Der Wert wird nicht zurückgegeben und gehört weder in Git noch in eine URL.
+Im Sicherheitsprofil OpenRouter aktivieren, ein angebotenes Modell auswählen und
+anschließend für den Dokumentlauf den Provider **openrouter** wählen.
+
 ## Echte Upstream-Integrationen
 
 Für `job-search-mcp` wird Python 3.12 benötigt. Das Setup bevorzugt die vorhandene

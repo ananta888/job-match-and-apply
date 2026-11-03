@@ -13,6 +13,34 @@ function fixture() {
   return { app, dependencies };
 }
 
+describe('agent installation pin binding', () => {
+  it('rejects a mismatched installation pin without silent fallback and binds exact pins', async () => {
+    const { app } = fixture();
+    const runtimeTarget = process.platform === 'win32' ? 'windows' : 'linux';
+    const mismatch = await request(app).post('/api/agent-runs/preflight').send({
+      providerId: 'fake', prompt: 'Pin-Synthetic-Auftrag', workspaceMode: 'read_only', network: false,
+      runtimeTarget,
+      budget: { wallTimeMinutes: 5, maxOutputMiB: 2 },
+      installation: { version: '9.9.9', executable: '/not/a/discovered/executable' },
+    });
+    expect(mismatch.status).toBe(409);
+    expect(JSON.stringify(mismatch.body)).toContain('passt nicht zu einer serverseitig erkannten Installation');
+
+    const exact = await request(app).post('/api/agent-runs/preflight').send({
+      providerId: 'fake', prompt: 'Pin-Synthetic-Auftrag', workspaceMode: 'read_only', network: false,
+      runtimeTarget,
+      budget: { wallTimeMinutes: 5, maxOutputMiB: 2 },
+      installation: { version: 'fake 1.0.0', executable: process.execPath },
+    });
+    expect(exact.status).toBe(200);
+    // The preflight view deliberately omits executable paths; the exact binding is
+    // proven by resolving this pin (200) while any mismatched pin fails closed (409).
+    expect(exact.body.provider.installation.version).toBe('fake 1.0.0');
+    expect(exact.body.provider.installation.runtimeTarget).toBe(runtimeTarget);
+    expect(exact.body.provider.installation.executable).toBeUndefined();
+  });
+});
+
 describe('agent wsl distribution view', () => {
   it('reports enumerated distributions plus discovered installations without secrets', async () => {
     const { app } = fixture();
@@ -75,7 +103,7 @@ describe('agent provider setup API', () => {
 
   it('stores provider API keys without ever returning their values', async () => {
     const { app } = fixture();
-    const secret = 'sk-live-must-not-be-echoed';
+    const secret = 'sk-test-must-not-be-echoed';
     const listed = await request(app).get('/api/agents/providers/credentials').expect(200);
     expect(listed.body).toEqual([]);
 

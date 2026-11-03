@@ -10,7 +10,8 @@
     "mail:server": "tsx src/local-mail-server.ts",
     "agent:mcp": "tsx src/agent-mcp-server.ts",
     "job-mcp:smoke": "node src/services/job-search-mcp-smoke.mjs",
-    "test": "vitest run src --maxWorkers=1"
+    "test": "vitest run src --maxWorkers=1",
+    "benchmark": "tsx src/run-benchmark.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.17.4",

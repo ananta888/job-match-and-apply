@@ -569,13 +569,26 @@ export class AgentControlCenter {
       run = await this.transition(run, 'starting', 'queue slot allocated', (this.options.now ?? (() => new Date()))());
       run.queuePosition = undefined; await this.store.update(run);
       const installations = await provider.discover();
-      const installation = this.options.installationSelector?.(installations, run.request)
-        ?? installations.find((candidate) => candidate.runtimeTarget === run.request.runtimeTarget
-          && (!run.request.wslDistribution || candidate.distribution === run.request.wslDistribution)
-          && candidate.support === 'supported');
-      if (!installation) throw new Error(`Keine freigegebene ${run.provider}-Installation für ${run.request.runtimeTarget} gefunden.`);
       const expectedProviderVersion = typeof run.request.metadata?.expectedProviderVersion === 'string'
         ? run.request.metadata.expectedProviderVersion : undefined;
+      const expectedProviderExecutable = typeof run.request.metadata?.expectedProviderExecutable === 'string'
+        ? run.request.metadata.expectedProviderExecutable : undefined;
+      const pinPresent = expectedProviderVersion !== undefined || expectedProviderExecutable !== undefined;
+      const matchesRuntimePins = (candidate: AgentProviderInstallation) => candidate.runtimeTarget === run.request.runtimeTarget
+        && (!run.request.wslDistribution || candidate.distribution === run.request.wslDistribution)
+        && (expectedProviderVersion === undefined || candidate.version === expectedProviderVersion)
+        && (expectedProviderExecutable === undefined || candidate.executable === expectedProviderExecutable);
+      const pinned = pinPresent ? installations.find(matchesRuntimePins) : undefined;
+      if (pinPresent && !pinned) {
+        throw new Error(`Die gebundene Installation (Version ${expectedProviderVersion ?? 'unbekannt'}) ist in der aktuellen Discovery nicht mehr vorhanden. Provider neu laden und Lauf erneut starten.`);
+      }
+      const installation = this.options.installationSelector?.(installations, run.request)
+        ?? pinned
+        ?? installations.find((candidate) => matchesRuntimePins(candidate) && candidate.support === 'supported');
+      if (!installation) throw new Error(`Keine freigegebene ${run.provider}-Installation für ${run.request.runtimeTarget} gefunden.`);
+      if (pinPresent && installation.support !== 'supported') {
+        throw new Error(`Die gebundene Installation ${installation.version ?? ''} ist nicht freigegeben (${installation.support}).`);
+      }
       const expectedAdapterVersion = typeof run.request.metadata?.expectedAdapterVersion === 'string'
         ? run.request.metadata.expectedAdapterVersion : undefined;
       if (expectedProviderVersion !== undefined && installation.version !== expectedProviderVersion) {

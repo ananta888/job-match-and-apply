@@ -19,6 +19,28 @@ const key: VersionApprovalKey = {
 };
 
 describe('version approvals', () => {
+  it('resolves concurrent approvals to exactly one winner and one conflict', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'approvals-race-')); roots.push(root);
+    const store = new JsonVersionApprovalStore(join(root, 'approvals.json'));
+    const first = store.approve(key, null);
+    const second = store.approve({ ...key, version: '1.15.8' }, null);
+    const results = await Promise.allSettled([first, second]);
+    const won = results.filter((entry) => entry.status === 'fulfilled');
+    const conflicted = results.filter((entry) => entry.status === 'rejected' && entry.reason instanceof VersionApprovalConflictError);
+    expect(won).toHaveLength(1);
+    expect(conflicted).toHaveLength(1);
+    const snapshot = await store.load();
+    expect(snapshot.approvals).toHaveLength(1);
+    expect((await import('node:fs/promises')).readdir(root)).resolves.not.toContain('approvals.json.tmp');
+
+    const memory = new MemoryVersionApprovalStore();
+    const [memoryFirst, memorySecond] = [memory.approve(key, null), memory.approve({ ...key, version: '9.9.9' }, null)];
+    const memoryResults = await Promise.allSettled([memoryFirst, memorySecond]);
+    expect(memoryResults.filter((entry) => entry.status === 'fulfilled')).toHaveLength(1);
+    expect(memoryResults.filter((entry) => entry.status === 'rejected' && entry.reason instanceof VersionApprovalConflictError)).toHaveLength(1);
+    expect((await memory.load()).approvals).toHaveLength(1);
+  });
+
   it('matches only the exact installation the user approved', () => {
     const approvals = [{ ...key, approvedAt: '2026-11-03T10:00:00.000Z' }];
     expect(isVersionApproved(approvals, key)).toBe(true);

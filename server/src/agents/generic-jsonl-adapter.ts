@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdir, rm } from 'node:fs/promises';
+import { chmod, mkdir, rm, writeFile } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
 import {
   AGENT_CONTRACT_VERSION,
@@ -15,7 +15,7 @@ import {
 } from '../ports/agent-runner.js';
 import { IncrementalJsonlParser, type JsonlBatch } from './jsonl-parser.js';
 import { DEFAULT_PROCESS_LIMITS, ProcessSupervisor, type ProcessResult, type SupervisedProcess } from './process-supervisor.js';
-import { assertTrustedHostJobMcpNotNestedInAgentSandbox, WslBubblewrapSandboxBoundary, type ExternalSandboxBoundary } from './provider-sandbox.js';
+import { assertTrustedHostJobMcpNotNestedInAgentSandbox, LinuxBubblewrapSandboxBoundary, WslBubblewrapSandboxBoundary, type ExternalSandboxBoundary } from './provider-sandbox.js';
 import { recoverOpencodeAssistantText } from './opencode-session-recover.js';
 import { providerCredentialEnv } from './provider-credentials.js';
 import { AgentRuntimeDiscovery, type ProviderDiscoveryDefinition } from './runtime-discovery.js';
@@ -179,6 +179,20 @@ function canonicalMapper(value: unknown): AgentEventDraft[] {
   }];
 }
 
+/** Constant launcher: reads validated NAME=VALUE lines, never evals file content. */
+const PROVIDER_ENV_LAUNCH_SCRIPT = [
+  '#!/usr/bin/env bash',
+  'set -eu',
+  'if [ -f "${PROVIDER_ENV_FILE:-}" ]; then',
+  "  while IFS= read -r line; do",
+  "    case \"$line\" in ''|'#'*) continue ;; esac",
+  '    export "$line"',
+  '  done < "${PROVIDER_ENV_FILE}"',
+  'fi',
+  'exec "$@"',
+  '',
+].join('\n');
+
 export class GenericJsonlAgentAdapter implements AgentRunnerPort {
   readonly provider: string;
   private readonly active = new Map<string, SupervisedProcess>();
@@ -192,7 +206,8 @@ export class GenericJsonlAgentAdapter implements AgentRunnerPort {
     trustedFingerprints: ReadonlySet<string> = new Set(),
     private readonly allowUntestedVersions = false,
     private readonly environmentBuilder: ProviderEnvironmentBuilder = buildMinimalProviderEnvironment,
-    private readonly externalSandbox: ExternalSandboxBoundary = new WslBubblewrapSandboxBoundary()
+    private readonly externalSandbox: ExternalSandboxBoundary = new WslBubblewrapSandboxBoundary(),
+    private readonly nativeSandbox: ExternalSandboxBoundary = new LinuxBubblewrapSandboxBoundary(),
   ) {
     validateAgentManifest(manifest, trustedFingerprints);
     this.provider = manifest.id;
@@ -300,15 +315,35 @@ export class GenericJsonlAgentAdapter implements AgentRunnerPort {
     let networkMechanism: string | undefined;
     let networkAccessClaim: string | undefined;
     let recoverableHost: string | undefined;
-    if (this.manifest.capabilities.extensions?.externalSandbox === 'wsl-bubblewrap-v1') {
+    const sandboxContract = this.manifest.capabilities.extensions?.externalSandbox;
+    if (sandboxContract === 'bubblewrap-v1' || sandboxContract === 'wsl-bubblewrap-v1') {
+      const boundary = installation.runtimeTarget === 'wsl' ? this.externalSandbox : this.nativeSandbox;
+      if (!boundary) throw new Error(`external_sandbox_unavailable_for_runtime_${installation.runtimeTarget}`);
       if (this.provider === 'opencode') {
         recoverableHost = join(request.workspaceRoot, '.oc-session');
         await mkdir(recoverableHost, { recursive: true, mode: 0o700 });
       }
-      const recoverableStateRoot = recoverableHost && installation.distribution
+      const recoverableStateRoot = recoverableHost && installation.runtimeTarget === 'wsl' && installation.distribution
         ? await this.discovery.windowsPathToWsl(recoverableHost, installation.distribution, installation.executable)
-        : undefined;
-      const plan = await this.externalSandbox.plan({
+        : (recoverableHost && installation.runtimeTarget === 'linux' ? recoverableHost : undefined);
+      // Provider-scoped vault keys reach the sandboxed runtime only through a
+      // read-only NAME=VALUE file plus a constant launcher; never via argv or logs.
+      const providerEnv = providerCredentialEnv(this.provider);
+      let envDir: string | undefined;
+      if (Object.keys(providerEnv).length > 0) {
+        const envHost = join(workspace, '.oc-env');
+        await mkdir(envHost, { recursive: true, mode: 0o700 });
+        const envPath = join(envHost, 'provider.env');
+        await writeFile(envPath, `${Object.entries(providerEnv).map(([name, value]) => `${name}=${value}`).join('\n')}\n`, { mode: 0o600 });
+        await chmod(envPath, 0o600);
+        const launchPath = join(envHost, 'launch.sh');
+        await writeFile(launchPath, PROVIDER_ENV_LAUNCH_SCRIPT, { mode: 0o755 });
+        await chmod(launchPath, 0o755);
+        envDir = installation.runtimeTarget === 'wsl' && installation.distribution
+          ? await this.discovery.windowsPathToWsl(envHost, installation.distribution, installation.executable)
+          : envHost;
+      }
+      const plan = await boundary.plan({
         provider: this.provider as 'opencode' | 'claude-cli',
         installation,
         providerExecutable: installation.runtimeExecutable ?? '',
@@ -317,6 +352,7 @@ export class GenericJsonlAgentAdapter implements AgentRunnerPort {
         sandbox: request.sandbox,
         network: request.network,
         ...(recoverableStateRoot ? { recoverableStateRoot } : {}),
+        ...(envDir ? { envDir } : {}),
       });
       executable = plan.executable;
       args = plan.args;

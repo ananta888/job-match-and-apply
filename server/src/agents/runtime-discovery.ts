@@ -23,8 +23,10 @@ export const BUILTIN_PROVIDER_DISCOVERY: readonly ProviderDiscoveryDefinition[] 
 ];
 
 export interface DiscoveryCommandResult { exitCode: number | null; stdout: string; stderr: string; }
+export type DiscoveryProbeEnvironment = (providerId: string) => NodeJS.ProcessEnv;
+
 export interface DiscoveryCommandExecutor {
-  run(executable: string, args: readonly string[], timeoutMs?: number): Promise<DiscoveryCommandResult>;
+  run(executable: string, args: readonly string[], timeoutMs?: number, env?: NodeJS.ProcessEnv): Promise<DiscoveryCommandResult>;
 }
 
 /**
@@ -37,10 +39,11 @@ export interface DiscoveryCommandExecutor {
 const PROBE_TIMEOUT_MS = 45_000;
 
 export class SpawnDiscoveryCommandExecutor implements DiscoveryCommandExecutor {
-  async run(executable: string, args: readonly string[], timeoutMs = 5_000): Promise<DiscoveryCommandResult> {
+  async run(executable: string, args: readonly string[], timeoutMs = 5_000, env?: NodeJS.ProcessEnv): Promise<DiscoveryCommandResult> {
     return new Promise((resolveResult) => {
       const child = spawn(executable, [...args], {
-        shell: false, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], env: buildMinimalLocalChildEnvironment()
+        shell: false, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
+        env: { ...buildMinimalLocalChildEnvironment(), ...env }
       });
       let stdout = ''; let stderr = ''; let done = false;
       const finish = (exitCode: number | null): void => {
@@ -120,6 +123,8 @@ export class AgentRuntimeDiscovery {
   constructor(
     private readonly executor: DiscoveryCommandExecutor = new SpawnDiscoveryCommandExecutor(),
     private readonly versionApprovals?: VersionApprovalSource,
+    /** Composition root injects the provider-scoped vault keys used by auth probes. */
+    private readonly probeEnv: DiscoveryProbeEnvironment = () => ({}),
   ) {}
 
   private async approvals(): Promise<readonly VersionApproval[]> {
@@ -157,13 +162,13 @@ export class AgentRuntimeDiscovery {
         installations.push({ provider: definition.provider, runtimeTarget: 'windows', executable, support: 'unsupported', reason: 'Shell-Wrapper ist für den sicheren Runner nicht zulässig.' });
         continue;
       }
-      const result = await this.executor.run(executable, definition.versionArgs, PROBE_TIMEOUT_MS);
+      const result = await this.executor.run(executable, definition.versionArgs, PROBE_TIMEOUT_MS, this.probeEnv(definition.provider));
       const version = result.exitCode === 0 ? (result.stdout || result.stderr).trim().split(/\r?\n/, 1)[0] : undefined;
       const runtimeTarget = platformTarget(platform);
       const upgraded = this.approvalUpgrade(await this.approvals(), supportFor(version, definition), {
         provider: definition.provider, executable, runtimeTarget, version,
       });
-      const auth = definition.authStatusArgs ? await this.executor.run(executable, definition.authStatusArgs, PROBE_TIMEOUT_MS) : undefined;
+      const auth = definition.authStatusArgs ? await this.executor.run(executable, definition.authStatusArgs, PROBE_TIMEOUT_MS, this.probeEnv(definition.provider)) : undefined;
       const authStatus = auth ? auth.exitCode === 0 ? 'authenticated' as const : 'unauthenticated' as const : 'unknown' as const;
       installations.push({
         provider: definition.provider, runtimeTarget, executable, version,
@@ -195,12 +200,12 @@ export class AgentRuntimeDiscovery {
         ]);
         const runtimeExecutable = which.exitCode === 0 ? which.stdout.trim().split(/\r?\n/, 1)[0] : undefined;
         if (!runtimeExecutable?.startsWith('/')) continue;
-        const versionResult = await this.executor.run(wslExecutable, ['-d', distribution, '--', runtimeExecutable, ...definition.versionArgs], PROBE_TIMEOUT_MS);
+        const versionResult = await this.executor.run(wslExecutable, ['-d', distribution, '--', runtimeExecutable, ...definition.versionArgs], PROBE_TIMEOUT_MS, this.probeEnv(definition.provider));
         const version = versionResult.exitCode === 0 ? (versionResult.stdout || versionResult.stderr).trim().split(/\r?\n/, 1)[0] : undefined;
         const upgraded = this.approvalUpgrade(await this.approvals(), supportFor(version, definition), {
           provider: definition.provider, executable: runtimeExecutable, runtimeTarget: 'wsl', distribution, version,
         });
-        const auth = definition.authStatusArgs ? await this.executor.run(wslExecutable, ['-d', distribution, '--', runtimeExecutable, ...definition.authStatusArgs], PROBE_TIMEOUT_MS) : undefined;
+        const auth = definition.authStatusArgs ? await this.executor.run(wslExecutable, ['-d', distribution, '--', runtimeExecutable, ...definition.authStatusArgs], PROBE_TIMEOUT_MS, this.probeEnv(definition.provider)) : undefined;
         const authStatus = auth ? auth.exitCode === 0 ? 'authenticated' as const : 'unauthenticated' as const : 'unknown' as const;
         installations.push({
           provider: definition.provider, runtimeTarget: 'wsl', executable: wslExecutable,

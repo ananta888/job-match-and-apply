@@ -1,4 +1,5 @@
-import { chmod, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { chmod, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import type { RuntimeTarget } from '../ports/agent-runner.js';
 
@@ -122,58 +123,86 @@ export class JsonVersionApprovalStore implements VersionApprovalStore {
   }
 
   async approve(key: VersionApprovalKey, expectedUpdatedAt: string | null): Promise<VersionApprovalSnapshot> {
-    const current = await this.load();
-    if (current.updatedAt !== expectedUpdatedAt) throw new VersionApprovalConflictError();
-    const now = new Date().toISOString();
-    const approvals = current.approvals.filter((entry) => !sameKey(entry, key));
-    approvals.push({ ...key, approvedAt: now });
-    return this.persist({ schemaVersion: 1, updatedAt: now, approvals });
+    return this.serialize(async () => {
+      const current = await this.load();
+      if (current.updatedAt !== expectedUpdatedAt) throw new VersionApprovalConflictError();
+      const now = new Date().toISOString();
+      const approvals = current.approvals.filter((entry) => !sameKey(entry, key));
+      approvals.push({ ...key, approvedAt: now });
+      return this.persist({ schemaVersion: 1, updatedAt: now, approvals });
+    });
   }
 
   async revoke(key: VersionApprovalKey, expectedUpdatedAt: string | null): Promise<VersionApprovalSnapshot> {
-    const current = await this.load();
-    if (current.updatedAt !== expectedUpdatedAt) throw new VersionApprovalConflictError();
-    if (!current.approvals.some((entry) => sameKey(entry, key))) throw new VersionApprovalNotFoundError();
-    const approvals = current.approvals.filter((entry) => !sameKey(entry, key));
-    return this.persist({ schemaVersion: 1, updatedAt: new Date().toISOString(), approvals });
+    return this.serialize(async () => {
+      const current = await this.load();
+      if (current.updatedAt !== expectedUpdatedAt) throw new VersionApprovalConflictError();
+      if (!current.approvals.some((entry) => sameKey(entry, key))) throw new VersionApprovalNotFoundError();
+      const approvals = current.approvals.filter((entry) => !sameKey(entry, key));
+      return this.persist({ schemaVersion: 1, updatedAt: new Date().toISOString(), approvals });
+    });
   }
+
+  /** Check-and-save must be atomic; parallel approvals resolve to exactly one winner and one conflict. */
+  private serialize<T>(operation: () => Promise<T>): Promise<T> {
+    const next = this.queue.then(operation, operation);
+    this.queue = next.then(() => undefined, () => undefined);
+    return next;
+  }
+  private queue: Promise<unknown> = Promise.resolve();
 
   private async persist(snapshot: VersionApprovalSnapshot): Promise<VersionApprovalSnapshot> {
     await mkdir(dirname(this.filePath), { recursive: true });
-    const temporary = `${this.filePath}.tmp`;
-    await writeFile(temporary, `${JSON.stringify(snapshot, null, 2)}\n`, { mode: 0o600 });
-    await chmod(temporary, 0o600);
-    await rename(temporary, this.filePath);
+    const temporary = `${this.filePath}.${process.pid}-${randomUUID()}.tmp`;
+    try {
+      await writeFile(temporary, `${JSON.stringify(snapshot, null, 2)}\n`, { mode: 0o600 });
+      await chmod(temporary, 0o600);
+      await rename(temporary, this.filePath);
+    } finally {
+      await rm(temporary, { force: true }).catch(() => undefined);
+    }
     return snapshot;
   }
 }
 
 export class MemoryVersionApprovalStore implements VersionApprovalStore {
   private snapshot: VersionApprovalSnapshot = emptySnapshot();
+  private queue: Promise<unknown> = Promise.resolve();
 
   async load(): Promise<VersionApprovalSnapshot> {
     return structuredClone(this.snapshot);
   }
 
+  /** Same atomic check-and-save contract as the JSON store, serialized in memory. */
+  private serialize<T>(operation: () => Promise<T>): Promise<T> {
+    const next = this.queue.then(operation, operation);
+    this.queue = next.then(() => undefined, () => undefined);
+    return next;
+  }
+
   async approve(key: VersionApprovalKey, expectedUpdatedAt: string | null): Promise<VersionApprovalSnapshot> {
-    if (this.snapshot.updatedAt !== expectedUpdatedAt) throw new VersionApprovalConflictError();
-    const now = new Date().toISOString();
-    this.snapshot = {
-      schemaVersion: 1,
-      updatedAt: now,
-      approvals: [...this.snapshot.approvals.filter((entry) => !sameKey(entry, key)), { ...key, approvedAt: now }],
-    };
-    return structuredClone(this.snapshot);
+    return this.serialize(async () => {
+      if (this.snapshot.updatedAt !== expectedUpdatedAt) throw new VersionApprovalConflictError();
+      const now = new Date().toISOString();
+      this.snapshot = {
+        schemaVersion: 1,
+        updatedAt: now,
+        approvals: [...this.snapshot.approvals.filter((entry) => !sameKey(entry, key)), { ...key, approvedAt: now }],
+      };
+      return structuredClone(this.snapshot);
+    });
   }
 
   async revoke(key: VersionApprovalKey, expectedUpdatedAt: string | null): Promise<VersionApprovalSnapshot> {
-    if (this.snapshot.updatedAt !== expectedUpdatedAt) throw new VersionApprovalConflictError();
-    if (!this.snapshot.approvals.some((entry) => sameKey(entry, key))) throw new VersionApprovalNotFoundError();
-    this.snapshot = {
-      schemaVersion: 1,
-      updatedAt: new Date().toISOString(),
-      approvals: this.snapshot.approvals.filter((entry) => !sameKey(entry, key)),
-    };
-    return structuredClone(this.snapshot);
+    return this.serialize(async () => {
+      if (this.snapshot.updatedAt !== expectedUpdatedAt) throw new VersionApprovalConflictError();
+      if (!this.snapshot.approvals.some((entry) => sameKey(entry, key))) throw new VersionApprovalNotFoundError();
+      this.snapshot = {
+        schemaVersion: 1,
+        updatedAt: new Date().toISOString(),
+        approvals: this.snapshot.approvals.filter((entry) => !sameKey(entry, key)),
+      };
+      return structuredClone(this.snapshot);
+    });
   }
 }

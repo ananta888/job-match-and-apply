@@ -1,0 +1,271 @@
+{
+  "$schema": "../todo.track.schema.json",
+  "version": 1,
+  "owner": "job-match-and-apply",
+  "track": "vier-erweiterungen-agentenlauf",
+  "created": "2026-11-03",
+  "updated": "2026-11-03",
+  "purpose": "Autorisierter Auftrag vom 03.11.2026: belegte Voraussetzungen (CV-Inhalt/Identität, Werkstatt-Polling, Credential-Transport), Abnahmekriterien zur CV-Bearbeitung und die vier Erweiterungen HTTP-Adapter, Finalizer-Rückfragen, eingefrorene Laufkonfiguration/gezielter Retry und synthetischer Benchmark unter gezielter Wiederverwendung des Referenzpakets uebergabe/codex-reference-33c7019-20261103.",
+  "goal": "Alle Punkte mit realer Implementierung, Regressionstests und dokumentierten Prüfergebnissen abschließen; Lab-Fehler A/B nicht übernehmen; keine Live-Benchmarkkosten ohne Opt-in.",
+  "status_scale": [
+    "todo",
+    "in_progress",
+    "partial",
+    "blocked",
+    "done"
+  ],
+  "priority_scale": [
+    "low",
+    "medium",
+    "high"
+  ],
+  "risk_scale": [
+    "low",
+    "medium",
+    "high"
+  ],
+  "milestones": [
+    {
+      "id": "M1",
+      "title": "Belegte Voraussetzungen und CV-Abnahmekriterien",
+      "task_ids": [
+        "VE-001",
+        "VE-002",
+        "VE-003",
+        "VE-004",
+        "VE-005"
+      ],
+      "status": "done"
+    },
+    {
+      "id": "M2",
+      "title": "Vier Erweiterungen mit Referenzcode",
+      "task_ids": [
+        "VE-006",
+        "VE-007",
+        "VE-008",
+        "VE-009"
+      ],
+      "status": "done"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "VE-001",
+      "title": "Exakter gebundener CV-Inhalt und Identitätsabgleich im application_case-Resolver",
+      "status": "done",
+      "priority": "high",
+      "risk": "medium",
+      "progress_percent": 100,
+      "acceptance_criteria": [
+        "sourceCv liefert den tatsächlichen, gegen den Bindungs-Hash geprüften Revisionsinhalt begrenzt an die Rollen.",
+        "Quell- und Zielfall müssen Identität und Identitätsmodus teilen; Modell-/Versionsmischung schlägt geschlossen fehl."
+      ],
+      "evidence": [
+        "server/src/services/application-orchestration-domain.ts",
+        "server/src/services/application-orchestration-domain.test.ts",
+        "server/src/agent-orchestration-api.test.ts"
+      ]
+    },
+    {
+      "id": "VE-002",
+      "title": "Werkstatt-Polling und ehrliche Laufstatusanzeige",
+      "status": "done",
+      "priority": "high",
+      "risk": "low",
+      "progress_percent": 100,
+      "acceptance_criteria": [
+        "Der Polling-Tick aktualisiert in der Werkstatt Orchestrationsfortschritt und Dokumentrevisionen automatisch.",
+        "Fehlgeschlagen/abgebrochen/wartend/verwaist werden statt 'Agenten arbeiten' korrekt gezeigt; der Fall-Lauf ist nach Rückkehr/Neuladen wieder auffindbar."
+      ],
+      "evidence": [
+        "web/src/app/app.ts",
+        "web/src/app/app.html",
+        "web/src/app/app.spec.ts"
+      ]
+    },
+    {
+      "id": "VE-003",
+      "title": "Credential-Transport in die tatsächliche Laufzeit ohne argv-Secrets",
+      "status": "done",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 100,
+      "acceptance_criteria": [
+        "Provider-Schlüssel erreichen die Sandbox-Laufzeit ausschließlich über eine read-only NAME=VALUE-Datei und einen konstanten Launcher; argv, Logs und Antworten bleiben secret-frei.",
+        "Isolationsrelevante Variablen (OPENCODE_CONFIG_CONTENT, CODEX_HOME, CLAUDE_CONFIG_DIR, Proxys, Base-URLs) sind vault-seitig gesperrt; Auth-Probes nutzen den Vault."
+      ],
+      "evidence": [
+        "server/src/agents/provider-credentials.ts",
+        "server/src/agents/provider-sandbox.ts",
+        "server/src/agents/generic-jsonl-adapter.ts",
+        "server/src/agents/runtime-discovery.ts",
+        "server/src/app.ts",
+        "server/src/agents/provider-sandbox.test.ts",
+        "server/src/agents/provider-credentials.test.ts"
+      ]
+    },
+    {
+      "id": "VE-004",
+      "title": "Komfortable Faktenbearbeitung ohne Datenmodellkenntnis",
+      "status": "done",
+      "priority": "high",
+      "risk": "low",
+      "progress_percent": 100,
+      "acceptance_criteria": [
+        "Stationen/Fakten zeigen lesbare Bezeichnungen; Feldkennungen, IDs, Hashes und Provenienz liegen in nachgeordneten Details.",
+        "Korrekturen sind über Kategorie, Feldauswahl und Aussage möglich; bestehende Daten-/Revisionsbindung bleibt unverändert."
+      ],
+      "evidence": [
+        "web/src/app/app.html",
+        "web/src/app/app.ts",
+        "web/src/app/app.spec.ts"
+      ]
+    },
+    {
+      "id": "VE-005",
+      "title": "Durchgängiger synthetischer Test Korrektur bis sichtbares HTML",
+      "status": "done",
+      "priority": "high",
+      "risk": "low",
+      "progress_percent": 100,
+      "acceptance_criteria": [
+        "Ein Web-Test führt Auswahl/Korrektur, Bestätigung, Profilübernahme, gebundenen Fünf-Agenten-Lauf und sichtbares HTML-Ergebnis durch."
+      ],
+      "evidence": [
+        "web/src/app/app.spec.ts"
+      ]
+    },
+    {
+      "id": "VE-006",
+      "title": "Direkter HTTP-Modelladapter ohne Coding-CLI",
+      "status": "done",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 100,
+      "acceptance_criteria": [
+        "OpenRouter-kompatibler werkzeugloser AgentRunnerPort führt alle fünf Rollen inklusive Finalizer aus; Ausgabe bleibt final_html, Schlüssel bleiben serverseitig.",
+        "Abbruch/Zeitlimit/429/5xx/Auth-Fehler werden begrenzt und verständlich gemeldet; Nutzung kumuliert über Korrekturaufrufe, unbekannte Kosten werden nicht als Null ausgegeben.",
+        "Ausgabevertrag inklusive finaler HTML-Marke; Lab-Fehler A (Kommentarsuche in JSON) und B (nur letztes Usage-Event) sind regressionsgetestet."
+      ],
+      "evidence": [
+        "server/src/agents/openrouter-http-adapter.ts",
+        "server/src/agents/openrouter-http-adapter.test.ts",
+        "server/src/app.ts",
+        "server/src/agents/config-profile-store.ts"
+      ]
+    },
+    {
+      "id": "VE-007",
+      "title": "Finalizer-Rückfragen mit gebundenem Antwort-Resume",
+      "status": "done",
+      "priority": "high",
+      "risk": "medium",
+      "progress_percent": 100,
+      "acceptance_criteria": [
+        "Höchstens drei strukturierte Fragen mit strengem Antwortvertrag; Anschreiben geführt (erste Runde fragt zwingend), CV optional.",
+        "Fragen sind persistent und laufgebunden; Antworten sind unvertrauter Bearbeitungstext, nie neue bestätigte Fakten; der Folgelauf nutzt dieselbe eingefrorene Konfiguration und liefert final_html."
+      ],
+      "evidence": [
+        "server/src/agents/finalizer-questions.ts",
+        "server/src/agents/finalizer-refinement.ts",
+        "server/src/agents/application-orchestration-service.ts",
+        "server/src/agent-orchestration-api.test.ts",
+        "web/src/app/app.html",
+        "web/src/app/app.spec.ts"
+      ]
+    },
+    {
+      "id": "VE-008",
+      "title": "Eingefrorene Laufkonfiguration und gezielter Retry",
+      "status": "done",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 100,
+      "acceptance_criteria": [
+        "runConfig/providerInstallation sind beim Start eingefroren und werden von Retry-Forks unverändert übernommen; ein verschlüsselter retryInput-Checkpoint übersteht Prozessneustarts.",
+        "Retry wiederholt genau einen fehlgeschlagenen Knoten samt transitiver Abhängiger, validiert wiederverwendete Artefakte, begrenzt Versuche/Ketten und startet keine Doppelläufe; die UI zeigt Fehlerstelle, Wiederholung und feste Konfiguration."
+      ],
+      "evidence": [
+        "server/src/agents/application-orchestration-service.ts",
+        "server/src/agents/application-orchestration-store.ts",
+        "server/src/app.ts",
+        "server/src/agent-orchestration-api.test.ts",
+        "web/src/app/app.ts",
+        "web/src/app/app.spec.ts"
+      ]
+    },
+    {
+      "id": "VE-009",
+      "title": "Reproduzierbarer synthetischer Benchmark",
+      "status": "done",
+      "priority": "medium",
+      "risk": "medium",
+      "progress_percent": 100,
+      "acceptance_criteria": [
+        "Synthetische CV-/Anschreibenfälle mit erwarteten Fakten; Reasoning-Stufen und Wiederholungen konfigurierbar; Qualität und Geschwindigkeit getrennt bewertet.",
+        "Offline-Fake-Lauf ist Standard und getestet; Live-Läufe erfordern --allow-live und --budget-micros; unbekannte Kosten bleiben unbekannt, fehlende reale Messungen werden ehrlich ausgewiesen."
+      ],
+      "evidence": [
+        "server/src/agents/application-benchmark.ts",
+        "server/src/agents/application-benchmark.test.ts",
+        "server/src/run-benchmark.ts",
+        "server/package.json"
+      ]
+    }
+  ],
+  "critical_path_tasks": [
+    "VE-001",
+    "VE-006",
+    "VE-007",
+    "VE-008"
+  ],
+  "tasks_status_summary": {
+    "total": 9,
+    "by_status": {
+      "todo": 0,
+      "in_progress": 0,
+      "partial": 0,
+      "blocked": 0,
+      "done": 9
+    },
+    "progress_percent_done": 100,
+    "by_priority": {
+      "high": 8,
+      "medium": 1,
+      "low": 0
+    },
+    "by_risk": {
+      "high": 3,
+      "medium": 3,
+      "low": 3
+    },
+    "critical_path": {
+      "total": 4,
+      "done": 4,
+      "remaining": 0
+    },
+    "milestones": {
+      "total": 2,
+      "todo": 0,
+      "in_progress": 0,
+      "blocked": 0,
+      "done": 2
+    }
+  },
+  "progress_summary": {
+    "state": "done",
+    "todo_remaining": 0,
+    "in_progress": 0,
+    "partial": 0,
+    "blocked": 0,
+    "done": 9
+  },
+  "summary_notes": [
+    "Wiederverwendet aus uebergabe/codex-reference-33c7019-20261103: openrouter-agent-adapter.ts (Ablauf/Korrekturen/Abort), llm-proxy.mjs (Reasoning-Mapping), finalizer-questions.ts/-refinement.ts (Verträge), retryNode-/needs_input-Muster und career-node-providers.ts (Freeze-Konzept), chain-benchmark.mjs (Vorbild).",
+    "Lab-Fehler nicht übernommen: Evidence-Kommentare werden nie in JSON-Text gesucht (Regression getestet); Usage-Events sind kumulativ und Kosten fehlen bewusst statt als Null zu laufen.",
+    "NUL-Byte im Orchestrierungsservice als Escape \\0 dargestellt; needs_input als AgentFailureCategory im Vertrag ergänzt.",
+    "Prüfergebnisse: Serversuite 781 grün/2 skip, Websuite 71 grün, beide Builds Exit 0, Benchmark-CLI offline 8/8 Vertrag+Qualität, Kosten ehrlich unbekannt.",
+    "Offene Prüflücken: echte Modellqualität/Abnahme ohne Opt-in-Lauf unbelegt; openrouter-Live-Lauf, DL-002/003-Frageformulierungen im echten Modellbetrieb und Layout/OCR-Submodularbeit bleiben offen."
+  ]
+}

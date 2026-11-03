@@ -68,6 +68,7 @@ import { EncryptedAgentRunStore } from './agents/encrypted-run-store.js';
 import { FakeAgentProvider } from './agents/fake-agent-provider.js';
 import { ClaudeCliAgentAdapter, CodexExecAgentAdapter, OpenCodeAgentAdapter } from './agents/provider-adapters.js';
 import { AcpAgentAdapter } from './agents/acp-adapter.js';
+import { OpenRouterHttpAgentAdapter } from './agents/openrouter-http-adapter.js';
 import { AgentRuntimeDiscovery } from './agents/runtime-discovery.js';
 import {
   JsonVersionApprovalStore, MemoryVersionApprovalStore, VersionApprovalConflictError, VersionApprovalNotFoundError,
@@ -75,7 +76,7 @@ import {
 } from './agents/version-approvals.js';
 import {
   MemoryProviderCredentialStore, ProviderCredentialStore, ProviderCredentialValidationError,
-  installProviderCredentialEnv, type ProviderCredentialStorePort,
+  installProviderCredentialEnv, providerCredentialEnv, type ProviderCredentialStorePort,
 } from './agents/provider-credentials.js';
 import { APPLICATION_AGENT_WORKFLOWS } from './agents/application-workflows.js';
 import { AgentTelemetry } from './agents/telemetry.js';
@@ -165,6 +166,11 @@ const configSchema = z.object({
   message: 'Die aktive Identität muss in identities enthalten sein.', path: ['activeIdentityId']
 });
 
+/** UI-selected installation pin: validated against live discovery, never trusted as a path. */
+const installationPinSchema = z.object({
+  version: z.string().min(1).max(120).refine((value) => !/[\r\n\0]/.test(value)),
+  executable: z.string().min(1).max(1024).refine((value) => !/[\r\n\0]/.test(value)),
+}).strict();
 const agentRunCreateSchema = z.object({
   providerId: z.string().regex(/^[a-z][a-z0-9-]{1,63}$/), prompt: z.string().min(1).max(100_000),
   workspaceMode: z.enum(['read_only', 'workspace_write']), network: z.boolean().default(false),
@@ -173,8 +179,29 @@ const agentRunCreateSchema = z.object({
   applicationCaseId: z.string().uuid().optional(), parentRunId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/).optional(),
   workflowId: z.enum(['guided-job-analysis', 'evidence-application-package', 'employer-response-triage', 'application-next-actions']).optional(),
   budget: z.object({ wallTimeMinutes: z.number().int().min(1).max(120), maxOutputMiB: z.number().int().min(1).max(25) }).strict().default({ wallTimeMinutes: 30, maxOutputMiB: 10 }),
-  priority: z.number().int().min(-10).max(10).default(0)
+  priority: z.number().int().min(-10).max(10).default(0),
+  installation: installationPinSchema.optional()
 }).strict();
+
+
+function resolveInstallation<T extends { runtimeTarget: string; distribution?: string; version?: string; executable?: string }>(
+  installations: readonly T[],
+  runtimeTarget: string,
+  wslDistribution: string | undefined,
+  pin: { version: string; executable: string } | undefined,
+): T | undefined {
+  const matchesRuntime = (candidate: T) => candidate.runtimeTarget === runtimeTarget
+    && (!wslDistribution || candidate.distribution === wslDistribution);
+  if (!pin) return installations.find(matchesRuntime);
+  const exact = installations.find((candidate) => matchesRuntime(candidate)
+    && candidate.version === pin.version && candidate.executable === pin.executable);
+  if (!exact) {
+    throw Object.assign(new Error(
+      `Die ausgewählte Installation (${pin.version}) passt nicht zu einer serverseitig erkannten Installation dieser Laufzeit. Providerliste neu laden und erneut auswählen.`,
+    ), { statusCode: 409 });
+  }
+  return exact;
+}
 
 const styleText = z.string().trim().min(1).max(2_000).refine((value) => !/[\u0000-\u001f\u007f]/.test(value));
 const styleTextList = z.array(styleText).max(100);
@@ -450,7 +477,11 @@ export function createDefaultAgentApiDependencies(memory = false): AgentApiDepen
   const providerCredentials = memory ? new MemoryProviderCredentialStore()
     : new ProviderCredentialStore(resolve(workspaceRoot, '.local-data', 'agent-provider-secrets.json'));
   installProviderCredentialEnv((providerId) => providerCredentials.envForSync(providerId));
-  const sharedDiscovery = new AgentRuntimeDiscovery(undefined, async () => (await versionApprovals.load()).approvals);
+  const sharedDiscovery = new AgentRuntimeDiscovery(
+    undefined,
+    async () => (await versionApprovals.load()).approvals,
+    providerCredentialEnv,
+  );
   const providers: AgentRunnerPort[] = [
     new FakeAgentProvider(),
     new FakeAgentProvider({
@@ -470,6 +501,7 @@ export function createDefaultAgentApiDependencies(memory = false): AgentApiDepen
     new OpenCodeAgentAdapter(undefined, sharedDiscovery),
     new ClaudeCliAgentAdapter(undefined, sharedDiscovery),
     new AcpAgentAdapter(undefined, sharedDiscovery),
+    new OpenRouterHttpAgentAdapter(),
   ];
   const runToolCalls = new Map<string, number>();
   const budgetStops = new Set<string>();
@@ -1549,12 +1581,19 @@ export function createApp(
     prompt: z.string().min(1).max(64 * 1024),
     runtimeTarget: z.enum(['windows', 'wsl', 'linux', 'darwin']).default(localRuntimeTarget),
     wslDistribution: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/).optional(),
+    installation: installationPinSchema.optional(),
+    clarifications: z.boolean().optional(),
     applicationCaseId: z.string().uuid().optional(),
     mailId: z.string().uuid().optional(),
     documentRevisionId: z.string().uuid().optional(),
   }).strict();
 
-  const providerForOrchestration = async (providerId: string, runtimeTarget: RuntimeTarget, wslDistribution?: string) => {
+  const providerForOrchestration = async (
+    providerId: string,
+    runtimeTarget: RuntimeTarget,
+    wslDistribution?: string,
+    installationPin?: { version: string; executable: string },
+  ) => {
     if (runtimeTarget === 'container') throw Object.assign(new Error('Container-Runtimes sind fuer diese lokale Orchestrierung nicht freigegeben.'), { statusCode: 409 });
     const profileDecision = await requireAgentProfile({
       providerId, runtimeTarget, wslDistribution, workspaceMode: 'read_only', network: false,
@@ -1563,8 +1602,9 @@ export function createApp(
       throw Object.assign(new Error('Die suggestion-only Multi-Agent-Kette ist im aktiven lokalen Profil deaktiviert.'), { statusCode: 409 });
     }
     const provider = (await discoverAgentProviders()).find((candidate) => candidate.id === providerId);
-    const installation = provider?.installations?.find((candidate) => candidate.runtimeTarget === runtimeTarget
-      && (!wslDistribution || candidate.distribution === wslDistribution));
+    const installation = provider
+      ? resolveInstallation(provider.installations ?? [], runtimeTarget, wslDistribution, installationPin)
+      : undefined;
     if (!provider || !provider.available || !installation || installation.support !== 'supported') {
       throw Object.assign(new Error(installation?.note ?? provider?.note ?? 'Die Providerinstallation ist nicht freigegeben.'), { statusCode: 409 });
     }
@@ -1675,7 +1715,7 @@ export function createApp(
   app.post('/api/agent-orchestrations', asyncRoute(async (request, response) => {
     if (agentApi.emergencyStop.enabled) throw Object.assign(new Error('Der Emergency Stop blockiert neue Agentenorchestrierungen.'), { statusCode: 409 });
     const payload = orchestrationCreateSchema.parse(request.body);
-    const orchestrationProvider = await providerForOrchestration(payload.providerId, payload.runtimeTarget, payload.wslDistribution);
+    const orchestrationProvider = await providerForOrchestration(payload.providerId, payload.runtimeTarget, payload.wslDistribution, payload.installation);
     const workflow = APPLICATION_AGENT_WORKFLOWS.find((candidate) => candidate.id === payload.workflowId)!;
     const configuration = await store.load();
     const application = payload.applicationCaseId ? await workspace.getApplicationCase(payload.applicationCaseId) : undefined;
@@ -1735,11 +1775,14 @@ export function createApp(
       workflowId: workflow.id, providerId: payload.providerId,
       workspaceRoot: agentApi.workspaceRoot, runtimeTarget: payload.runtimeTarget,
       wslDistribution: payload.wslDistribution,
+      providerVersion: orchestrationProvider.installation.version,
+      providerExecutable: orchestrationProvider.installation.executable,
       model: orchestrationProvider.providerProfile?.model,
       profile: orchestrationProvider.profile?.profileId,
       approvalMode: orchestrationProvider.providerProfile?.approvalMode,
       ownerId: 'local-user', prompt: payload.prompt,
       correlationId: response.locals.correlationId,
+      ...(payload.clarifications === true ? { clarifications: true } : {}),
       scope, claimIds, confirmations: [],
     });
     response.setHeader('cache-control', 'no-store');
@@ -1767,6 +1810,34 @@ export function createApp(
     if (!confirmations.length) throw Object.assign(new Error('Keine offene, passend gebundene Freigabe wurde bestaetigt.'), { statusCode: 409 });
     response.setHeader('cache-control', 'no-store');
     response.json(await orchestrationService.continue(id, confirmations));
+  }));
+
+  app.post('/api/agent-orchestrations/:orchestrationId/nodes/:nodeId/retry', asyncRoute(async (request, response) => {
+    const id = z.string().uuid().parse(request.params.orchestrationId);
+    const nodeId = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/).parse(request.params.nodeId);
+    const payload = z.object({
+      confirmed: z.literal(true),
+      refinement: z.object({
+        instructions: z.string().trim().max(8_000).default(''),
+        includePreviousVersion: z.boolean().default(false),
+        answers: z.array(z.object({
+          id: z.string().regex(/^q[1-3]$/),
+          question: z.string().trim().min(1).max(400),
+          answer: z.string().trim().min(1).max(1_500),
+        }).strict()).min(1).max(3).optional(),
+      }).strict().optional(),
+    }).strict().parse(request.body);
+    const current = await orchestrationService.get(id);
+    if (!current) throw Object.assign(new Error('Agentenorchestrierung nicht gefunden.'), { statusCode: 404 });
+    const refinement = payload.refinement ? {
+      instructions: payload.refinement.instructions,
+      ...(payload.refinement.answers ? { answers: payload.refinement.answers } : {}),
+    } : undefined;
+    if (refinement && refinement.answers && payload.refinement?.includePreviousVersion) {
+      throw Object.assign(new Error('Antworten und eine vorherige Fassung schließen sich aus.'), { statusCode: 400 });
+    }
+    response.setHeader('cache-control', 'no-store');
+    response.status(202).json(await orchestrationService.retryNode(id, nodeId, refinement));
   }));
 
   app.post('/api/agent-orchestrations/:orchestrationId/cancel', asyncRoute(async (request, response) => {
@@ -1814,8 +1885,7 @@ export function createApp(
     ]);
     const queue = publicAgentQueueDiagnostics(rawQueue, allRuns.filter((run) => !isCvAiStructuringRun(run)));
     const provider = providers.find((candidate) => candidate.id === payload.providerId);
-    const installation = provider?.installations?.find((candidate) => candidate.runtimeTarget === payload.runtimeTarget
-      && (!payload.wslDistribution || candidate.distribution === payload.wslDistribution));
+    const installation = provider ? resolveInstallation(provider.installations ?? [], payload.runtimeTarget, payload.wslDistribution, payload.installation) : undefined;
     const advertisedCapabilities = provider?.capabilities && typeof provider.capabilities === 'object'
       ? provider.capabilities as Record<string, unknown> : {};
     const rootToolsSupported = providerSupportsRootDomainTools(payload.providerId, payload.runtimeTarget)
@@ -1971,8 +2041,9 @@ export function createApp(
     if (payload.network) throw Object.assign(new Error('Kein aktivierter Provider kann derzeit einen begrenzten Netzwerkzugriff nachweisbar erzwingen.'), { statusCode: 409 });
     if (!agentApi.providers.some((provider) => provider.provider === payload.providerId)) throw Object.assign(new Error('Unbekannter oder nicht allowlisteter Agentenprovider.'), { statusCode: 400 });
     const providerStatus = (await discoverAgentProviders()).find((provider) => provider.id === payload.providerId);
-    const selectedInstallation = providerStatus?.installations?.find((item) => item.runtimeTarget === payload.runtimeTarget
-      && (!payload.wslDistribution || item.distribution === payload.wslDistribution));
+    const selectedInstallation = providerStatus
+      ? resolveInstallation(providerStatus.installations ?? [], payload.runtimeTarget, payload.wslDistribution, payload.installation)
+      : undefined;
     if (providerStatus?.available && (!selectedInstallation || selectedInstallation.support !== 'supported')) {
       throw Object.assign(new Error(selectedInstallation?.note ?? `Keine freigegebene ${payload.runtimeTarget}-Installation dieses Providers verfuegbar.`), { statusCode: 409 });
     }
@@ -2150,6 +2221,7 @@ export function createApp(
         idempotencyKeyHash, requestHash, parentRunId: payload.parentRunId, userPrompt: payload.prompt,
         correlationId: response.locals.correlationId,
         providerVersion: selectedInstallation.version, adapterVersion: selectedInstallation.adapterVersion,
+        expectedProviderVersion: selectedInstallation.version, expectedProviderExecutable: selectedInstallation.executable,
         workflowId: payload.workflowId, workflowVersion: selectedWorkflow?.version,
         guidedSearchRunId, hostJobSourceIsolation: guidedSearchRunId ? 'trusted-host' : undefined,
         artifactContext: application ? {

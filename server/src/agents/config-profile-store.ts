@@ -118,8 +118,13 @@ export function safeDefaultAgentConfigProfile(now = new Date()): AgentConfigProf
       { provider: 'fake', enabled: true, runtimeTarget: localTarget, sandbox: 'read-only', network: 'disabled', approvalMode: 'deny' },
       { provider: 'fake-interactive', enabled: true, runtimeTarget: localTarget, sandbox: 'read-only', network: 'disabled', approvalMode: 'explicit' },
       { provider: 'codex-exec', enabled: true, runtimeTarget: localTarget, sandbox: 'read-only', network: 'disabled', approvalMode: 'explicit' },
-      { provider: 'opencode', enabled: true, runtimeTarget: 'wsl', sandbox: 'read-only', network: 'disabled', approvalMode: 'deny' },
-      { provider: 'claude-cli', enabled: true, runtimeTarget: 'wsl', sandbox: 'read-only', network: 'disabled', approvalMode: 'deny' },
+      // A server running natively on Linux (including inside a WSL distro) launches these CLIs
+      // through the native bwrap boundary; a Windows host keeps the wsl.exe contract.
+      { provider: 'opencode', enabled: true, runtimeTarget: localTarget === 'linux' ? 'linux' : 'wsl', sandbox: 'read-only', network: 'disabled', approvalMode: 'deny' },
+      { provider: 'claude-cli', enabled: true, runtimeTarget: localTarget === 'linux' ? 'linux' : 'wsl', sandbox: 'read-only', network: 'disabled', approvalMode: 'deny' },
+      // Tool-less direct model access; the key stays in the encrypted vault and
+      // the server itself drives the HTTPS call without any CLI or sandbox.
+      { provider: 'openrouter', enabled: true, runtimeTarget: localTarget, sandbox: 'read-only', network: 'disabled', approvalMode: 'deny' },
       { provider: 'acp', enabled: true, runtimeTarget: localTarget, sandbox: 'read-only', network: 'disabled', approvalMode: 'deny' },
     ],
     budgets: { warningAtPercent: 80, maxTotalTokens: 100_000, maxToolCalls: 100, maxRunDurationMs: 30 * 60_000 },

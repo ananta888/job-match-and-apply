@@ -1,4 +1,6 @@
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
+import { lstat, readFile, realpath } from 'node:fs/promises';
+import { isAbsolute, relative, resolve } from 'node:path';
 import type {
   ApplicationOrchestrationGateAuthority,
   ApplicationOrchestrationInputResolver,
@@ -14,6 +16,7 @@ import { companyKey } from './mail-correlation.js';
 import { canonicalJson } from '../agents/security-approval.js';
 import { readVerifiedArtifactRevision } from './artifact-revisions.js';
 import type { ApplicationPipelineProofAuthority } from './application-pipeline-proof.js';
+import type { ApplicationCase } from '../domain/models.js';
 
 const sha256 = (value: string): string => createHash('sha256').update(value, 'utf8').digest('hex');
 
@@ -235,22 +238,11 @@ implements ApplicationOrchestrationGateAuthority, ApplicationOrchestrationInputR
           if (!identity || identity.mode !== application.identityMode) {
             throw new Error('orchestration_application_identity_invalid');
           }
-          if (application.sourceCv) {
-            const bound = (await this.workspace.listArtifactRevisions(application.sourceCv.caseId))
-              .find((revision) => revision.id === application.sourceCv!.revisionId);
-            if (!bound || bound.sha256 !== application.sourceCv.sha256 || bound.type !== 'cv' || bound.lifecycle !== 'approved') {
-              throw new Error('orchestration_source_cv_binding_broken');
-            }
-          }
           value = {
             id: application.id, revision: application.revision, state: application.state,
             documentType: application.documentType, identityMode: application.identityMode,
             ...(application.documentPurpose ? { documentPurpose: application.documentPurpose } : {}),
-            ...(application.sourceCv ? { sourceCv: {
-              caseId: application.sourceCv.caseId,
-              revisionId: application.sourceCv.revisionId,
-              sha256: application.sourceCv.sha256,
-            } } : {}),
+            ...(application.sourceCv ? { sourceCv: await this.sourceCvSection(application) } : {}),
             jobId: application.job.id, company: application.job.company,
             ...(input.workflowId === 'evidence-application-package' ? { identity: {
               mode: identity.mode,
@@ -303,6 +295,54 @@ implements ApplicationOrchestrationGateAuthority, ApplicationOrchestrationInputR
     }
     const content = JSON.stringify(value);
     return { content, sha256: sha256(content) };
+  }
+
+  /**
+   * Server-owned source-CV section: exact approved revision bytes, verified
+   * against the binding hash and bound to the same identity and identity mode.
+   * Roles receive the content as untrusted document text, never as claims.
+   */
+  private async sourceCvSection(application: ApplicationCase): Promise<Record<string, unknown>> {
+    const binding = application.sourceCv!;
+    const sourceCase = await this.workspace.getApplicationCase(binding.caseId);
+    if (!sourceCase) throw new Error('orchestration_source_cv_case_missing');
+    if (sourceCase.identityId !== application.identityId || sourceCase.identityMode !== application.identityMode) {
+      throw new Error('orchestration_source_cv_identity_mismatch');
+    }
+    const bound = (await this.workspace.listArtifactRevisions(binding.caseId))
+      .find((revision) => revision.id === binding.revisionId);
+    if (!bound || bound.sha256 !== binding.sha256 || bound.type !== 'cv' || bound.lifecycle !== 'approved') {
+      throw new Error('orchestration_source_cv_binding_broken');
+    }
+    const data = await this.readBoundArtifactBytes(bound);
+    if (data.byteLength !== bound.bytes || createHash('sha256').update(data).digest('hex') !== binding.sha256) {
+      throw new Error('orchestration_source_cv_content_mismatch');
+    }
+    const text = data.toString('utf8');
+    const maximumChars = 64_000;
+    const truncated = text.length > maximumChars;
+    const content = truncated ? text.slice(0, maximumChars) : text;
+    return {
+      caseId: binding.caseId,
+      revisionId: binding.revisionId,
+      sha256: binding.sha256,
+      boundContent: content,
+      boundContentSha256: createHash('sha256').update(content, 'utf8').digest('hex'),
+      boundContentTruncated: truncated,
+    };
+  }
+
+  private async readBoundArtifactBytes(revision: { artifactPath: string }): Promise<Buffer> {
+    const root = await realpath(resolve(this.workRoot));
+    const candidate = resolve(root, revision.artifactPath);
+    const relativePath = relative(root, candidate);
+    if (relativePath.startsWith('..') || isAbsolute(relativePath)) throw new Error('orchestration_source_cv_path_invalid');
+    const stats = await lstat(candidate);
+    if (!stats.isFile() || stats.isSymbolicLink()) throw new Error('orchestration_source_cv_path_invalid');
+    const canonical = await realpath(candidate);
+    const canonicalRelative = relative(root, canonical);
+    if (canonicalRelative.startsWith('..') || isAbsolute(canonicalRelative)) throw new Error('orchestration_source_cv_path_invalid');
+    return readFile(canonical);
   }
 
   private verifyReference(reference: string): ConfirmationBody | undefined {

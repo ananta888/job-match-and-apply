@@ -202,6 +202,7 @@ export type AgentFailureCategory =
   | 'validation'
   | 'policy_blocked'
   | 'cancelled'
+  | 'needs_input'
   | 'unknown';
 
 export interface RetryDecision {

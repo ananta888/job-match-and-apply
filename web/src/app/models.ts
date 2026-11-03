@@ -819,6 +819,8 @@ export interface AgentRunRequest {
   prompt: string;
   runtimeTarget: AgentRuntimeTarget;
   wslDistribution?: string;
+  /** Exact UI-selected installation; validated server-side against live discovery. */
+  installation?: { version: string; executable: string };
   workspaceMode: AgentWorkspaceMode;
   network: boolean;
   applicationCaseId?: string;
@@ -1078,6 +1080,30 @@ export interface AgentOrchestrationRecord {
   budget: { wallTimeMs: number; tokens: number; costMicros: number; toolCalls: number; iterations: number };
   createdAt: string; updatedAt: string; finishedAt?: string; failureReason?: string;
   recovery?: { recoveredAt: string; processAdoptionAllowed: false; reason: 'server_restart_no_pid_adoption' };
+  /** Frozen per-role execution configuration; later profile changes never rewrite it. */
+  runConfig?: {
+    workflowVersion: string; providerId: string; runtimeTarget: AgentRuntimeTarget; wslDistribution?: string;
+    model?: string; profile?: string; frozenAt: string;
+  };
+  retryOf?: { orchestrationId: string; nodeId: string };
+  clarifications?: true;
+  finalizerQuestions?: {
+    nodeId: string; runId: string;
+    questions: Array<{ id: string; question: string; why?: string }>;
+    askedAt: string;
+  };
+}
+
+export interface FinalizerAnswer {
+  id: string;
+  question: string;
+  answer: string;
+}
+
+export interface AgentNodeRetryRefinement {
+  instructions?: string;
+  includePreviousVersion?: boolean;
+  answers?: FinalizerAnswer[];
 }
 
 export interface AgentOrchestrationConfirmationInput {
@@ -1092,6 +1118,10 @@ export interface AgentOrchestrationConflictResolutionRequest {
 
 export interface AgentOrchestrationCreateRequest {
   workflowId: AgentWorkflow['id']; providerId: string; prompt: string; runtimeTarget: AgentRuntimeTarget; wslDistribution?: string;
+  /** Exact UI-selected installation; validated server-side against live discovery. */
+  installation?: { version: string; executable: string };
+  /** Enables the bounded finalizer clarification round (guided for cover letters). */
+  clarifications?: boolean;
   applicationCaseId?: string; mailId?: string; documentRevisionId?: string;
 }
 

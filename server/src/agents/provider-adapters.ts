@@ -67,14 +67,14 @@ export const OPENCODE_MANIFEST: AgentAdapterManifest = {
   },
   maxJsonLineBytes: 4 * 1024 * 1024,
   capabilities: {
-    ...baseCapabilities, structuredOutput: true, supportedRuntimeTargets: ['wsl'],
+    ...baseCapabilities, structuredOutput: true, supportedRuntimeTargets: ['wsl', 'linux'],
     extensions: {
       networkControl: true, contractRequiresFixture: true,
       conformanceFixture: 'contracts/fixtures/v1/opencode-events.json',
       forbiddenArguments: ['--auto', '--dangerously-skip-permissions'],
       approvalSemantics: 'provider-auto-reject-unapproved',
       pause: false, pauseSemantics: 'unsupported_cancel_only',
-      externalSandbox: 'wsl-bubblewrap-v1', networkEnforcement: 'provider-tool-capability-policy',
+      externalSandbox: 'bubblewrap-v1', networkEnforcement: 'provider-tool-capability-policy',
       networkMechanism: 'server-owned-read-only-tool-allowlist', networkAccessClaim: 'provider-control-plane-only',
       serverOwnedNoToolsMode: 'cv-ai-structuring-v1',
       serverOwnedNoToolsFixture: 'contracts/fixtures/v1/opencode-cv-zero-tools-events.json',
@@ -101,7 +101,7 @@ export const CLAUDE_CLI_MANIFEST: AgentAdapterManifest = {
     promptTransport: 'stdin', modelArgs: ['--model', '{model}']
   },
   capabilities: {
-    ...baseCapabilities, structuredOutput: true, supportedRuntimeTargets: ['wsl'],
+    ...baseCapabilities, structuredOutput: true, supportedRuntimeTargets: ['wsl', 'linux'],
     extensions: {
       networkControl: true, contractRequiresFixture: true,
       conformanceFixture: 'contracts/fixtures/v1/claude-cli-events.json',
@@ -109,7 +109,7 @@ export const CLAUDE_CLI_MANIFEST: AgentAdapterManifest = {
       permissionMode: 'acceptEdits', builtinToolAllowlist: ['Read'],
       customizations: 'safe-mode-strict-empty-mcp-and-slash-commands-disabled',
       pause: false, pauseSemantics: 'unsupported_cancel_only',
-      externalSandbox: 'wsl-bubblewrap-v1', networkEnforcement: 'provider-tool-capability-policy',
+      externalSandbox: 'bubblewrap-v1', networkEnforcement: 'provider-tool-capability-policy',
       networkMechanism: 'server-owned-read-only-tool-allowlist', networkAccessClaim: 'provider-control-plane-only',
       serverOwnedNoToolsMode: 'cv-ai-structuring-v1',
       serverOwnedNoToolsFixture: 'contracts/fixtures/v1/claude-cli-cv-zero-tools-events.json',

@@ -31,6 +31,7 @@ const agentConfigProfileFixture: AgentConfigProfileView = {
   profile: {
     schemaVersion: 2, profileId: 'safe-default', updatedAt: '2026-08-14T08:00:00.000Z',
     providers: [
+      { provider: 'codex', enabled: true, runtimeTarget: 'windows', sandbox: 'read-only', network: 'disabled', approvalMode: 'explicit' },
       { provider: 'codex-exec', enabled: true, runtimeTarget: 'windows', sandbox: 'read-only', network: 'disabled', approvalMode: 'explicit' },
       { provider: 'opencode', enabled: true, runtimeTarget: 'wsl', sandbox: 'read-only', network: 'disabled', approvalMode: 'deny' }
     ],
@@ -447,6 +448,7 @@ describe('App', () => {
       agentOrchestrationResultHtmlUrl: vi.fn().mockImplementation((orchestrationId: string, sha256: string) =>
         `/api/agent-orchestrations/${orchestrationId}/result.html?sha256=${sha256}`),
       createAgentOrchestration: vi.fn(),
+      retryAgentOrchestrationNode: vi.fn(),
       continueAgentOrchestration: vi.fn(),
       cancelAgentOrchestration: vi.fn(),
       resolveAgentOrchestrationConflict: vi.fn(),
@@ -635,6 +637,7 @@ describe('App', () => {
     expect(preflight.textContent).not.toContain('C:\\tools\\codex.exe');
     expect(apiMock['agentRunPreflight']).toHaveBeenLastCalledWith({
       providerId: 'codex', prompt: 'Synthetische Stellen serverseitig vorprüfen', runtimeTarget: 'windows',
+      installation: { version: '1.0', executable: 'C:\\tools\\codex.exe' },
       workspaceMode: 'read_only', network: false, workflowId: 'guided-job-analysis',
       budget: { wallTimeMinutes: 30, maxOutputMiB: 10 }
     });
@@ -684,13 +687,19 @@ describe('App', () => {
     fixture.componentInstance.refreshAgentPreflight();
     fixture.componentInstance.createAgentRun();
     expect(apiMock['createAgentRun']).toHaveBeenCalledWith({
-      providerId: 'codex', prompt: 'Analysiere den lokalen Teststand', runtimeTarget: 'windows', workspaceMode: 'read_only', network: false,
+      providerId: 'codex', prompt: 'Analysiere den lokalen Teststand', runtimeTarget: 'windows',
+      installation: { version: '1.0', executable: 'C:\\tools\\codex.exe' },
+      workspaceMode: 'read_only', network: false,
       budget: { wallTimeMinutes: 30, maxOutputMiB: 10 }
     });
     fixture.destroy();
   });
 
   it('selects an explicit WSL installation and summarizes the start configuration', async () => {
+    const wslProfile: AgentConfigProfileView = structuredClone(agentConfigProfileFixture);
+    wslProfile.profile.providers = wslProfile.profile.providers.map((item) =>
+      item.provider === 'codex' ? { ...item, runtimeTarget: 'wsl' as const, wslDistribution: 'Ubuntu-24.04' } : item);
+    apiMock['agentConfigProfile'].mockReturnValue(of(wslProfile));
     const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
     fixture.componentInstance.select('agents'); fixture.detectChanges(); await fixture.whenStable();
     const component = fixture.componentInstance;
@@ -711,6 +720,7 @@ describe('App', () => {
     component.createAgentRun();
     expect(apiMock['createAgentRun']).toHaveBeenLastCalledWith({
       providerId: 'codex', prompt: 'Analysiere den lokalen Teststand', runtimeTarget: 'wsl', wslDistribution: 'Ubuntu-24.04',
+      installation: { version: '1.1', executable: '/usr/local/bin/codex' },
       workspaceMode: 'read_only', network: false, budget: { wallTimeMinutes: 30, maxOutputMiB: 10 }
     });
     fixture.destroy();
@@ -1251,7 +1261,9 @@ describe('App', () => {
     component.createAgentOrchestration();
     expect(apiMock['createAgentOrchestration']).toHaveBeenCalledWith({
       workflowId: 'evidence-application-package', providerId: 'codex', prompt: 'Getrennte Evidence- und Finalizer-Rollen ausführen',
-      runtimeTarget: 'windows', applicationCaseId: applicationCaseFixture.id
+      runtimeTarget: 'windows', installation: { version: '1.0', executable: 'C:\\tools\\codex.exe' },
+      clarifications: true,
+      applicationCaseId: applicationCaseFixture.id
     });
     expect(component.selectedAgentOrchestration?.nodes[0].artifacts[0].lifecycle).toBe('proposed');
     expect(apiMock['continueAgentOrchestration']).not.toHaveBeenCalled();
@@ -2090,8 +2102,28 @@ describe('App', () => {
     fixture.destroy();
   });
 
+  it('refreshes OpenRouter availability after saving and removing its key', async () => {
+    const provider = (available: boolean) => ({ id: 'openrouter', name: 'OpenRouter', available, installations: [] });
+    apiMock['agentProviders'].mockReturnValue(of([provider(false)]));
+    apiMock['saveProviderCredentials'].mockReturnValue(of({ providerId: 'openrouter', hasSecret: true, envKeys: ['OPENROUTER_API_KEY'] }));
+    apiMock['deleteProviderCredentials'].mockReturnValue(of({ providerId: 'openrouter', hasSecret: false, envKeys: [] }));
+    const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
+    const component = fixture.componentInstance;
+    component.select('agents'); fixture.detectChanges(); await fixture.whenStable();
+    expect(component.agentProviders.find(p => p.id === 'openrouter')?.available).toBe(false);
+    apiMock['agentProviders'].mockReturnValue(of([provider(true)]));
+    component.agentCredentialDraft = { providerId: 'openrouter', envKey: 'OPENROUTER_API_KEY', envSecret: 'synthetic-openrouter-key', confirmed: true };
+    component.saveProviderCredentials();
+    expect(component.agentProviders.find(p => p.id === 'openrouter')?.available).toBe(true);
+    expect(component.agentCredentialDraft.envSecret).toBe('');
+    apiMock['agentProviders'].mockReturnValue(of([provider(false)]));
+    component.deleteProviderCredentials('openrouter');
+    expect(component.agentProviders.find(p => p.id === 'openrouter')?.available).toBe(false);
+    fixture.destroy();
+  });
+
   it('approves an untested provider version and stores an API key without echoing it', async () => {
-    const secret = 'sk-live-must-not-be-echoed';
+    const secret = 'sk-test-must-not-be-echoed';
     const untestedInstallation = {
       runtimeTarget: 'linux' as const, version: '2.0.0', support: 'untested' as const,
       executable: '/usr/local/bin/synthetic-agent'
@@ -2156,6 +2188,258 @@ describe('App', () => {
 
     component.selectAgentOrchestrationInstallation(component.agentInstallationKey(installations[1]));
     expect(component.selectedAgentOrchestrationInstallation()?.version).toBe('1.14.41');
+    fixture.destroy();
+  });
+
+  it('binds the second of two same-runtime installations and saves only the confirmed profile runtime change', async () => {
+    apiMock['agentProviders'].mockReturnValue(of([{
+      id: 'opencode', name: 'opencode', available: true,
+      installations: [
+        { runtimeTarget: 'linux', version: '1.18.34', support: 'untested', executable: '/home/krusty/.opencode/bin/opencode' },
+        { runtimeTarget: 'linux', version: '1.14.41', support: 'supported', executable: '/usr/local/lib/node_modules/opencode-ai/bin/opencode' }
+      ]
+    }]));
+    apiMock['agentWorkflows'].mockReturnValue(of([{
+      id: 'evidence-application-package', version: '1.2.0', title: 'Evidence-Bewerbungspaket', description: 'Fixture',
+      requiredScope: 'application_case', producesSuggestionsOnly: true, prohibitedActions: ['submit_application']
+    }]));
+    apiMock['createAgentOrchestration'].mockReturnValue(of(orchestrationFixture('running')));
+    const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
+    const component = fixture.componentInstance;
+    component.select('agents'); fixture.detectChanges(); await fixture.whenStable();
+    component.agentOrchestrationForm = {
+      workflowId: 'evidence-application-package', providerId: 'opencode', prompt: 'Zwei Versionen binden',
+      runtimeTarget: 'linux', applicationCaseId: applicationCaseFixture.id, userInputConfirmed: false
+    };
+    component.selectAgentOrchestrationProvider('opencode');
+    const installations = component.agentOrchestrationInstallations();
+    component.selectAgentOrchestrationInstallation(component.agentInstallationKey(installations[1]));
+
+    // Saved profile (opencode=wsl) blocks the linux selection before the start.
+    component.createAgentOrchestration();
+    expect(apiMock['createAgentOrchestration']).not.toHaveBeenCalled();
+    expect(component.agentOrchestrationError).toContain('erlaubt fuer opencode nur wsl');
+
+    // The fix action saves only the confirmed runtime/distribution change from the SAVED revision.
+    component.agentProfileRuntimeFixConfirmed = true;
+    component.alignAgentProfileRuntimeTo();
+    const savedProfile = apiMock['saveAgentConfigProfile'].mock.calls[0]?.[1];
+    const expected = structuredClone(agentConfigProfileFixture.profile);
+    const expectedRule = expected.providers.find((item) => item.provider === 'opencode')!;
+    expectedRule.runtimeTarget = 'linux'; expectedRule.wslDistribution = undefined;
+    expect(savedProfile).toEqual(expected);
+
+    fixture.detectChanges(); await fixture.whenStable();
+    component.createAgentOrchestration();
+    expect(apiMock['createAgentOrchestration']).toHaveBeenCalledWith(expect.objectContaining({
+      providerId: 'opencode',
+      installation: { version: '1.14.41', executable: '/usr/local/lib/node_modules/opencode-ai/bin/opencode' }
+    }));
+    fixture.destroy();
+  });
+
+  it('blocks starts while the profile is not loaded and loads it on direct workshop entry', async () => {
+    const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
+    const component = fixture.componentInstance;
+    component.agentOrchestrationForm = {
+      workflowId: 'evidence-application-package', providerId: 'codex', prompt: 'Ohne Profil starten',
+      runtimeTarget: 'windows', applicationCaseId: applicationCaseFixture.id, userInputConfirmed: false
+    };
+    component.agentWorkflows = [{
+      id: 'evidence-application-package', version: '1.2.0', title: 'Evidence-Bewerbungspaket', description: 'Fixture',
+      requiredScope: 'application_case', producesSuggestionsOnly: true, prohibitedActions: ['submit_application']
+    }];
+    component.agentProviders = [{
+      id: 'codex', name: 'Codex CLI', available: true,
+      installations: [{ runtimeTarget: 'windows', version: '1.0', support: 'supported', executable: 'C:\\tools\\codex.exe' }]
+    }];
+    component.createAgentOrchestration();
+    expect(apiMock['createAgentOrchestration']).not.toHaveBeenCalled();
+    expect(component.agentOrchestrationError).toContain('Sicherheitsprofil');
+
+    component.select('applications'); fixture.detectChanges(); await fixture.whenStable();
+    expect(apiMock['agentConfigProfile']).toHaveBeenCalled();
+    fixture.destroy();
+  });
+
+  it('recovers the case chain after workshop return and reports failure states honestly', async () => {
+    const failed = { ...orchestrationFixture('failed'), failureReason: 'orchestration_failed' };
+    apiMock['agentOrchestrations'].mockReturnValue(of({ orchestrations: [failed] }));
+    apiMock['applicationCases'].mockReturnValue(of([applicationCaseFixture]));
+    const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
+    const component = fixture.componentInstance;
+    component.select('applications'); fixture.detectChanges(); await fixture.whenStable();
+    component.selectApplicationCase(applicationCaseFixture); fixture.detectChanges(); await fixture.whenStable();
+
+    // No transient id survives a reload; the record for the case must still appear.
+    expect(component.applicationAgentOrchestrationId).toBeUndefined();
+    expect(component.applicationAgentOrchestration()?.id).toBe(failed.id);
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).toContain('Der Lauf ist fehlgeschlagen');
+    expect(text).not.toContain('Die Agenten arbeiten');
+    fixture.destroy();
+  });
+
+  it('refreshes workshop progress and revisions on every polling tick', async () => {
+    vi.useFakeTimers();
+    try {
+      apiMock['applicationCases'].mockReturnValue(of([applicationCaseFixture]));
+      const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
+      const component = fixture.componentInstance;
+      component.select('applications'); fixture.detectChanges(); await fixture.whenStable();
+      component.selectApplicationCase(applicationCaseFixture); fixture.detectChanges(); await fixture.whenStable();
+      const orchestrationCalls = apiMock['agentOrchestrations'].mock.calls.length;
+      const artifactCalls = apiMock['applicationArtifacts'].mock.calls.length;
+      vi.advanceTimersByTime(2500);
+      expect(apiMock['agentOrchestrations'].mock.calls.length).toBeGreaterThan(orchestrationCalls);
+      expect(apiMock['applicationArtifacts'].mock.calls.length).toBeGreaterThan(artifactCalls);
+      fixture.destroy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('runs the synthetic path from fact correction and confirmation to the bound HTML result', async () => {
+    // 1) Recognized facts are corrected and decided; the mock applies the atomic ops.
+    let record = cvImportFixture(['pending', 'pending']);
+    apiMock['reviewCvFacts'].mockImplementation((current: CvImportRecord, operations: Array<{ factId: string; action: string; value?: string; decision?: string }>) => {
+      const facts = current.facts.map((fact) => {
+        const op = operations.find((candidate) => candidate.factId === fact.id);
+        if (!op) return fact;
+        if (op.action === 'edit') return { ...fact, value: op.value ?? fact.value, decision: 'pending' as const };
+        if (op.action === 'confirm') return { ...fact, decision: 'confirmed' as const };
+        if (op.action === 'reject') return { ...fact, decision: 'rejected' as const };
+        return fact;
+      });
+      record = { ...current, revision: current.revision + 1, facts };
+      return of(record);
+    });
+    apiMock['adoptCvFacts'].mockReturnValue(of(adoptedCvImportFixture()));
+    apiMock['agentWorkflows'].mockReturnValue(of([{
+      id: 'evidence-application-package', version: '1.2.0', title: 'Evidence-Bewerbungspaket', description: 'Fixture',
+      requiredScope: 'application_case', producesSuggestionsOnly: true, prohibitedActions: ['submit_application']
+    }]));
+    apiMock['createAgentOrchestration'].mockReturnValue(of({
+      ...orchestrationFixture('succeeded'), finishedAt: '2026-08-14T08:02:00Z'
+    }));
+    const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
+    const component = fixture.componentInstance;
+    (component as unknown as { applyCvImport(value: CvImportRecord): void }).applyCvImport(record);
+    component.cvStep = 2;
+
+    component.updateCvFactDraft(record.facts[0]!, 'value', 'Korrigierter Arbeitgeber');
+    component.saveCvFact(record.facts[0]!);
+    expect(apiMock['reviewCvFacts'].mock.calls.at(-1)?.[1]).toContainEqual(expect.objectContaining({
+      action: 'edit', factId: 'fact-employment-company', value: 'Korrigierter Arbeitgeber'
+    }));
+    component.decideCvFact(record.facts[0]!, 'confirm');
+    component.decideCvFact(record.facts[1]!, 'confirm');
+    expect(component.cvFactCount('pending')).toBe(0);
+
+    // 2) The confirmed facts are adopted into the candidate profile (separate step).
+    component.cvAdoptionConfirmed = true;
+    component.adoptCvFacts();
+    expect(apiMock['adoptCvFacts']).toHaveBeenCalled();
+    fixture.detectChanges(); await fixture.whenStable();
+
+    // 3) The bound five-agent chain runs for the cover letter and shows the HTML result.
+    const boundCase: ApplicationCase = {
+      ...structuredClone(applicationCaseFixture), documentType: 'cover_letter',
+      sourceCv: { caseId: '11111111-1111-4111-8111-111111111111', revisionId: '22222222-2222-4222-8222-222222222222', sha256: 'a'.repeat(64), profileSha256: 'b'.repeat(64) }
+    };
+    apiMock['applicationCases'].mockReturnValue(of([boundCase]));
+    component.select('applications'); fixture.detectChanges(); await fixture.whenStable();
+    component.selectApplicationCase(boundCase); fixture.detectChanges(); await fixture.whenStable();
+    component.agentOrchestrationForm = {
+      workflowId: 'evidence-application-package', providerId: 'codex', prompt: 'Gebundenes Anschreiben erzeugen',
+      runtimeTarget: 'windows', applicationCaseId: boundCase.id, userInputConfirmed: false
+    };
+    component.selectAgentOrchestrationProvider('codex');
+    component.createAgentOrchestration();
+    expect(apiMock['createAgentOrchestration']).toHaveBeenCalledWith(expect.objectContaining({
+      applicationCaseId: boundCase.id, prompt: 'Gebundenes Anschreiben erzeugen'
+    }));
+    fixture.detectChanges(); await fixture.whenStable();
+    const htmlResult = (fixture.nativeElement as HTMLElement)
+      .querySelector<HTMLIFrameElement>('[data-testid="application-agent-html-result"]');
+    expect(htmlResult).toBeTruthy();
+    expect(htmlResult?.getAttribute('src')).toContain('/api/agent-orchestrations/');
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain('FÜNF AGENTEN');
+    fixture.destroy();
+  });
+
+  it('shows finalizer questions, sends bound answers and continues with the frozen configuration', async () => {
+    const asked: AgentOrchestrationRecord = {
+      ...orchestrationFixture('failed'),
+      failureReason: 'finalizer_needs_input',
+      runConfig: {
+        workflowVersion: '1.2.0', providerId: 'codex', runtimeTarget: 'windows',
+        model: 'test-model', frozenAt: '2026-08-14T08:00:00Z',
+      },
+      finalizerQuestions: {
+        nodeId: 'finalizer', runId: 'run-finalizer',
+        questions: [{ id: 'q1', question: 'Welche Stärke soll betont werden?', why: 'Persönlicher Fokus.' }],
+        askedAt: '2026-08-14T08:01:00Z',
+      },
+      nodes: orchestrationFixture('failed').nodes.map((node) =>
+        node.nodeId === 'finalizer'
+          ? { ...node, status: 'failed' as const, failureCategory: 'needs_input', reason: 'finalizer_needs_input' }
+          : node),
+    };
+    const fork: AgentOrchestrationRecord = {
+      ...orchestrationFixture('running'), id: '44444444-4444-4444-8444-444444444444',
+      retryOf: { orchestrationId: asked.id, nodeId: 'finalizer' },
+      runConfig: asked.runConfig,
+    };
+    apiMock['agentOrchestrations'].mockReturnValue(of({ orchestrations: [asked] }));
+    apiMock['retryAgentOrchestrationNode'].mockReturnValue(of(fork));
+    apiMock['applicationCases'].mockReturnValue(of([applicationCaseFixture]));
+    const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
+    const component = fixture.componentInstance;
+    component.select('applications'); fixture.detectChanges(); await fixture.whenStable();
+    component.selectApplicationCase(applicationCaseFixture); fixture.detectChanges(); await fixture.whenStable();
+
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).toContain('Welche Stärke soll betont werden?');
+    expect(text).toContain('Eingefroren: Codex CLI');
+    expect(component.finalizerAnswerDrafts['q1']).toBeUndefined();
+
+    component.setFinalizerAnswer('q1', 'Die Fähigkeit zur strukturierten Analyse.');
+    component.finalizerAnswersConfirmed = true;
+    component.answerFinalizerQuestions();
+    expect(apiMock['retryAgentOrchestrationNode']).toHaveBeenCalledWith(asked.id, 'finalizer', {
+      instructions: '', includePreviousVersion: false,
+      answers: [{ id: 'q1', question: 'Welche Stärke soll betont werden?', answer: 'Die Fähigkeit zur strukturierten Analyse.' }],
+    });
+    expect(component.applicationAgentOrchestrationId).toBe(fork.id);
+    fixture.destroy();
+  });
+
+  it('offers a targeted retry for a failed step and keeps answers as editing input only', async () => {
+    const failed: AgentOrchestrationRecord = {
+      ...orchestrationFixture('failed'),
+      nodes: orchestrationFixture('failed').nodes.map((node) =>
+        node.nodeId === 'ats'
+          ? { ...node, status: 'failed' as const, failureCategory: 'validation', reason: 'synthetic validation failure' }
+          : node),
+    };
+    apiMock['agentOrchestrations'].mockReturnValue(of({ orchestrations: [failed] }));
+    apiMock['retryAgentOrchestrationNode'].mockReturnValue(of({
+      ...orchestrationFixture('running'), id: '55555555-5555-5555-8555-555555555555',
+      retryOf: { orchestrationId: failed.id, nodeId: 'ats' },
+    }));
+    apiMock['applicationCases'].mockReturnValue(of([applicationCaseFixture]));
+    const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
+    const component = fixture.componentInstance;
+    component.select('applications'); fixture.detectChanges(); await fixture.whenStable();
+    component.selectApplicationCase(applicationCaseFixture); fixture.detectChanges(); await fixture.whenStable();
+
+    expect(component.applicationRetryNode()?.nodeId).toBe('ats');
+    const element = fixture.nativeElement as HTMLElement;
+    expect(element.querySelector('[data-testid="application-node-retry"]')?.textContent).toContain('ats');
+    component.retryApplicationFailedNode();
+    expect(apiMock['retryAgentOrchestrationNode']).toHaveBeenCalledWith(failed.id, 'ats');
+    expect(component.applicationAgentOrchestrationId).toBe('55555555-5555-5555-8555-555555555555');
     fixture.destroy();
   });
 

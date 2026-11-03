@@ -430,6 +430,7 @@ export class App implements OnInit, OnDestroy {
     if (section === 'applications') {
       this.loadApplicationCases();
       this.loadSourceCvCandidates();
+      if (!this.agentConfigProfile) this.loadAgentConfigProfile();
       if (!this.agentProviders.length) this.loadAgentProviders();
       if (!this.agentWorkflows.length) this.api.agentWorkflows().subscribe({
         next: (items) => { this.agentWorkflows = items; this.refreshView(); },
@@ -456,6 +457,7 @@ export class App implements OnInit, OnDestroy {
   }
 
   loadCvStudio(): void {
+    if (!this.agentConfigProfile) this.loadAgentConfigProfile();
     this.loadCvImportInventory();
     this.loadApplicationCases();
     this.loadApplicationStyleProfile();
@@ -611,6 +613,7 @@ export class App implements OnInit, OnDestroy {
         ].sort((left, right) => left.providerId.localeCompare(right.providerId));
         this.agentCredentialDraft = { ...this.agentCredentialDraft, envSecret: '', confirmed: false };
         this.agentProviderSetupBusy = false;
+        this.loadAgentProviders(true);
         this.refreshView();
       },
       error: (error) => { this.agentProviderSetupBusy = false; this.agentProviderSetupError = this.message(error); this.refreshView(); }
@@ -625,6 +628,7 @@ export class App implements OnInit, OnDestroy {
       next: () => {
         this.agentProviderCredentials = this.agentProviderCredentials.filter((item) => item.providerId !== providerId);
         this.agentProviderSetupBusy = false;
+        this.loadAgentProviders(true);
         this.refreshView();
       },
       error: (error) => { this.agentProviderSetupBusy = false; this.agentProviderSetupError = this.message(error); this.refreshView(); }
@@ -797,6 +801,8 @@ export class App implements OnInit, OnDestroy {
     this.agentConfigProfileConfirmed = false;
     this.agentCodexAppServerOptInConfirmed = false;
     this.agentConfigProfileError = '';
+    this.ensureAgentRuntimeSelection();
+    this.ensureAgentOrchestrationRuntimeSelection();
   }
 
   private parseAgentConfigCostMicros(): number | undefined {
@@ -960,15 +966,20 @@ export class App implements OnInit, OnDestroy {
     const prompt = form.prompt.trim();
     if (!workflow) { this.agentOrchestrationError = 'Bitte einen versionierten Workflow wählen.'; return; }
     if (!installation || installation.support !== 'supported') { this.agentOrchestrationError = 'Bitte eine unterstützte Provider-Laufzeit wählen.'; return; }
+    const profileBlock = this.agentProfileInstallationBlockedReason(form.providerId, installation);
+    if (profileBlock) { this.agentOrchestrationError = profileBlock; return; }
     if (prompt.length < 3) { this.agentOrchestrationError = 'Bitte einen konkreten Orchestrierungsauftrag eingeben.'; return; }
     if (workflow.requiredScope !== 'search_profile' && !form.applicationCaseId) { this.agentOrchestrationError = 'Dieser Workflow benötigt einen expliziten Bewerbungsfall.'; return; }
     if (workflow.id === 'employer-response-triage' && !form.mailId) {
       this.agentOrchestrationError = 'Employer-Triage benötigt eine explizit gewählte Inbox-Mail. Öffne sie über die CRM-Aktion; Mailinhalt wird nicht in das Browserformular kopiert.';
       return;
     }
+    const boundCase = this.applicationCases.find((item) => item.id === form.applicationCaseId);
     const request: AgentOrchestrationCreateRequest = {
       workflowId: workflow.id, providerId: form.providerId, prompt, runtimeTarget: installation.runtimeTarget,
+      ...(boundCase?.documentType === 'cover_letter' ? { clarifications: true } : {}),
       ...(installation.runtimeTarget === 'wsl' && installation.distribution ? { wslDistribution: installation.distribution } : {}),
+      ...(installation.version && installation.executable ? { installation: { version: installation.version, executable: installation.executable } } : {}),
       ...(form.applicationCaseId ? { applicationCaseId: form.applicationCaseId } : {}),
       ...(form.mailId ? { mailId: form.mailId } : {})
     };
@@ -1209,6 +1220,7 @@ export class App implements OnInit, OnDestroy {
       prompt: this.agentRunForm.prompt.trim(),
       runtimeTarget: installation.runtimeTarget,
       ...(installation.runtimeTarget === 'wsl' && installation.distribution ? { wslDistribution: installation.distribution } : {}),
+      ...(installation.version && installation.executable ? { installation: { version: installation.version, executable: installation.executable } } : {}),
       workspaceMode: this.agentRunForm.workspaceMode,
       network: Boolean(this.agentRunForm.network),
       budget: { ...this.agentRunForm.budget },
@@ -1275,6 +1287,8 @@ export class App implements OnInit, OnDestroy {
     const prompt = this.agentRunForm.prompt.trim();
     if (!provider?.available) { this.error = 'Bitte einen verfügbaren Agenten wählen.'; return; }
     if (!installation || installation.support !== 'supported') { this.error = 'Bitte eine unterstützte Provider-Installation und Laufzeit wählen.'; return; }
+    const profileBlock = this.agentProfileInstallationBlockedReason(this.agentRunForm.providerId, installation);
+    if (profileBlock) { this.error = profileBlock; return; }
     if (prompt.length < 3) { this.error = 'Bitte eine konkrete Aufgabe mit mindestens drei Zeichen beschreiben.'; return; }
     const request = this.buildAgentRunRequest();
     if (!request || !this.agentPreflightMatchesCurrentDraft()) {
@@ -1635,23 +1649,92 @@ export class App implements OnInit, OnDestroy {
     if (bytes >= 1024 && bytes % 1024 === 0) return `${bytes / 1024} KiB`;
     return `${bytes} Byte`;
   }
+  agentProfileRuntimeRule(providerId: string | undefined): { runtimeTarget: AgentRuntimeTarget; wslDistribution?: string; profileId: string } | undefined {
+    if (!providerId) return undefined;
+    const saved = this.agentConfigProfile?.profile;
+    const rule = saved?.providers.find((candidate) => candidate.provider === providerId);
+    return rule && rule.enabled
+      ? { runtimeTarget: rule.runtimeTarget, wslDistribution: rule.wslDistribution, profileId: saved!.profileId }
+      : undefined;
+  }
+
+  /**
+   * Shared start gate for single runs and orchestrations: only the SAVED profile
+   * authorizes a runtime. The unsaved editor draft never does. Mirrors the
+   * server-side evaluateAgentProfile blockers (enabled, runtime, wsl distribution).
+   */
+  agentProfileInstallationBlockedReason(providerId: string | undefined, installation: AgentProviderInstallation | undefined): string {
+    if (!this.agentConfigProfile) {
+      return this.agentConfigProfileError
+        ? 'Das aktive Sicherheitsprofil konnte nicht geladen werden; der Start bleibt gesperrt.'
+        : 'Das aktive Sicherheitsprofil wird noch geladen; der Start bleibt gesperrt.';
+    }
+    const profile = this.agentConfigProfile.profile;
+    const rule = profile.providers.find((candidate) => candidate.provider === providerId);
+    if (!rule || !rule.enabled) return `Der Provider ${providerId ?? ''} ist im aktiven Profil deaktiviert.`;
+    if (!installation) return 'Wähle eine Providerinstallation.';
+    const name = this.agentProviderName(providerId!);
+    if (rule.runtimeTarget !== installation.runtimeTarget) {
+      return `Das aktive Profil ${profile.profileId} erlaubt fuer ${name} nur ${rule.runtimeTarget}; gewaehlt ist ${installation.runtimeTarget}. Passe das Profil an oder waehle eine passende Installation.`;
+    }
+    if (rule.wslDistribution && installation.distribution !== rule.wslDistribution) {
+      return `Das aktive Profil ${profile.profileId} erlaubt fuer ${name} nur die WSL-Distribution ${rule.wslDistribution}; gewaehlt ist ${installation.distribution ?? 'keine'}.`;
+    }
+    return '';
+  }
+
+  agentProfileRuntimeBlockedReason(installation: AgentProviderInstallation | undefined): string {
+    return this.agentProfileInstallationBlockedReason(this.agentOrchestrationForm.providerId, installation);
+  }
+
+  agentProfileRuntimeFixAvailable(): string | undefined {
+    return this.agentProfileRuntimeBlockedReason(this.selectedAgentOrchestrationInstallation()) || undefined;
+  }
+
+  agentProfileRuntimeFixConfirmed = false;
+  finalizerAnswerDrafts: Record<string, string> = {};
+  finalizerAnswersConfirmed = false;
+  applicationRetryBusy = false;
+
+  /** Saves ONLY the confirmed runtime/distribution change on top of the SAVED revision. */
+  alignAgentProfileRuntimeTo(): void {
+    const view = this.agentConfigProfile;
+    const installation = this.selectedAgentOrchestrationInstallation();
+    const providerId = this.agentOrchestrationForm.providerId;
+    if (!view || !installation || !this.agentProfileRuntimeFixConfirmed || this.agentConfigProfileBusy) return;
+    const saved = structuredClone(view.profile);
+    const rule = saved.providers.find((candidate) => candidate.provider === providerId);
+    if (!rule) return;
+    rule.runtimeTarget = installation.runtimeTarget;
+    rule.wslDistribution = installation.runtimeTarget === 'wsl' ? (installation.distribution ?? undefined) : undefined;
+    this.agentConfigProfileDraft = saved;
+    this.agentConfigProfileConfirmed = true;
+    this.agentProfileRuntimeFixConfirmed = false;
+    this.saveAgentConfigProfile();
+  }
+
   private ensureAgentRuntimeSelection(): void {
     const provider = this.selectedAgentProvider() ?? this.agentProviders.find((item) => item.available) ?? this.agentProviders[0];
     if (!provider) return;
     this.agentRunForm.providerId = provider.id;
+    const ruleRuntime = this.agentProfileRuntimeRule(provider.id)?.runtimeTarget;
     const selected = this.selectedAgentInstallation();
-    if (selected?.support === 'supported') return;
+    if (selected?.support === 'supported' && (!ruleRuntime || selected.runtimeTarget === ruleRuntime)) return;
     const installations = this.agentProviderInstallations(provider);
-    const installation = installations.find((item) => item.support === 'supported') ?? installations[0];
+    const installation = installations.find((item) => item.support === 'supported' && (!ruleRuntime || item.runtimeTarget === ruleRuntime))
+      ?? installations.find((item) => item.support === 'supported') ?? installations[0];
     if (installation) this.applyAgentInstallation(installation);
   }
   private ensureAgentOrchestrationRuntimeSelection(): void {
     const provider = this.agentOrchestrationProvider() ?? this.agentProviders.find((item) => item.available) ?? this.agentProviders[0];
     if (!provider) return;
     this.agentOrchestrationForm.providerId = provider.id;
+    const ruleRuntime = this.agentProfileRuntimeRule(provider.id)?.runtimeTarget;
     const selected = this.selectedAgentOrchestrationInstallation();
-    if (selected?.support === 'supported') return;
-    const installation = this.agentProviderInstallations(provider).find((item) => item.support === 'supported') ?? this.agentProviderInstallations(provider)[0];
+    if (selected?.support === 'supported' && (!ruleRuntime || selected.runtimeTarget === ruleRuntime)) return;
+    const installations = this.agentProviderInstallations(provider);
+    const installation = installations.find((item) => item.support === 'supported' && (!ruleRuntime || item.runtimeTarget === ruleRuntime))
+      ?? installations.find((item) => item.support === 'supported') ?? installations[0];
     if (installation) this.applyAgentOrchestrationInstallation(installation);
   }
   private applyAgentInstallation(installation: AgentProviderInstallation): void {
@@ -2066,7 +2149,11 @@ export class App implements OnInit, OnDestroy {
     this.stopAgentPolling();
     this.agentPollHandle = setInterval(() => {
       if (this.section === 'agents') this.refreshAgentRuns();
-      if (this.section === 'agents' || this.section === 'cv') this.refreshAgentOrchestrations();
+      if (this.section === 'agents' || this.section === 'cv' || this.section === 'applications') {
+        this.refreshAgentOrchestrations();
+        const application = this.section === 'applications' ? this.selectedApplicationCase() : undefined;
+        if (application) this.loadApplicationArtifacts(application.id);
+      }
     }, 2500);
   }
   private stopAgentPolling(): void {
@@ -2516,15 +2603,95 @@ export class App implements OnInit, OnDestroy {
     }
     const provider = this.agentProviders.find((item) => item.id === this.agentOrchestrationForm.providerId);
     if (!provider?.available) return 'Wähle einen verfügbaren Agentenprovider.';
-    if (this.selectedAgentOrchestrationInstallation()?.support !== 'supported') return 'Wähle eine versionsgenau freigegebene Provider-Laufzeit.';
+    const installation = this.selectedAgentOrchestrationInstallation();
+    const profileBlock = this.agentProfileRuntimeBlockedReason(installation);
+    if (profileBlock) return profileBlock;
+    if (installation?.support !== 'supported') return 'Wähle eine versionsgenau freigegebene Provider-Laufzeit.';
     return '';
   }
 
-  applicationAgentOrchestration(): AgentOrchestrationRecord | undefined {
-    if (this.applicationAgentOrchestrationId) return this.agentOrchestrations.find((item) => item.id === this.applicationAgentOrchestrationId)
-      ?? (this.selectedAgentOrchestration?.id === this.applicationAgentOrchestrationId ? this.selectedAgentOrchestration : undefined);
-    return undefined;
+  applicationFinalizerRound(): AgentOrchestrationRecord['finalizerQuestions'] | undefined {
+    const orchestration = this.applicationAgentOrchestration();
+    if (!orchestration || orchestration.status !== 'failed' || !orchestration.finalizerQuestions) return undefined;
+    const node = orchestration.nodes.find((candidate) => candidate.nodeId === orchestration.finalizerQuestions!.nodeId);
+    return node?.failureCategory === 'needs_input' ? orchestration.finalizerQuestions : undefined;
   }
+
+  setFinalizerAnswer(questionId: string, value: string): void {
+    this.finalizerAnswerDrafts = { ...this.finalizerAnswerDrafts, [questionId]: value };
+    this.finalizerAnswersConfirmed = false;
+  }
+
+  answerFinalizerQuestions(): void {
+    const orchestration = this.applicationAgentOrchestration();
+    const round = this.applicationFinalizerRound();
+    if (!orchestration || !round || this.applicationRetryBusy || !this.finalizerAnswersConfirmed) return;
+    const answers = round.questions.map((question) => ({
+      id: question.id,
+      question: question.question,
+      answer: (this.finalizerAnswerDrafts[question.id] ?? '').trim() || 'Keine Ergänzung',
+    }));
+    if (answers.some((answer) => answer.answer.length > 1_500)) {
+      this.agentOrchestrationError = 'Eine Antwort überschreitet 1.500 Zeichen.';
+      this.refreshView(); return;
+    }
+    this.applicationRetryBusy = true;
+    this.agentOrchestrationError = '';
+    this.api.retryAgentOrchestrationNode(orchestration.id, round.nodeId, {
+      instructions: '', includePreviousVersion: false, answers,
+    }).subscribe({
+      next: (created) => {
+        this.applicationRetryBusy = false;
+        this.finalizerAnswerDrafts = {};
+        this.finalizerAnswersConfirmed = false;
+        this.agentOrchestrations = [created, ...this.agentOrchestrations.filter((item) => item.id !== created.id)];
+        this.applicationAgentOrchestrationId = created.id;
+        this.notice = 'Die Antworten sind gebunden; der Finalizer läuft mit derselben eingefrorenen Konfiguration weiter.';
+        this.refreshView();
+      },
+      error: (error) => { this.applicationRetryBusy = false; this.agentOrchestrationError = this.message(error); this.refreshView(); }
+    });
+  }
+
+  applicationRetryNode(): AgentOrchestrationRecord['nodes'][number] | undefined {
+    const orchestration = this.applicationAgentOrchestration();
+    if (!orchestration || orchestration.status !== 'failed') return undefined;
+    return orchestration.nodes.find((node) => node.status === 'failed' && node.failureCategory !== 'needs_input');
+  }
+
+  retryApplicationFailedNode(): void {
+    const orchestration = this.applicationAgentOrchestration();
+    const node = this.applicationRetryNode();
+    if (!orchestration || !node || this.applicationRetryBusy) return;
+    this.applicationRetryBusy = true;
+    this.agentOrchestrationError = '';
+    this.api.retryAgentOrchestrationNode(orchestration.id, node.nodeId).subscribe({
+      next: (created) => {
+        this.applicationRetryBusy = false;
+        this.agentOrchestrations = [created, ...this.agentOrchestrations.filter((item) => item.id !== created.id)];
+        this.applicationAgentOrchestrationId = created.id;
+        this.notice = `Schritt „${node.role}“ wird mit der eingefrorenen Konfiguration wiederholt.`;
+        this.refreshView();
+      },
+      error: (error) => { this.applicationRetryBusy = false; this.agentOrchestrationError = this.message(error); this.refreshView(); }
+    });
+  }
+
+  applicationAgentOrchestration(): AgentOrchestrationRecord | undefined {
+    if (this.applicationAgentOrchestrationId) {
+      const bound = this.agentOrchestrations.find((item) => item.id === this.applicationAgentOrchestrationId)
+        ?? (this.selectedAgentOrchestration?.id === this.applicationAgentOrchestrationId ? this.selectedAgentOrchestration : undefined);
+      if (bound) return bound;
+    }
+    // Returning to the workshop or reloading the page loses the transient id;
+    // recover the case's latest evidence chain from the persisted records.
+    const caseId = this.selectedApplicationCaseId;
+    if (!caseId) return undefined;
+    return this.agentOrchestrations
+      .filter((item) => item.workflowId === 'evidence-application-package' && item.scope.applicationCaseId === caseId)
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0];
+  }
+
 
   openApplicationAgentOrchestration(): void {
     const orchestration = this.applicationAgentOrchestration();
@@ -3847,6 +4014,47 @@ export class App implements OnInit, OnDestroy {
     return end ? dates.at(-1)! : dates[0]!;
   }
 
+  cvFactFieldLabel(field: string): string {
+    const leaf = field.split('.').at(-1) ?? field;
+    return this.cvAiSuggestionFieldLabel(leaf.replace(/\[[0-9]{1,4}\]/g, ''));
+  }
+
+  cvNewFactRecordLabel(recordId: string): string {
+    const group = [...this.cvStructuredFactGroups(), ...this.cvRawFactGroups()].find((item) => item.recordId === recordId);
+    return group ? `${group.title}${group.period ? ' · ' + group.period : ''}` : recordId;
+  }
+
+  /** Common field keys per category so corrections work without data-model knowledge. */
+  readonly cvFieldChoices: Record<CvFactCategory, readonly string[]> = {
+    profile: ['name', 'headline', 'summary', 'detail'],
+    contact: ['value', 'detail'],
+    employment: ['employer', 'role', 'start_date', 'end_date', 'location', 'description', 'detail'],
+    project: ['name', 'role', 'technology', 'description', 'detail'],
+    education: ['institution', 'qualification', 'start_date', 'end_date', 'detail'],
+    skill: ['technology', 'level', 'detail'],
+    certification: ['name', 'institution', 'detail'],
+    language: ['language', 'level', 'detail'],
+    additional: ['detail', 'value', 'heading'],
+  };
+
+  cvNewFactFieldOptions(): readonly string[] {
+    return this.cvFieldChoices[this.cvNewFactDraft.category] ?? ['detail'];
+  }
+
+  cvNewFactFieldSelectValue(): string {
+    return this.cvNewFactFieldOptions().includes(this.cvNewFactDraft.field) ? this.cvNewFactDraft.field : '__custom__';
+  }
+
+  cvNewFactFieldCustom(): boolean { return this.cvNewFactFieldSelectValue() === '__custom__'; }
+
+  setCvNewFactField(value: string): void {
+    if (value === '__custom__') {
+      this.cvNewFactDraft = { ...this.cvNewFactDraft, field: '', explicitlyConfirmed: false };
+      return;
+    }
+    this.cvNewFactDraft = { ...this.cvNewFactDraft, field: value, explicitlyConfirmed: false };
+  }
+
   cvFactCategoryLabel(category: CvFactCategory): string {
     return ({
       profile: 'Profil', contact: 'Kontakt', employment: 'Berufserfahrung', project: 'Projekt', education: 'Ausbildung',
@@ -4424,7 +4632,10 @@ export class App implements OnInit, OnDestroy {
     }
     const provider = this.agentProviders.find((item) => item.id === this.agentOrchestrationForm.providerId);
     if (!provider?.available) return 'Wähle einen verfügbaren Agentenprovider.';
-    if (this.selectedAgentOrchestrationInstallation()?.support !== 'supported') return 'Wähle eine versionsgenau freigegebene Provider-Laufzeit.';
+    const installation = this.selectedAgentOrchestrationInstallation();
+    const profileBlock = this.agentProfileRuntimeBlockedReason(installation);
+    if (profileBlock) return profileBlock;
+    if (installation?.support !== 'supported') return 'Wähle eine versionsgenau freigegebene Provider-Laufzeit.';
     return '';
   }
 

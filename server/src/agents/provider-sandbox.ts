@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { homedir } from 'node:os';
 import { lstat, readFile } from 'node:fs/promises';
 import { dirname, isAbsolute as isNativeAbsolute, join, posix, win32 } from 'node:path';
 import { promisify } from 'node:util';
@@ -63,12 +64,18 @@ export interface ExternalSandboxLaunchRequest {
   network: 'disabled' | 'restricted' | 'enabled';
   /** WSL path of a host-created empty directory. OpenCode may write session files there. */
   recoverableStateRoot?: string;
+  /**
+   * Sandbox-side path of a host-created directory holding a strictly validated
+   * `provider.env` (NAME=VALUE lines) and a constant `launch.sh`. Secrets travel
+   * only through this read-only file; never through argv, logs or responses.
+   */
+  envDir?: string;
 }
 
 export interface ExternalSandboxLaunchPlan {
   executable: string;
   args: string[];
-  enforcedBy: 'wsl-bubblewrap-v1';
+  enforcedBy: 'wsl-bubblewrap-v1' | 'linux-bubblewrap-v1';
   workspaceAccess: 'read_only' | 'read_write';
   /** The model control plane may use the network; agent-callable network,
    * shell, MCP and subagent tools are removed by an exact provider policy. */
@@ -153,6 +160,99 @@ const OPENCODE_READ_ONLY_CONFIG = JSON.stringify({
   default_agent: 'job-match-read-only',
 });
 
+export type LinuxBubblewrapProbe = () => Promise<boolean>;
+
+/** Native Linux hosts (including a server running inside WSL itself) use the same bwrap contract. */
+export const probeLinuxBubblewrap: LinuxBubblewrapProbe = async () => {
+  try { await execFileAsync('bwrap', ['--version']); return true; } catch { return false; }
+};
+
+/**
+ * Native-Linux isolation with the same guarantees as the WSL boundary:
+ * read-only host root, ephemeral /tmp, cleared environment, controlled PATH,
+ * read-only provider auth, server-owned provider config, workspace bound
+ * read-only unless explicitly read-write, and no shell interpretation.
+ */
+export class LinuxBubblewrapSandboxBoundary implements ExternalSandboxBoundary {
+  constructor(
+    private readonly probe: LinuxBubblewrapProbe = probeLinuxBubblewrap,
+    private readonly hostHome: () => string = () => homedir(),
+  ) {}
+
+  async plan(request: ExternalSandboxLaunchRequest): Promise<ExternalSandboxLaunchPlan> {
+    const { installation } = request;
+    if (installation.runtimeTarget !== 'linux') throw new Error('external_sandbox_requires_linux');
+    if (!posix.isAbsolute(request.providerExecutable) || !posix.isAbsolute(request.workspaceRoot)) {
+      throw new Error('external_sandbox_linux_paths_must_be_absolute');
+    }
+    if (request.providerExecutable.includes('\0') || request.workspaceRoot.includes('\0') || request.providerArgs.some((value) => value.includes('\0'))) {
+      throw new Error('external_sandbox_argument_invalid');
+    }
+    if (request.network !== 'disabled') throw new Error('external_sandbox_network_mode_not_enforceable');
+    if (request.sandbox === 'danger-full-access') throw new Error('external_sandbox_full_access_forbidden');
+    if (!await this.probe()) throw new Error('external_sandbox_backend_unavailable');
+    if (!['opencode', 'claude-cli'].includes(request.provider)) throw new Error('external_sandbox_provider_not_allowlisted');
+    const userHome = this.hostHome();
+    if (!posix.isAbsolute(userHome) || userHome === '/' || userHome.includes('\0')) throw new Error('external_sandbox_linux_home_invalid');
+
+    const workspaceAccess = request.sandbox === 'workspace-write' ? 'read_write' : 'read_only';
+    const bubblewrapArgs = [
+      '--die-with-parent', '--new-session', '--unshare-pid', '--unshare-ipc',
+      '--unshare-uts', '--ro-bind', '/', '/', '--dev', '/dev',
+      '--proc', '/proc', '--tmpfs', '/tmp', '--clearenv',
+      '--setenv', 'PATH', '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+      '--setenv', 'HOME', '/tmp/agent-home', '--setenv', 'XDG_CONFIG_HOME', '/tmp/agent-home/.config',
+      '--setenv', 'TMPDIR', '/tmp', '--setenv', 'XDG_CACHE_HOME', '/tmp/agent-cache',
+      '--dir', '/tmp/agent-home', '--dir', '/tmp/agent-home/.config', '--dir', '/tmp/agent-cache'
+    ];
+    if (request.provider === 'opencode') {
+      bubblewrapArgs.push(
+        '--dir', '/tmp/agent-home/.local', '--dir', '/tmp/agent-home/.local/share',
+        '--dir', '/tmp/agent-home/.local/share/opencode',
+      );
+      if (request.recoverableStateRoot) {
+        if (!posix.isAbsolute(request.recoverableStateRoot) || request.recoverableStateRoot.includes('\0')) {
+          throw new Error('external_sandbox_argument_invalid');
+        }
+        bubblewrapArgs.push('--bind', request.recoverableStateRoot, '/tmp/agent-home/.local/share/opencode');
+      }
+      bubblewrapArgs.push(
+        '--ro-bind-try', posix.join(userHome, '.local/share/opencode/auth.json'), '/tmp/agent-home/.local/share/opencode/auth.json',
+        '--setenv', 'XDG_DATA_HOME', '/tmp/agent-home/.local/share',
+        '--setenv', 'OPENCODE_DISABLE_PROJECT_CONFIG', 'true',
+        '--setenv', 'OPENCODE_CONFIG_CONTENT', OPENCODE_READ_ONLY_CONFIG,
+      );
+    } else {
+      bubblewrapArgs.push(
+        '--dir', '/tmp/agent-home/.claude',
+        '--ro-bind-try', posix.join(userHome, '.claude/.credentials.json'), '/tmp/agent-home/.claude/.credentials.json',
+        '--setenv', 'CLAUDE_CONFIG_DIR', '/tmp/agent-home/.claude',
+      );
+    }
+    if (request.envDir) {
+      if (!posix.isAbsolute(request.envDir) || request.envDir.includes('\0')) throw new Error('external_sandbox_argument_invalid');
+      bubblewrapArgs.push(
+        '--ro-bind', request.envDir, '/tmp/agent-env',
+        '--setenv', 'PROVIDER_ENV_FILE', '/tmp/agent-env/provider.env',
+      );
+    }
+    if (workspaceAccess === 'read_write') bubblewrapArgs.push('--bind', request.workspaceRoot, request.workspaceRoot);
+    const launcher = request.envDir ? '/tmp/agent-env/launch.sh' : request.providerExecutable;
+    const launcherArgs = request.envDir ? [request.providerExecutable, ...request.providerArgs] : [...request.providerArgs];
+    bubblewrapArgs.push('--chdir', request.workspaceRoot, '--', launcher, ...launcherArgs);
+
+    return {
+      executable: 'bwrap',
+      args: bubblewrapArgs,
+      enforcedBy: 'linux-bubblewrap-v1',
+      workspaceAccess,
+      networkEnforcement: 'provider-tool-capability-policy',
+      networkMechanism: 'server-owned-read-only-tool-allowlist',
+      networkAccessClaim: 'provider-control-plane-only'
+    };
+  }
+}
+
 /**
  * WSL isolation for CLIs without a verified native sandbox contract.
  *
@@ -224,8 +324,17 @@ export class WslBubblewrapSandboxBoundary implements ExternalSandboxBoundary {
         '--setenv', 'CLAUDE_CONFIG_DIR', '/tmp/agent-home/.claude',
       );
     }
+    if (request.envDir) {
+      if (!posix.isAbsolute(request.envDir) || request.envDir.includes('\0')) throw new Error('external_sandbox_argument_invalid');
+      bubblewrapArgs.push(
+        '--ro-bind', request.envDir, '/tmp/agent-env',
+        '--setenv', 'PROVIDER_ENV_FILE', '/tmp/agent-env/provider.env',
+      );
+    }
     if (workspaceAccess === 'read_write') bubblewrapArgs.push('--bind', request.workspaceRoot, request.workspaceRoot);
-    bubblewrapArgs.push('--chdir', request.workspaceRoot, '--', request.providerExecutable, ...request.providerArgs);
+    const launcher = request.envDir ? '/tmp/agent-env/launch.sh' : request.providerExecutable;
+    const launcherArgs = request.envDir ? [request.providerExecutable, ...request.providerArgs] : [...request.providerArgs];
+    bubblewrapArgs.push('--chdir', request.workspaceRoot, '--', launcher, ...launcherArgs);
 
     return {
       executable: installation.executable,

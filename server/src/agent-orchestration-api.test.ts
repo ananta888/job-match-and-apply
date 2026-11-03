@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import request, { type Response } from 'supertest';
@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { createApp, createDefaultAgentApiDependencies } from './app.js';
 import { AgentControlCenter } from './agents/agent-control-center.js';
 import { AgentArtifactStore } from './agents/artifact-store.js';
-import { FakeAgentProvider } from './agents/fake-agent-provider.js';
+import { FakeAgentProvider, type FakeAgentScript } from './agents/fake-agent-provider.js';
 import { MemoryAgentRunStore } from './agents/run-store.js';
 import { defaultConfig } from './config/defaults.js';
 import type { ApplicationCase, IdentityProfile } from './domain/models.js';
@@ -139,6 +139,48 @@ class CapturingFakeProvider extends FakeAgentProvider {
   }
 }
 
+class RoleAwareFakeProvider extends FakeAgentProvider {
+  readonly requests: ProviderRunContext['request'][] = [];
+  private readonly scripts = new Map<string, FakeAgentScript[]>();
+  private readonly delegates: FakeAgentProvider[] = [];
+
+  constructor(scripts: Record<string, FakeAgentScript[]>) {
+    super({ steps: [{ kind: 'agent_message_completed', data: { text: 'synthetic fallback' } }] }, 'fake');
+    for (const [role, queue] of Object.entries(scripts)) this.scripts.set(role, [...queue]);
+  }
+
+  override async start(context: ProviderRunContext): Promise<AgentRunHandle> {
+    this.requests.push(structuredClone(context.request));
+    const role = /Node: ([a-z0-9-]+);/.exec(context.request.task)?.[1] ?? 'unknown';
+    const queue = this.scripts.get(role) ?? [];
+    const script = queue.length > 1 ? queue.shift()! : queue[0] ?? { steps: [{ kind: 'agent_message_completed', data: { text: 'synthetic fallback' } }] };
+    const delegate = new FakeAgentProvider(script, 'fake');
+    this.delegates.push(delegate);
+    return delegate.start(context);
+  }
+
+  override async cancel(runId: string): Promise<void> {
+    await Promise.all(this.delegates.map((delegate) => delegate.cancel(runId).catch(() => undefined)));
+    await super.cancel(runId).catch(() => undefined);
+  }
+
+  override async dispose(): Promise<void> {
+    await Promise.all(this.delegates.map((delegate) => delegate.dispose()));
+    await super.dispose();
+  }
+}
+
+function successScript(text: string): FakeAgentScript {
+  return { steps: [{ kind: 'agent_message_completed', data: { text } }], outcome: { state: 'succeeded' } };
+}
+
+function questionsScript(): FakeAgentScript {
+  return successScript(JSON.stringify({
+    schemaVersion: 1,
+    questions: [{ id: 'q1', question: 'Welche Stärke soll im Anschreiben betont werden?', why: 'Persönlicher Fokus.' }],
+  }));
+}
+
 describe('public agent orchestration API', () => {
   it('creates guided server-owned analysis and exposes only the persisted safe projection via get/list', async () => {
     const value = await apiFixture();
@@ -264,6 +306,10 @@ describe('public agent orchestration API', () => {
       createdAt: new Date().toISOString(),
     };
     await value.workspace.saveArtifactRevision(revision);
+    // The real flow writes the bytes via createArtifactRevision; the resolver
+    // reads and hash-verifies exactly this file before roles see any content.
+    await mkdir(resolve(value.workRoot, sourceCase.id, 'revisions'), { recursive: true });
+    await writeFile(resolve(value.workRoot, revision.artifactPath), revisionContent, 'utf8');
 
     const created = await request(value.app).post('/api/application-cases').send({
       match: { job: sourceCase.job },
@@ -348,6 +394,136 @@ describe('public agent orchestration API', () => {
     expect(changedProfile.status, changedProfile.text).toBe(202);
     const failedProfile = await waitForStatus(value.app, changedProfile.body.id, ['failed']);
     expect(JSON.stringify(failedProfile.body)).toContain('orchestration_candidate_profile_changed_since_binding');
+  }, 30_000);
+
+  it('asks bounded finalizer questions, resumes with answers and binds the result', async () => {
+    const finalHtml = '<!doctype html><html lang="de"><head><title>Anschreiben</title></head><body data-result="final-agent-html"><p>Sicherer Text</p></body></html>';
+    const provider = new RoleAwareFakeProvider({
+      evidence: [successScript('{"matrix":[]}')],
+      author: [successScript('Entwurf')],
+      ats: [successScript('{"findings":[]}')],
+      style: [successScript('{"findings":[]}')],
+      finalizer: [questionsScript(), successScript(finalHtml)],
+    });
+    const value = await apiFixture({ real: true, provider });
+    await value.workspace.saveApplicationCase(application());
+    const created = await request(value.app).post('/api/agent-orchestrations').send({
+      workflowId: 'evidence-application-package', providerId: 'fake', prompt: 'Guided Anschreiben.',
+      runtimeTarget, applicationCaseId: application().id, clarifications: true,
+    });
+    expect(created.status, created.text).toBe(202);
+    expect(created.body.runConfig).toMatchObject({ providerId: 'fake', workflowVersion: '1.2.0', runtimeTarget });
+    const asked = await waitForStatus(value.app, created.body.id, ['failed']);
+    expect(asked.body.status).toBe('failed');
+    expect(asked.body.finalizerQuestions).toMatchObject({
+      nodeId: 'finalizer',
+      questions: [expect.objectContaining({ id: 'q1' })],
+    });
+    expect(asked.body.finalizerQuestions.runId).toBeTruthy();
+    const finalizerNode = asked.body.nodes.find((node: { nodeId: string }) => node.nodeId === 'finalizer');
+    expect(finalizerNode.status).toBe('failed');
+    expect(finalizerNode.failureCategory).toBe('needs_input');
+    expect(finalizerNode.artifacts).toContainEqual(expect.objectContaining({ outputRef: 'finalizer_questions' }));
+    const firstFinalizer = provider.requests.find((request) => /Node: finalizer;/.test(request.task));
+    expect(String(firstFinalizer?.task)).toContain('Guided cover-letter questions');
+
+    const answered = await request(value.app)
+      .post(`/api/agent-orchestrations/${asked.body.id}/nodes/finalizer/retry`)
+      .send({
+        confirmed: true,
+        refinement: {
+          instructions: '', includePreviousVersion: false,
+          answers: [{ id: 'q1', question: 'Welche Stärke soll im Anschreiben betont werden?', answer: 'Keine Ergänzung' }],
+        },
+      });
+    expect(answered.status, answered.text).toBe(202);
+    expect(answered.body.retryOf).toEqual({ orchestrationId: asked.body.id, nodeId: 'finalizer' });
+    // The frozen configuration is carried over unchanged.
+    expect(answered.body.runConfig).toEqual(asked.body.runConfig);
+    const resumed = await waitForStatus(value.app, answered.body.id);
+    expect(resumed.body.status, JSON.stringify(resumed.body, null, 2)).toBe('succeeded');
+    expect(resumed.body.artifactRefs).toContainEqual(expect.objectContaining({ outputRef: 'final_html' }));
+    const answerRuns = provider.requests.filter((request) => /<answers>/.test(request.task));
+    expect(answerRuns).toHaveLength(1);
+    expect(String(answerRuns[0]?.task)).toContain('Keine Ergänzung');
+    expect(String(answerRuns[0]?.task)).toContain('never candidate evidence');
+    // Answers stay untrusted editing input: no claim or evidence artifact is produced from them.
+    expect(resumed.body.artifactRefs.every((artifact: { outputRef: string }) => artifact.outputRef !== 'finalizer_questions')).toBe(true);
+    // The source round stays persisted and untouched.
+    const sourceAgain = await request(value.app).get(`/api/agent-orchestrations/${asked.body.id}`).expect(200);
+    expect(sourceAgain.body.finalizerQuestions.questions[0].id).toBe('q1');
+  }, 30_000);
+
+  it('retries one failed node selectively with frozen config and bounded attempts', async () => {
+    const finalHtml = '<!doctype html><html lang="de"><head><title>CV</title></head><body data-result="final-agent-html"><p>Text</p></body></html>';
+    const provider = new RoleAwareFakeProvider({
+      evidence: [successScript('{"matrix":[]}')],
+      author: [successScript('Entwurf')],
+      ats: [
+        { steps: [{ kind: 'agent_message_completed', data: { text: 'vertrag verletzt' } }], outcome: { state: 'failed', failure: { code: 'validation_contract_violation', message: 'synthetic validation failure', retryable: false } } },
+        successScript('{"findings":[]}'),
+      ],
+      style: [successScript('{"findings":[]}')],
+      finalizer: [successScript(finalHtml)],
+    });
+    const value = await apiFixture({ real: true, provider });
+    await value.workspace.saveApplicationCase(application());
+    const created = await request(value.app).post('/api/agent-orchestrations').send({
+      workflowId: 'evidence-application-package', providerId: 'fake', prompt: 'CV Lauf.',
+      runtimeTarget, applicationCaseId: application().id,
+    });
+    expect(created.status, created.text).toBe(202);
+    const failed = await waitForStatus(value.app, created.body.id, ['failed']);
+    expect(failed.body.status).toBe('failed');
+    const atsNode = failed.body.nodes.find((node: { nodeId: string }) => node.nodeId === 'ats');
+    expect(atsNode.status).toBe('failed');
+
+    const retried = await request(value.app)
+      .post(`/api/agent-orchestrations/${failed.body.id}/nodes/ats/retry`)
+      .send({ confirmed: true });
+    expect(retried.status, retried.text).toBe(202);
+    expect(retried.body.retryOf).toEqual({ orchestrationId: failed.body.id, nodeId: 'ats' });
+    // Unaffected predecessors keep their validated artifacts; the failed node and
+    // its dependents start fresh.
+    const sourceAuthor = failed.body.nodes.find((node: { nodeId: string }) => node.nodeId === 'author');
+    const retryAuthor = retried.body.nodes.find((node: { nodeId: string }) => node.nodeId === 'author');
+    expect(retryAuthor.artifacts).toEqual(sourceAuthor.artifacts);
+    expect(retried.body.nodes.find((node: { nodeId: string }) => node.nodeId === 'ats').attempts).toBe(0);
+    expect(retried.body.runConfig).toEqual(failed.body.runConfig);
+    const resumed = await waitForStatus(value.app, retried.body.id);
+    expect(resumed.body.status, JSON.stringify(resumed.body, null, 2)).toBe('succeeded');
+    expect(resumed.body.artifactRefs).toContainEqual(expect.objectContaining({ outputRef: 'final_html' }));
+
+    // Retry bounds: a chain of always-failing nodes ends with an explicit limit error.
+    const limited = new RoleAwareFakeProvider({
+      evidence: [successScript('{"matrix":[]}')],
+      author: [successScript('Entwurf')],
+      ats: [{ steps: [{ kind: 'agent_message_completed', data: { text: 'x' } }], outcome: { state: 'failed', failure: { code: 'validation_contract_violation', message: 'always', retryable: false } } }],
+      style: [successScript('{"findings":[]}')],
+      finalizer: [successScript(finalHtml)],
+    });
+    const second = await apiFixture({ real: true, provider: limited });
+    await second.workspace.saveApplicationCase(application());
+    const doomed = await request(second.app).post('/api/agent-orchestrations').send({
+      workflowId: 'evidence-application-package', providerId: 'fake', prompt: 'Immer fehlerhaft.',
+      runtimeTarget, applicationCaseId: application().id,
+    });
+    expect(doomed.status, doomed.text).toBe(202);
+    let current = (await waitForStatus(second.app, doomed.body.id, ['failed'])).body;
+    let retries = 0;
+    for (; retries < 6; retries += 1) {
+      const attempt = await request(second.app)
+        .post(`/api/agent-orchestrations/${current.id}/nodes/ats/retry`)
+        .send({ confirmed: true });
+      if (attempt.status === 409) break;
+      expect(attempt.status, attempt.text).toBe(202);
+      current = (await waitForStatus(second.app, attempt.body.id, ['failed'])).body;
+    }
+    expect(retries).toBeLessThanOrEqual(5);
+    const limit = await request(second.app)
+      .post(`/api/agent-orchestrations/${current.id}/nodes/ats/retry`)
+      .send({ confirmed: true });
+    expect(limit.status).toBe(409);
   }, 30_000);
 
   it('uses the bound incognito identity while keeping candidate-profile contact claims out of every role', async () => {

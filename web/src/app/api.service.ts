@@ -1,7 +1,7 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
-import type { AtsCheckReport, AgentArtifactAdoptionResult, AgentArtifactContent, AgentArtifactRecord, AgentConfigProfile, AgentConfigProfileView, AgentOrchestrationConfirmationInput, AgentOrchestrationConflict, AgentOrchestrationConflictResolutionRequest, AgentOrchestrationCreateRequest, AgentOrchestrationRecord, AgentProvider, AgentQueueSnapshot, AgentRecoveryDecision, AgentRecoveryLease, AgentRecoveryResolution, AgentRecoverySnapshot, AgentRun, AgentRunEvent, AgentRunEventsPage, AgentRunPreflight, AgentRunRequest, AgentWorkflow, AppConfig, ApplicationCase, ApplicationSourceCvCandidate, ApplicationDraft, ApplicationExportResult, ApplicationPipelineFinalizeResult, ApplicationProfileSetupStatus, ApplicationStyleProfileView, ArtifactRevision, CandidateMatchAnalysis, CandidateProfileSummary, CompanyCrm, CorrelatedMail, CvAiProviderSelection, CvAiStructuringOptions, CvAiStructuringPublicRun, CvAiStructuringSelection, CvAdoptionRevocationCandidates, CvFactOperation, CvIncognitoPreview, CvImportRecord, CvProfileSnapshotList, CvImportSummary, CvRecognitionVersionList, CvTheme, DataInventory, EditableApplicationStyleProfile, IdentityProfile, JobDecision, JobInventoryCategory, JobInventoryView, JobMatch, JobSearchMcpRuntimeCandidate, JobSourceCapabilities, LanguageCheckResult, MailAccount, McpRuntimeStatus, ProfileImportPreview, ProviderModelCatalog, ProviderCredentialSummary, AgentWslDistributionsView, SearchProfile, SearchRunSummary, SearchSchedule, SourceStatus, VersionApproval, VersionApprovalSnapshot } from './models';
+import type { AtsCheckReport, AgentArtifactAdoptionResult, AgentArtifactContent, AgentArtifactRecord, AgentConfigProfile, AgentConfigProfileView, AgentNodeRetryRefinement, AgentOrchestrationConfirmationInput, AgentOrchestrationConflict, AgentOrchestrationConflictResolutionRequest, AgentOrchestrationCreateRequest, AgentOrchestrationRecord, AgentProvider, AgentQueueSnapshot, AgentRecoveryDecision, AgentRecoveryLease, AgentRecoveryResolution, AgentRecoverySnapshot, AgentRun, AgentRunEvent, AgentRunEventsPage, AgentRunPreflight, AgentRunRequest, AgentWorkflow, AppConfig, ApplicationCase, ApplicationSourceCvCandidate, ApplicationDraft, ApplicationExportResult, ApplicationPipelineFinalizeResult, ApplicationProfileSetupStatus, ApplicationStyleProfileView, ArtifactRevision, CandidateMatchAnalysis, CandidateProfileSummary, CompanyCrm, CorrelatedMail, CvAiProviderSelection, CvAiStructuringOptions, CvAiStructuringPublicRun, CvAiStructuringSelection, CvAdoptionRevocationCandidates, CvFactOperation, CvIncognitoPreview, CvImportRecord, CvProfileSnapshotList, CvImportSummary, CvRecognitionVersionList, CvTheme, DataInventory, EditableApplicationStyleProfile, IdentityProfile, JobDecision, JobInventoryCategory, JobInventoryView, JobMatch, JobSearchMcpRuntimeCandidate, JobSourceCapabilities, LanguageCheckResult, MailAccount, McpRuntimeStatus, ProfileImportPreview, ProviderModelCatalog, ProviderCredentialSummary, AgentWslDistributionsView, SearchProfile, SearchRunSummary, SearchSchedule, SourceStatus, VersionApproval, VersionApprovalSnapshot } from './models';
 
 @Injectable({ providedIn: 'root' })
 export class ApiService {
@@ -363,6 +363,12 @@ export class ApiService {
     return this.http.post<AgentOrchestrationRecord>(`/api/agent-orchestrations/${encodeURIComponent(orchestrationId)}/continue`, {
       expectedRevision, ...confirmations
     });
+  }
+  retryAgentOrchestrationNode(orchestrationId: string, nodeId: string, refinement?: AgentNodeRetryRefinement): Observable<AgentOrchestrationRecord> {
+    return this.http.post<AgentOrchestrationRecord>(
+      `/api/agent-orchestrations/${encodeURIComponent(orchestrationId)}/nodes/${encodeURIComponent(nodeId)}/retry`,
+      { confirmed: true, ...(refinement ? { refinement } : {}) },
+    );
   }
   cancelAgentOrchestration(orchestrationId: string, expectedRevision: number): Observable<AgentOrchestrationRecord> {
     return this.http.post<AgentOrchestrationRecord>(`/api/agent-orchestrations/${encodeURIComponent(orchestrationId)}/cancel`, {

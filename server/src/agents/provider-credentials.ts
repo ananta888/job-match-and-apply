@@ -1,5 +1,6 @@
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
-import { chmod, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 
@@ -17,6 +18,12 @@ const ENV_NAME_BLOCKLIST = new Set([
   'LD_PRELOAD', 'LD_LIBRARY_PATH', 'NODE_OPTIONS', 'NODE_REPL_EXTERNAL_MODULE',
   'PYTHONSTARTUP', 'PYTHONPATH', 'PYTHONHOME', 'BASH_ENV', 'ENV', 'BASHOPTS', 'SHELLOPTS',
   'PERL5OPT', 'RUBYOPT', 'GIT_SSH_COMMAND',
+  // Server-owned isolation and routing must never be overridden from the vault:
+  // provider config content/paths, data homes and network redirections stay fixed.
+  'OPENCODE_CONFIG_CONTENT', 'OPENCODE_CONFIG', 'OPENCODE_DISABLE_PROJECT_CONFIG',
+  'CODEX_HOME', 'CLAUDE_CONFIG_DIR', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_CACHE_HOME',
+  'ANTHROPIC_BASE_URL', 'OPENAI_BASE_URL', 'OPENAI_API_BASE', 'OPENROUTER_ENDPOINT',
+  'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY', 'http_proxy', 'https_proxy', 'all_proxy', 'no_proxy',
 ]);
 
 export interface ProviderCredentialSummary {
@@ -32,6 +39,13 @@ export interface ProviderCredentialStorePort {
   put(providerId: string, env: Record<string, string>): Promise<ProviderCredentialSummary>;
   remove(providerId: string): Promise<ProviderCredentialSummary>;
   envForSync(providerId: string): NodeJS.ProcessEnv;
+}
+
+export class ProviderCredentialKeyUnavailableError extends Error {
+  constructor() {
+    super('Der verschlüsselte Provider-Schlüsselspeicher existiert, aber die zugehörige Schlüsseldatei fehlt. Der Speicher wird weder gelesen noch überschrieben.');
+    this.name = 'ProviderCredentialKeyUnavailableError';
+  }
 }
 
 export class ProviderCredentialValidationError extends Error {
@@ -123,19 +137,31 @@ export class ProviderCredentialStore implements ProviderCredentialStorePort {
   async put(providerId: string, env: Record<string, string>): Promise<ProviderCredentialSummary> {
     assertProviderId(providerId);
     const validated = validateCredentialEnv(env);
-    const records = await this.records();
-    records.set(providerId, { env: validated, updatedAt: new Date().toISOString() });
-    await this.persist(records);
-    return summarize(providerId, records.get(providerId));
+    return this.serialize(async () => {
+      const records = await this.records();
+      records.set(providerId, { env: validated, updatedAt: new Date().toISOString() });
+      await this.persist(records);
+      return summarize(providerId, records.get(providerId));
+    });
   }
 
   async remove(providerId: string): Promise<ProviderCredentialSummary> {
     assertProviderId(providerId);
-    const records = await this.records();
-    records.delete(providerId);
-    await this.persist(records);
-    return summarize(providerId, undefined);
+    return this.serialize(async () => {
+      const records = await this.records();
+      records.delete(providerId);
+      await this.persist(records);
+      return summarize(providerId, undefined);
+    });
   }
+
+  /** Mutations run strictly one after another; concurrent writers must never interleave load/persist. */
+  private serialize<T>(operation: () => Promise<T>): Promise<T> {
+    const next = this.queue.then(operation, operation);
+    this.queue = next.then(() => undefined, () => undefined);
+    return next;
+  }
+  private queue: Promise<unknown> = Promise.resolve();
 
   envForSync(providerId: string): NodeJS.ProcessEnv {
     if (!PROVIDER_ID.test(providerId)) return {};
@@ -150,6 +176,7 @@ export class ProviderCredentialStore implements ProviderCredentialStorePort {
       const envelope = JSON.parse(await readFile(this.filePath, 'utf8')) as CredentialEnvelope;
       this.cache = this.decrypt(envelope);
     } catch (error) {
+      if (error instanceof ProviderCredentialKeyUnavailableError) throw error;
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') this.cache = new Map();
       else if (error instanceof SyntaxError) throw new Error('provider_credentials_store_invalid');
       else throw error;
@@ -162,6 +189,7 @@ export class ProviderCredentialStore implements ProviderCredentialStorePort {
       const raw = readFileSync(this.filePath, 'utf8');
       return this.decrypt(JSON.parse(raw) as CredentialEnvelope);
     } catch (error) {
+      if (error instanceof ProviderCredentialKeyUnavailableError) throw error;
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return new Map();
       if (error instanceof SyntaxError) throw new Error('provider_credentials_store_invalid');
       throw error;
@@ -197,10 +225,14 @@ export class ProviderCredentialStore implements ProviderCredentialStorePort {
       },
     };
     await mkdir(dirname(this.filePath), { recursive: true });
-    const temporary = `${this.filePath}.tmp`;
-    await writeFile(temporary, `${JSON.stringify(envelope)}\n`, { mode: 0o600 });
-    await chmod(temporary, 0o600);
-    await rename(temporary, this.filePath);
+    const temporary = `${this.filePath}.${process.pid}-${randomUUID()}.tmp`;
+    try {
+      await writeFile(temporary, `${JSON.stringify(envelope)}\n`, { mode: 0o600 });
+      await chmod(temporary, 0o600);
+      await rename(temporary, this.filePath);
+    } finally {
+      await rm(temporary, { force: true }).catch(() => undefined);
+    }
     this.cache = records;
   }
 
@@ -208,7 +240,13 @@ export class ProviderCredentialStore implements ProviderCredentialStorePort {
     if (envelope.schemaVersion !== 1 || !envelope.encrypted || envelope.encrypted.algorithm !== 'aes-256-gcm') {
       throw new Error('provider_credentials_store_invalid');
     }
-    const key = readFileSync(this.keyPath);
+    let key: Buffer;
+    try {
+      key = readFileSync(this.keyPath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new ProviderCredentialKeyUnavailableError();
+      throw error;
+    }
     const decipher = createDecipheriv('aes-256-gcm', key, Buffer.from(envelope.encrypted.iv, 'base64'));
     decipher.setAuthTag(Buffer.from(envelope.encrypted.tag, 'base64'));
     const plaintext = Buffer.concat([
@@ -242,15 +280,26 @@ export class MemoryProviderCredentialStore implements ProviderCredentialStorePor
   async put(providerId: string, env: Record<string, string>): Promise<ProviderCredentialSummary> {
     assertProviderId(providerId);
     const validated = validateCredentialEnv(env);
-    this.records.set(providerId, { env: validated, updatedAt: new Date().toISOString() });
-    return summarize(providerId, this.records.get(providerId));
+    return this.serialize(async () => {
+      this.records.set(providerId, { env: validated, updatedAt: new Date().toISOString() });
+      return summarize(providerId, this.records.get(providerId));
+    });
   }
 
   async remove(providerId: string): Promise<ProviderCredentialSummary> {
     assertProviderId(providerId);
-    this.records.delete(providerId);
-    return summarize(providerId, undefined);
+    return this.serialize(async () => {
+      this.records.delete(providerId);
+      return summarize(providerId, undefined);
+    });
   }
+
+  private serialize<T>(operation: () => Promise<T>): Promise<T> {
+    const next = this.queue.then(operation, operation);
+    this.queue = next.then(() => undefined, () => undefined);
+    return next;
+  }
+  private queue: Promise<unknown> = Promise.resolve();
 
   envForSync(providerId: string): NodeJS.ProcessEnv {
     const record = this.records.get(providerId);
@@ -270,7 +319,8 @@ export function installProviderCredentialEnv(resolver: CredentialEnvResolver | u
 export function providerCredentialEnv(providerId: string): NodeJS.ProcessEnv {
   try {
     return credentialEnvResolver?.(providerId) ?? {};
-  } catch {
+  } catch (error) {
+    if (error instanceof ProviderCredentialKeyUnavailableError) throw error;
     return {};
   }
 }

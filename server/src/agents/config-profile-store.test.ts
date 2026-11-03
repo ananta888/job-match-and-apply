@@ -9,11 +9,14 @@ describe('AgentConfigProfileStore', () => {
     const root = await mkdtemp(join(tmpdir(), 'agent-config-'));
     const store = new AgentConfigProfileStore(root);
     const safe = await store.reset(new Date('2026-08-14T00:00:00Z'));
+    // Sandbox CLIs default to the host-appropriate runtime: native linux on Linux
+    // hosts (including a server inside a WSL distro), the wsl.exe contract on Windows.
+    const sandboxCliTarget = process.platform === 'linux' ? 'linux' : 'wsl';
     expect(safe.providers).toEqual(expect.arrayContaining([
       expect.objectContaining({ provider: 'fake', enabled: true, sandbox: 'read-only', network: 'disabled', approvalMode: 'deny' }),
       expect.objectContaining({ provider: 'codex-exec', enabled: true, sandbox: 'read-only', network: 'disabled', approvalMode: 'explicit' }),
-      expect.objectContaining({ provider: 'opencode', enabled: true, runtimeTarget: 'wsl', sandbox: 'read-only', network: 'disabled' }),
-      expect.objectContaining({ provider: 'claude-cli', enabled: true, runtimeTarget: 'wsl', sandbox: 'read-only', network: 'disabled' }),
+      expect.objectContaining({ provider: 'opencode', enabled: true, runtimeTarget: sandboxCliTarget, sandbox: 'read-only', network: 'disabled' }),
+      expect.objectContaining({ provider: 'claude-cli', enabled: true, runtimeTarget: sandboxCliTarget, sandbox: 'read-only', network: 'disabled' }),
       expect.objectContaining({ provider: 'acp', enabled: true, sandbox: 'read-only', network: 'disabled', approvalMode: 'deny' }),
     ]));
     expect(safe.features).toEqual({

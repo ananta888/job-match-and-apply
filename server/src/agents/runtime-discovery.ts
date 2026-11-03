@@ -5,6 +5,7 @@ import { isAbsolute, posix, resolve, win32 } from 'node:path';
 import type { AgentProviderInstallation, RuntimeTarget } from '../ports/agent-runner.js';
 import { buildMinimalLocalChildEnvironment } from '../services/process-environment.js';
 import { CODEX_CONFORMED_VERSION_PATTERN } from './codex-offline-policy.js';
+import { isVersionApproved, type VersionApproval } from './version-approvals.js';
 
 export interface ProviderDiscoveryDefinition {
   provider: string;
@@ -113,8 +114,36 @@ async function executableCandidates(name: string, env: NodeJS.ProcessEnv, platfo
   return [...new Set(found)];
 }
 
+export type VersionApprovalSource = () => Promise<readonly VersionApproval[]> | readonly VersionApproval[];
+
 export class AgentRuntimeDiscovery {
-  constructor(private readonly executor: DiscoveryCommandExecutor = new SpawnDiscoveryCommandExecutor()) {}
+  constructor(
+    private readonly executor: DiscoveryCommandExecutor = new SpawnDiscoveryCommandExecutor(),
+    private readonly versionApprovals?: VersionApprovalSource,
+  ) {}
+
+  private async approvals(): Promise<readonly VersionApproval[]> {
+    if (!this.versionApprovals) return [];
+    try { return await this.versionApprovals(); } catch { return []; }
+  }
+
+  /**
+   * An explicit local user approval upgrades exactly one probe result: an installed
+   * version whose contract fixtures do not cover it. Auth failures, shell wrappers,
+   * missing versions and known-bad patterns are never upgraded.
+   */
+  private approvalUpgrade(
+    approvals: readonly VersionApproval[],
+    base: Pick<AgentProviderInstallation, 'support' | 'reason'>,
+    probe: { provider: string; executable: string; runtimeTarget: RuntimeTarget; distribution?: string; version: string | undefined },
+  ): Pick<AgentProviderInstallation, 'support' | 'reason' | 'userApproved'> {
+    if (base.support !== 'untested' || probe.version === undefined) return base;
+    if (!isVersionApproved(approvals, {
+      provider: probe.provider, executable: probe.executable, runtimeTarget: probe.runtimeTarget,
+      ...(probe.distribution ? { distribution: probe.distribution } : {}), version: probe.version,
+    })) return base;
+    return { support: 'supported', reason: 'Version vom Nutzer freigegeben.', userApproved: true };
+  }
 
   async discoverLocal(
     definition: ProviderDiscoveryDefinition,
@@ -130,12 +159,15 @@ export class AgentRuntimeDiscovery {
       }
       const result = await this.executor.run(executable, definition.versionArgs, PROBE_TIMEOUT_MS);
       const version = result.exitCode === 0 ? (result.stdout || result.stderr).trim().split(/\r?\n/, 1)[0] : undefined;
-      const support = supportFor(version, definition);
+      const runtimeTarget = platformTarget(platform);
+      const upgraded = this.approvalUpgrade(await this.approvals(), supportFor(version, definition), {
+        provider: definition.provider, executable, runtimeTarget, version,
+      });
       const auth = definition.authStatusArgs ? await this.executor.run(executable, definition.authStatusArgs, PROBE_TIMEOUT_MS) : undefined;
       const authStatus = auth ? auth.exitCode === 0 ? 'authenticated' as const : 'unauthenticated' as const : 'unknown' as const;
       installations.push({
-        provider: definition.provider, runtimeTarget: platformTarget(platform), executable, version,
-        ...support, ...(authStatus === 'unauthenticated' ? { support: 'unavailable' as const, reason: 'CLI ist installiert, aber nicht authentifiziert.' } : {}),
+        provider: definition.provider, runtimeTarget, executable, version,
+        ...upgraded, ...(authStatus === 'unauthenticated' ? { support: 'unavailable' as const, reason: 'CLI ist installiert, aber nicht authentifiziert.', userApproved: undefined } : {}),
         authStatus, authNote: auth ? (authStatus === 'authenticated' ? 'Authentifizierung bestätigt.' : 'Authentifizierung erforderlich.') : 'Kein sicherer Auth-Status-Probevertrag hinterlegt.'
       });
     }
@@ -161,12 +193,15 @@ export class AgentRuntimeDiscovery {
         if (!runtimeExecutable?.startsWith('/')) continue;
         const versionResult = await this.executor.run(wslExecutable, ['-d', distribution, '--', runtimeExecutable, ...definition.versionArgs], PROBE_TIMEOUT_MS);
         const version = versionResult.exitCode === 0 ? (versionResult.stdout || versionResult.stderr).trim().split(/\r?\n/, 1)[0] : undefined;
+        const upgraded = this.approvalUpgrade(await this.approvals(), supportFor(version, definition), {
+          provider: definition.provider, executable: runtimeExecutable, runtimeTarget: 'wsl', distribution, version,
+        });
         const auth = definition.authStatusArgs ? await this.executor.run(wslExecutable, ['-d', distribution, '--', runtimeExecutable, ...definition.authStatusArgs], PROBE_TIMEOUT_MS) : undefined;
         const authStatus = auth ? auth.exitCode === 0 ? 'authenticated' as const : 'unauthenticated' as const : 'unknown' as const;
         installations.push({
           provider: definition.provider, runtimeTarget: 'wsl', executable: wslExecutable,
-          runtimeExecutable, distribution, version, ...supportFor(version, definition),
-          ...(authStatus === 'unauthenticated' ? { support: 'unavailable' as const, reason: 'CLI ist in WSL installiert, aber nicht authentifiziert.' } : {}),
+          runtimeExecutable, distribution, version, ...upgraded,
+          ...(authStatus === 'unauthenticated' ? { support: 'unavailable' as const, reason: 'CLI ist in WSL installiert, aber nicht authentifiziert.', userApproved: undefined } : {}),
           authStatus, authNote: auth ? (authStatus === 'authenticated' ? 'Authentifizierung bestätigt.' : 'Authentifizierung erforderlich.') : 'Kein sicherer Auth-Status-Probevertrag hinterlegt.'
         });
       }

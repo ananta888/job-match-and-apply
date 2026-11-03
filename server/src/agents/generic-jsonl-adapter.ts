@@ -17,6 +17,7 @@ import { IncrementalJsonlParser, type JsonlBatch } from './jsonl-parser.js';
 import { DEFAULT_PROCESS_LIMITS, ProcessSupervisor, type ProcessResult, type SupervisedProcess } from './process-supervisor.js';
 import { assertTrustedHostJobMcpNotNestedInAgentSandbox, WslBubblewrapSandboxBoundary, type ExternalSandboxBoundary } from './provider-sandbox.js';
 import { recoverOpencodeAssistantText } from './opencode-session-recover.js';
+import { providerCredentialEnv } from './provider-credentials.js';
 import { AgentRuntimeDiscovery, type ProviderDiscoveryDefinition } from './runtime-discovery.js';
 import {
   CODEX_OFFLINE_NETWORK_CONTRACT,
@@ -64,10 +65,11 @@ const SAFE_ENVIRONMENT_KEYS = [
 ] as const;
 
 /** Child processes receive only operating-system basics unless a composition root injects more. */
-export const buildMinimalProviderEnvironment: ProviderEnvironmentBuilder = () => {
+export const buildMinimalProviderEnvironment: ProviderEnvironmentBuilder = (provider) => {
   const environment: NodeJS.ProcessEnv = {};
   for (const key of SAFE_ENVIRONMENT_KEYS) if (process.env[key] !== undefined) environment[key] = process.env[key];
-  return environment;
+  // Locally stored provider credentials (API keys) are merged per provider; values never pass through argv.
+  return { ...environment, ...providerCredentialEnv(provider) };
 };
 
 function canonicalManifest(value: AgentAdapterManifest): string {
@@ -240,7 +242,10 @@ export class GenericJsonlAgentAdapter implements AgentRunnerPort {
     const version = installation.version;
     const exactVersionSupported = version !== undefined && version === version.trim() && !/[\r\n\0]/.test(version)
       && this.manifest.testedVersionPatterns.some((pattern) => new RegExp(pattern, 'i').test(version));
-    if (!this.allowUntestedVersions && (installation.support === 'untested' || !exactVersionSupported)) {
+    // A local user version approval (userApproved) is the only path besides the
+    // contract fixtures that may launch a version this adapter did not test.
+    if (!this.allowUntestedVersions && (installation.support === 'untested'
+      || (!exactVersionSupported && installation.userApproved !== true))) {
       throw new Error('Provider-Version ist nicht durch Contract-Fixtures freigegeben.');
     }
     if (!isAbsolute(request.workspaceRoot)) throw new Error('Workspace muss vor dem Providerstart absolut validiert sein.');

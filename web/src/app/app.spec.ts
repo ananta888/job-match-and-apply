@@ -429,6 +429,12 @@ describe('App', () => {
         ]
       }])),
       agentConfigProfile: vi.fn().mockReturnValue(of(structuredClone(agentConfigProfileFixture))),
+      versionApprovals: vi.fn().mockReturnValue(of({ schemaVersion: 1, updatedAt: null, approvals: [] })),
+      saveVersionApproval: vi.fn(),
+      revokeVersionApproval: vi.fn(),
+      providerCredentials: vi.fn().mockReturnValue(of([])),
+      saveProviderCredentials: vi.fn(),
+      deleteProviderCredentials: vi.fn(),
       saveAgentConfigProfile: vi.fn().mockImplementation((_current, profile) => of({
         source: 'primary', profile: { ...structuredClone(profile), schemaVersion: 2, updatedAt: '2026-08-14T08:00:01.000Z' }
       })),
@@ -2075,6 +2081,48 @@ describe('App', () => {
     expect(String(request?.prompt)).toContain('logisch auf dem Lebenslauf');
     expect(String(request?.prompt)).toContain(candidate.sha256);
     expect(component.applicationAgentOrchestrationId).toBe('33333333-3333-4333-8333-333333333333');
+    fixture.destroy();
+  });
+
+  it('approves an untested provider version and stores an API key without echoing it', async () => {
+    const secret = 'sk-live-must-not-be-echoed';
+    const untestedInstallation = {
+      runtimeTarget: 'linux' as const, version: '2.0.0', support: 'untested' as const,
+      executable: '/usr/local/bin/synthetic-agent'
+    };
+    apiMock['agentProviders'].mockReturnValue(of([{
+      id: 'opencode', name: 'opencode', available: true, installations: [untestedInstallation]
+    }]));
+    apiMock['saveVersionApproval'].mockReturnValue(of({
+      schemaVersion: 1, updatedAt: '2026-11-03T10:00:00.000Z',
+      approvals: [{ provider: 'opencode', executable: '/usr/local/bin/synthetic-agent', runtimeTarget: 'linux', version: '2.0.0', approvedAt: '2026-11-03T10:00:00.000Z' }]
+    }));
+    apiMock['saveProviderCredentials'].mockReturnValue(of({
+      providerId: 'opencode', hasSecret: true, envKeys: ['OPENAI_API_KEY'], updatedAt: '2026-11-03T10:00:01.000Z'
+    }));
+    const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
+    const component = fixture.componentInstance;
+    component.select('agents'); fixture.detectChanges(); await fixture.whenStable();
+    const element = fixture.nativeElement as HTMLElement;
+    expect(element.querySelector('[data-testid="agent-provider-setup"]')).toBeTruthy();
+
+    component.approveProviderInstallation('opencode', untestedInstallation);
+    expect(apiMock['saveVersionApproval']).toHaveBeenCalledWith(null, {
+      provider: 'opencode', executable: '/usr/local/bin/synthetic-agent', runtimeTarget: 'linux', version: '2.0.0'
+    });
+    expect(component.agentVersionApprovals.approvals).toHaveLength(1);
+    fixture.detectChanges(); await fixture.whenStable();
+    expect(element.querySelector('[data-testid="agent-version-approved"]')).toBeTruthy();
+
+    component.agentCredentialDraft = { providerId: 'opencode', envKey: 'OPENAI_API_KEY', envSecret: secret, confirmed: true };
+    expect(component.credentialSaveUnavailableReason()).toBe('');
+    component.saveProviderCredentials();
+    expect(apiMock['saveProviderCredentials']).toHaveBeenCalledWith('opencode', { OPENAI_API_KEY: secret });
+    expect(component.agentCredentialDraft.envSecret).toBe('');
+    fixture.detectChanges(); await fixture.whenStable();
+    const panelText = element.querySelector('[data-testid="agent-provider-setup"]')?.textContent ?? '';
+    expect(panelText).not.toContain(secret);
+    expect(element.querySelector('[data-testid="credential-save"]')).toBeTruthy();
     fixture.destroy();
   });
 

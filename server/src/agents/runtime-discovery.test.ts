@@ -56,6 +56,62 @@ describe('AgentRuntimeDiscovery', () => {
     expect(calls[1]?.args).toEqual(['-d', 'Ubuntu', '--', 'bash', '-lc', 'command -v -- synthetic-agent']);
   });
 
+  it('upgrades an untested WSL version only through an exact local user approval', async () => {
+    const executor: DiscoveryCommandExecutor = {
+      async run(executable, args) {
+        if (args[0] === '--list') return { exitCode: 0, stdout: 'Ubuntu\0\r\n', stderr: '' };
+        if (args.includes('command -v -- synthetic-agent')) return { exitCode: 0, stdout: '/usr/local/bin/synthetic-agent\n', stderr: '' };
+        return { exitCode: 0, stdout: 'synthetic 2.0.0\n', stderr: '' };
+      }
+    };
+    const probe = {
+      provider: 'synthetic', executable: '/usr/local/bin/synthetic-agent',
+      runtimeTarget: 'wsl' as const, distribution: 'Ubuntu', version: 'synthetic 2.0.0',
+    };
+    const plain = await new AgentRuntimeDiscovery(executor).discoverWsl(definition);
+    expect(plain[0]).toEqual(expect.objectContaining({ support: 'untested' }));
+    expect(plain[0]?.userApproved).toBeUndefined();
+
+    const approved = await new AgentRuntimeDiscovery(executor, () => [
+      { ...probe, approvedAt: '2026-11-03T10:00:00.000Z' },
+    ]).discoverWsl(definition);
+    expect(approved[0]).toEqual(expect.objectContaining({
+      support: 'supported', userApproved: true, reason: 'Version vom Nutzer freigegeben.',
+    }));
+
+    const wrongVersion = await new AgentRuntimeDiscovery(executor, () => [
+      { ...probe, version: 'synthetic 9.9.9', approvedAt: '2026-11-03T10:00:00.000Z' },
+    ]).discoverWsl(definition);
+    expect(wrongVersion[0]).toEqual(expect.objectContaining({ support: 'untested' }));
+    expect(wrongVersion[0]?.userApproved).toBeUndefined();
+
+    const failingStore = await new AgentRuntimeDiscovery(executor, () => { throw new Error('store unavailable'); }).discoverWsl(definition);
+    expect(failingStore[0]).toEqual(expect.objectContaining({ support: 'untested' }));
+  });
+
+  it('never upgrades a shell wrapper or an unauthenticated CLI through user approval', async () => {
+    const definitionWithAuth: ProviderDiscoveryDefinition = {
+      ...definition, authStatusArgs: ['login', 'status'],
+    };
+    const executor: DiscoveryCommandExecutor = {
+      async run(executable, args) {
+        if (args[0] === '--list') return { exitCode: 0, stdout: 'Ubuntu\0\r\n', stderr: '' };
+        if (args.includes('command -v -- synthetic-agent')) return { exitCode: 0, stdout: '/usr/local/bin/synthetic-agent\n', stderr: '' };
+        if (args.includes('login')) return { exitCode: 1, stdout: '', stderr: 'not logged in' };
+        return { exitCode: 0, stdout: 'synthetic 2.0.0\n', stderr: '' };
+      }
+    };
+    const probe = {
+      provider: 'synthetic', executable: '/usr/local/bin/synthetic-agent',
+      runtimeTarget: 'wsl' as const, distribution: 'Ubuntu', version: 'synthetic 2.0.0',
+    };
+    const found = await new AgentRuntimeDiscovery(executor, () => [
+      { ...probe, approvedAt: '2026-11-03T10:00:00.000Z' },
+    ]).discoverWsl(definitionWithAuth);
+    expect(found[0]).toEqual(expect.objectContaining({ support: 'unavailable' }));
+    expect(found[0]?.userApproved).toBeUndefined();
+  });
+
   it('gives the CLI version/auth probes a long timeout while enumeration stays quick', async () => {
     const calls: Array<{ args: readonly string[]; timeoutMs?: number }> = [];
     const withAuth: ProviderDiscoveryDefinition = { ...definition, authStatusArgs: ['login', 'status'] };

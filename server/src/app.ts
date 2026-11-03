@@ -68,6 +68,15 @@ import { EncryptedAgentRunStore } from './agents/encrypted-run-store.js';
 import { FakeAgentProvider } from './agents/fake-agent-provider.js';
 import { ClaudeCliAgentAdapter, CodexExecAgentAdapter, OpenCodeAgentAdapter } from './agents/provider-adapters.js';
 import { AcpAgentAdapter } from './agents/acp-adapter.js';
+import { AgentRuntimeDiscovery } from './agents/runtime-discovery.js';
+import {
+  JsonVersionApprovalStore, MemoryVersionApprovalStore, VersionApprovalConflictError, VersionApprovalNotFoundError,
+  type VersionApprovalKey, type VersionApprovalStore,
+} from './agents/version-approvals.js';
+import {
+  MemoryProviderCredentialStore, ProviderCredentialStore, ProviderCredentialValidationError,
+  installProviderCredentialEnv, type ProviderCredentialStorePort,
+} from './agents/provider-credentials.js';
 import { APPLICATION_AGENT_WORKFLOWS } from './agents/application-workflows.js';
 import { AgentTelemetry } from './agents/telemetry.js';
 import { PromptAssembler, ScopedContextBuilder, TaskTemplateRegistry, registerBuiltinTaskTemplates, type ContextSource } from './agents/security-context.js';
@@ -370,6 +379,8 @@ export interface AgentApiDependencies {
   retention?: AgentRetentionCoordinator;
   retentionJournal?: AgentRetentionJournal;
   configProfiles?: AgentConfigProfileStore;
+  versionApprovals?: VersionApprovalStore;
+  providerCredentials?: ProviderCredentialStorePort;
   observability?: AgentLocalObservability;
   idempotency?: JsonAgentIdempotencyStore;
 }
@@ -433,6 +444,12 @@ export function createDefaultAgentApiDependencies(memory = false): AgentApiDepen
   const store: AgentRunStore = memory
     ? new MemoryAgentRunStore()
     : new EncryptedAgentRunStore(new JsonAgentRunStore(resolve(process.cwd(), '..', '.local-data', 'agent-runs')));
+  const versionApprovals = memory ? new MemoryVersionApprovalStore()
+    : new JsonVersionApprovalStore(resolve(workspaceRoot, '.local-data', 'agent-version-approvals.json'));
+  const providerCredentials = memory ? new MemoryProviderCredentialStore()
+    : new ProviderCredentialStore(resolve(workspaceRoot, '.local-data', 'agent-provider-secrets.json'));
+  installProviderCredentialEnv((providerId) => providerCredentials.envForSync(providerId));
+  const sharedDiscovery = new AgentRuntimeDiscovery(undefined, async () => (await versionApprovals.load()).approvals);
   const providers: AgentRunnerPort[] = [
     new FakeAgentProvider(),
     new FakeAgentProvider({
@@ -444,14 +461,14 @@ export function createDefaultAgentApiDependencies(memory = false): AgentApiDepen
       ],
       outcome: { state: 'succeeded' }
     }, 'fake-interactive'),
-    new CodexExecAgentAdapter(undefined, undefined, false, {
+    new CodexExecAgentAdapter(undefined, sharedDiscovery, false, {
       // The adapter creates a run-local CODEX_HOME containing only auth.json;
       // user/project MCP and plugin configuration is therefore not inherited.
       userConfigIsolationVerified: true,
     }),
-    new OpenCodeAgentAdapter(),
-    new ClaudeCliAgentAdapter(),
-    new AcpAgentAdapter(),
+    new OpenCodeAgentAdapter(undefined, sharedDiscovery),
+    new ClaudeCliAgentAdapter(undefined, sharedDiscovery),
+    new AcpAgentAdapter(undefined, sharedDiscovery),
   ];
   const runToolCalls = new Map<string, number>();
   const budgetStops = new Set<string>();
@@ -568,6 +585,8 @@ export function createDefaultAgentApiDependencies(memory = false): AgentApiDepen
       retentionJournal,
     ) : undefined,
     configProfiles,
+    versionApprovals,
+    providerCredentials,
     observability,
     idempotency: memory ? undefined : new JsonAgentIdempotencyStore(resolve(workspaceRoot, '.local-data', 'agent-idempotency')),
   };
@@ -1205,6 +1224,136 @@ export function createApp(
 
   app.get('/api/agents/providers', asyncRoute(async (request, response) => {
     response.json(await discoverAgentProviders(request.query.refresh === 'true'));
+  }));
+
+  const versionApprovalKeySchema = z.object({
+    provider: z.string().regex(/^[a-z][a-z0-9._-]{0,127}$/),
+    executable: z.string().min(1).max(1024).refine((value) => !/[\r\n\0]/.test(value)),
+    runtimeTarget: z.enum(['windows', 'wsl', 'linux', 'darwin']),
+    distribution: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/).optional(),
+    version: z.string().min(1).max(120).refine((value) => Boolean(value.trim()) && !/[\r\n\0]/.test(value)),
+  }).strict();
+
+  const requireVersionApprovals = (): VersionApprovalStore => {
+    if (!agentApi.versionApprovals) {
+      throw Object.assign(new Error('Lokale Versionsfreigaben sind nicht konfiguriert.'), { statusCode: 503 });
+    }
+    return agentApi.versionApprovals;
+  };
+  const requireProviderCredentials = (): ProviderCredentialStorePort => {
+    if (!agentApi.providerCredentials) {
+      throw Object.assign(new Error('Lokaler Provider-Zugangsspeicher ist nicht konfiguriert.'), { statusCode: 503 });
+    }
+    return agentApi.providerCredentials;
+  };
+  const rethrowVersionApprovalError = (error: unknown): never => {
+    if (error instanceof VersionApprovalConflictError) {
+      throw Object.assign(new Error('Die Freigabeliste wurde zwischenzeitlich geändert.'), { statusCode: 409 });
+    }
+    if (error instanceof VersionApprovalNotFoundError) {
+      throw Object.assign(new Error('Diese Freigabe existiert nicht mehr.'), { statusCode: 404 });
+    }
+    throw error;
+  };
+  const rethrowCredentialError = (error: unknown): never => {
+    if (error instanceof ProviderCredentialValidationError) {
+      throw Object.assign(new Error(error.message), { statusCode: 400 });
+    }
+    throw error;
+  };
+
+  app.get('/api/agents/version-approvals', asyncRoute(async (_request, response) => {
+    response.setHeader('cache-control', 'no-store');
+    response.json(await requireVersionApprovals().load());
+  }));
+
+  app.put('/api/agents/version-approvals', asyncRoute(async (request, response) => {
+    const payload = z.object({
+      expectedUpdatedAt: z.string().nullable(),
+      confirmed: z.literal(true),
+      approval: versionApprovalKeySchema,
+    }).strict().parse(request.body);
+    let snapshot;
+    try {
+      snapshot = await requireVersionApprovals().approve(payload.approval as VersionApprovalKey, payload.expectedUpdatedAt);
+    } catch (error) { rethrowVersionApprovalError(error); }
+    providerDiscoveryCache = undefined;
+    await audit!.write({
+      correlationId: response.locals.correlationId, operation: 'agent.version-approval.update',
+      status: 200, category: 'agent_provider_setup', occurredAt: new Date().toISOString(),
+    });
+    await agentApi.observability?.record({
+      level: 'info', component: 'policy', operation: 'version_approval_update', code: 'version_approved',
+      correlationId: response.locals.correlationId,
+    });
+    response.setHeader('cache-control', 'no-store');
+    response.json(snapshot);
+  }));
+
+  app.post('/api/agents/version-approvals/revoke', asyncRoute(async (request, response) => {
+    const payload = z.object({
+      expectedUpdatedAt: z.string().nullable(),
+      confirmed: z.literal(true),
+      approval: versionApprovalKeySchema,
+    }).strict().parse(request.body);
+    let snapshot;
+    try {
+      snapshot = await requireVersionApprovals().revoke(payload.approval as VersionApprovalKey, payload.expectedUpdatedAt);
+    } catch (error) { rethrowVersionApprovalError(error); }
+    providerDiscoveryCache = undefined;
+    await audit!.write({
+      correlationId: response.locals.correlationId, operation: 'agent.version-approval.revoke',
+      status: 200, category: 'agent_provider_setup', occurredAt: new Date().toISOString(),
+    });
+    await agentApi.observability?.record({
+      level: 'info', component: 'policy', operation: 'version_approval_revoke', code: 'version_revoked',
+      correlationId: response.locals.correlationId,
+    });
+    response.setHeader('cache-control', 'no-store');
+    response.json(snapshot);
+  }));
+
+  app.get('/api/agents/providers/credentials', asyncRoute(async (_request, response) => {
+    response.setHeader('cache-control', 'no-store');
+    response.json(await requireProviderCredentials().list());
+  }));
+
+  app.put('/api/agents/providers/:providerId/credentials', asyncRoute(async (request, response) => {
+    const providerId = z.string().regex(/^[a-z][a-z0-9._-]{0,127}$/).parse(request.params.providerId);
+    const payload = z.object({
+      confirmed: z.literal(true),
+      env: z.record(z.string(), z.string()),
+    }).strict().parse(request.body);
+    let summary;
+    try {
+      summary = await requireProviderCredentials().put(providerId, payload.env);
+    } catch (error) { rethrowCredentialError(error); }
+    await audit!.write({
+      correlationId: response.locals.correlationId, operation: 'agent.credentials.update',
+      status: 200, category: 'agent_provider_setup', occurredAt: new Date().toISOString(),
+    });
+    await agentApi.observability?.record({
+      level: 'info', component: 'policy', operation: 'credentials_update', code: 'provider_credentials_updated',
+      correlationId: response.locals.correlationId, provider: providerId,
+    });
+    response.setHeader('cache-control', 'no-store');
+    response.json(summary);
+  }));
+
+  app.delete('/api/agents/providers/:providerId/credentials', asyncRoute(async (request, response) => {
+    const providerId = z.string().regex(/^[a-z][a-z0-9._-]{0,127}$/).parse(request.params.providerId);
+    z.object({ confirmed: z.literal(true) }).strict().parse(request.body);
+    const summary = await requireProviderCredentials().remove(providerId);
+    await audit!.write({
+      correlationId: response.locals.correlationId, operation: 'agent.credentials.delete',
+      status: 200, category: 'agent_provider_setup', occurredAt: new Date().toISOString(),
+    });
+    await agentApi.observability?.record({
+      level: 'info', component: 'policy', operation: 'credentials_delete', code: 'provider_credentials_deleted',
+      correlationId: response.locals.correlationId, provider: providerId,
+    });
+    response.setHeader('cache-control', 'no-store');
+    response.json(summary);
   }));
 
   app.get('/api/agents/providers/:providerId/models', asyncRoute(async (request, response) => {

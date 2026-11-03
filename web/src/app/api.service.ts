@@ -1,7 +1,7 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
-import type { AtsCheckReport, AgentArtifactAdoptionResult, AgentArtifactContent, AgentArtifactRecord, AgentConfigProfile, AgentConfigProfileView, AgentOrchestrationConfirmationInput, AgentOrchestrationConflict, AgentOrchestrationConflictResolutionRequest, AgentOrchestrationCreateRequest, AgentOrchestrationRecord, AgentProvider, AgentQueueSnapshot, AgentRecoveryDecision, AgentRecoveryLease, AgentRecoveryResolution, AgentRecoverySnapshot, AgentRun, AgentRunEvent, AgentRunEventsPage, AgentRunPreflight, AgentRunRequest, AgentWorkflow, AppConfig, ApplicationCase, ApplicationSourceCvCandidate, ApplicationDraft, ApplicationExportResult, ApplicationPipelineFinalizeResult, ApplicationProfileSetupStatus, ApplicationStyleProfileView, ArtifactRevision, CandidateMatchAnalysis, CandidateProfileSummary, CompanyCrm, CorrelatedMail, CvAiProviderSelection, CvAiStructuringOptions, CvAiStructuringPublicRun, CvAiStructuringSelection, CvAdoptionRevocationCandidates, CvFactOperation, CvIncognitoPreview, CvImportRecord, CvProfileSnapshotList, CvImportSummary, CvRecognitionVersionList, CvTheme, DataInventory, EditableApplicationStyleProfile, IdentityProfile, JobDecision, JobInventoryCategory, JobInventoryView, JobMatch, JobSearchMcpRuntimeCandidate, JobSourceCapabilities, LanguageCheckResult, MailAccount, McpRuntimeStatus, ProfileImportPreview, ProviderModelCatalog, SearchProfile, SearchRunSummary, SearchSchedule, SourceStatus } from './models';
+import type { AtsCheckReport, AgentArtifactAdoptionResult, AgentArtifactContent, AgentArtifactRecord, AgentConfigProfile, AgentConfigProfileView, AgentOrchestrationConfirmationInput, AgentOrchestrationConflict, AgentOrchestrationConflictResolutionRequest, AgentOrchestrationCreateRequest, AgentOrchestrationRecord, AgentProvider, AgentQueueSnapshot, AgentRecoveryDecision, AgentRecoveryLease, AgentRecoveryResolution, AgentRecoverySnapshot, AgentRun, AgentRunEvent, AgentRunEventsPage, AgentRunPreflight, AgentRunRequest, AgentWorkflow, AppConfig, ApplicationCase, ApplicationSourceCvCandidate, ApplicationDraft, ApplicationExportResult, ApplicationPipelineFinalizeResult, ApplicationProfileSetupStatus, ApplicationStyleProfileView, ArtifactRevision, CandidateMatchAnalysis, CandidateProfileSummary, CompanyCrm, CorrelatedMail, CvAiProviderSelection, CvAiStructuringOptions, CvAiStructuringPublicRun, CvAiStructuringSelection, CvAdoptionRevocationCandidates, CvFactOperation, CvIncognitoPreview, CvImportRecord, CvProfileSnapshotList, CvImportSummary, CvRecognitionVersionList, CvTheme, DataInventory, EditableApplicationStyleProfile, IdentityProfile, JobDecision, JobInventoryCategory, JobInventoryView, JobMatch, JobSearchMcpRuntimeCandidate, JobSourceCapabilities, LanguageCheckResult, MailAccount, McpRuntimeStatus, ProfileImportPreview, ProviderModelCatalog, ProviderCredentialSummary, SearchProfile, SearchRunSummary, SearchSchedule, SourceStatus, VersionApproval, VersionApprovalSnapshot } from './models';
 
 @Injectable({ providedIn: 'root' })
 export class ApiService {
@@ -324,6 +324,24 @@ export class ApiService {
     return this.http.put<AgentConfigProfileView>('/api/agents/config-profile', {
       expectedUpdatedAt: current.profile.updatedAt, confirmed: true, profile
     });
+  }
+  versionApprovals(): Observable<VersionApprovalSnapshot> {
+    return this.http.get<VersionApprovalSnapshot>('/api/agents/version-approvals');
+  }
+  saveVersionApproval(expectedUpdatedAt: string | null, approval: Omit<VersionApproval, 'approvedAt'>): Observable<VersionApprovalSnapshot> {
+    return this.http.put<VersionApprovalSnapshot>('/api/agents/version-approvals', { expectedUpdatedAt, confirmed: true, approval });
+  }
+  revokeVersionApproval(expectedUpdatedAt: string | null, approval: Omit<VersionApproval, 'approvedAt'>): Observable<VersionApprovalSnapshot> {
+    return this.http.post<VersionApprovalSnapshot>('/api/agents/version-approvals/revoke', { expectedUpdatedAt, confirmed: true, approval });
+  }
+  providerCredentials(): Observable<ProviderCredentialSummary[]> {
+    return this.http.get<ProviderCredentialSummary[]>('/api/agents/providers/credentials');
+  }
+  saveProviderCredentials(providerId: string, env: Record<string, string>): Observable<ProviderCredentialSummary> {
+    return this.http.put<ProviderCredentialSummary>(`/api/agents/providers/${encodeURIComponent(providerId)}/credentials`, { confirmed: true, env });
+  }
+  deleteProviderCredentials(providerId: string): Observable<ProviderCredentialSummary> {
+    return this.http.delete<ProviderCredentialSummary>(`/api/agents/providers/${encodeURIComponent(providerId)}/credentials`, { body: { confirmed: true } });
   }
   agentWorkflows(): Observable<AgentWorkflow[]> { return this.http.get<AgentWorkflow[]>('/api/agents/workflows'); }
   agentOrchestrations(): Observable<{ orchestrations: AgentOrchestrationRecord[] }> {

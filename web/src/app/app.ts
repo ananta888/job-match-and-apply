@@ -4,7 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { DomSanitizer, type SafeResourceUrl } from '@angular/platform-browser';
 import { ApiService } from './api.service';
 import { forkJoin, type Subscription } from 'rxjs';
-import type { AgentApproval, AgentArtifactContent, AgentArtifactRecord, AgentConfigProfile, AgentConfigProfileView, AgentOrchestrationConfirmationInput, AgentOrchestrationConflict, AgentOrchestrationConflictStrategy, AgentOrchestrationCreateRequest, AgentOrchestrationGate, AgentOrchestrationRecord, AgentProvider, AgentProviderConfigProfile, AgentProviderInstallation, AgentQueueBlockReason, AgentQueueSnapshot, AgentRecoveryDecision, AgentRecoveryLease, AgentRecoveryRun, AgentRun, AgentRunEvent, AgentRunPreflight, AgentRunRequest, AgentRunStatus, AgentRuntimeTarget, AgentWorkflow, AgentWorkspaceMode, AppConfig, ApplicationCase, ApplicationSourceCvCandidate, ApplicationDraft, ApplicationExportResult, ApplicationNextActionsProposalProjection, ApplicationProfileSetupStatus, ApplicationStyleDocumentType, ApplicationStyleExampleDocumentType, ApplicationStyleProfileView, ArtifactRevision, CandidateMatchAnalysis, CandidateProfileSummary, CompanyCrm, CorrelatedMail, CvAiProviderSelection, CvAiStructuringOptions, CvAiStructuringPublicRun, CvAiStructuringSelection, CvAiStructuringSuggestion, CvAdoptionLedgerEntry, CvFact, CvFactCategory, CvFactDecision, CvFactOperation, CvImportRecord, CvImportSummary, CvIncognitoPreview, CvProfileSnapshotSummary, CvRecognitionVersionList, CvRecognitionVersionSummary, CvTheme, CvLayoutFingerprint, CvLayoutSection, CvThemeOriginalLayout, CvLayoutPalette, JobInventoryView, JobInventoryCategory, SearchRunSummary, AtsCheckReport, JobSearchMcpRuntimeCandidate, DataInventory, EditableApplicationStyleProfile, EmployerResponseTriageProposalProjection, IdentityProfile, JobDecision, JobMatch, JobSourceCapabilities, LanguageCheckResult, MailAccount, McpRuntimeStatus, ProfileImportPreview, ProviderModelCatalog, SearchSchedule, Section, SourceCapability, SourceStatus } from './models';
+import type { AgentApproval, AgentArtifactContent, AgentArtifactRecord, AgentConfigProfile, AgentConfigProfileView, AgentOrchestrationConfirmationInput, AgentOrchestrationConflict, AgentOrchestrationConflictStrategy, AgentOrchestrationCreateRequest, AgentOrchestrationGate, AgentOrchestrationRecord, AgentProvider, AgentProviderConfigProfile, AgentProviderInstallation, AgentQueueBlockReason, AgentQueueSnapshot, AgentRecoveryDecision, AgentRecoveryLease, AgentRecoveryRun, AgentRun, AgentRunEvent, AgentRunPreflight, AgentRunRequest, AgentRunStatus, AgentRuntimeTarget, AgentWorkflow, AgentWorkspaceMode, AppConfig, ApplicationCase, ApplicationSourceCvCandidate, ApplicationDraft, ApplicationExportResult, ApplicationNextActionsProposalProjection, ApplicationProfileSetupStatus, ApplicationStyleDocumentType, ApplicationStyleExampleDocumentType, ApplicationStyleProfileView, ArtifactRevision, CandidateMatchAnalysis, CandidateProfileSummary, CompanyCrm, CorrelatedMail, CvAiProviderSelection, CvAiStructuringOptions, CvAiStructuringPublicRun, CvAiStructuringSelection, CvAiStructuringSuggestion, CvAdoptionLedgerEntry, CvFact, CvFactCategory, CvFactDecision, CvFactOperation, CvImportRecord, CvImportSummary, CvIncognitoPreview, CvProfileSnapshotSummary, CvRecognitionVersionList, CvRecognitionVersionSummary, CvTheme, CvLayoutFingerprint, CvLayoutSection, CvThemeOriginalLayout, CvLayoutPalette, JobInventoryView, JobInventoryCategory, SearchRunSummary, AtsCheckReport, JobSearchMcpRuntimeCandidate, DataInventory, EditableApplicationStyleProfile, EmployerResponseTriageProposalProjection, IdentityProfile, JobDecision, JobMatch, JobSourceCapabilities, LanguageCheckResult, MailAccount, McpRuntimeStatus, ProfileImportPreview, ProviderModelCatalog, ProviderCredentialSummary, SearchSchedule, Section, SourceCapability, SourceStatus, VersionApproval, VersionApprovalSnapshot } from './models';
 
 type AgentEventLevelFilter = 'all' | 'debug' | 'info' | 'warning' | 'error';
 type AgentTimelineView = 'readable' | 'diagnostic';
@@ -238,6 +238,16 @@ export class App implements OnInit, OnDestroy {
   agentConfigCostCurrency = 'EUR';
   agentConfigProfileBusy = false;
   agentConfigProfileError = '';
+  agentVersionApprovals: VersionApprovalSnapshot = { schemaVersion: 1, updatedAt: null, approvals: [] };
+  agentProviderCredentials: ProviderCredentialSummary[] = [];
+  agentProviderSetupBusy = false;
+  agentProviderSetupError = '';
+  agentCredentialDraft: { providerId: string; envKey: string; envSecret: string; confirmed: boolean } =
+    { providerId: '', envKey: 'OPENAI_API_KEY', envSecret: '', confirmed: false };
+  readonly credentialKeyPresets = [
+    'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GEMINI_API_KEY', 'OPENROUTER_API_KEY',
+    'DEEPSEEK_API_KEY', 'MISTRAL_API_KEY', 'GROQ_API_KEY', 'TOGETHER_API_KEY'
+  ];
   agentModelCatalogs: Record<string, ProviderModelCatalog> = {};
   agentModelCatalogBusy: Record<string, boolean> = {};
   agentModelCatalogError: Record<string, string> = {};
@@ -433,6 +443,7 @@ export class App implements OnInit, OnDestroy {
   loadAgentCenter(): void {
     this.loadAgentConfigProfile();
     this.loadAgentProviders();
+    this.loadAgentProviderSetup();
     this.api.applicationCases().subscribe({ next: (items) => { this.applicationCases = items; this.refreshView(); } });
     this.api.agentWorkflows().subscribe({ next: (items) => { this.agentWorkflows = items; this.refreshView(); } });
     this.refreshAgentRuns();
@@ -470,6 +481,135 @@ export class App implements OnInit, OnDestroy {
         this.agentConfigProfileError = this.message(error);
         this.refreshView();
       }
+    });
+  }
+
+  loadAgentProviderSetup(): void {
+    this.agentProviderSetupError = '';
+    this.api.versionApprovals().subscribe({
+      next: (snapshot) => { this.agentVersionApprovals = snapshot; this.refreshView(); },
+      error: (error) => { this.agentProviderSetupError = this.message(error); this.refreshView(); }
+    });
+    this.api.providerCredentials().subscribe({
+      next: (items) => { this.agentProviderCredentials = items; this.refreshView(); },
+      error: (error) => { this.agentProviderSetupError = this.message(error); this.refreshView(); }
+    });
+  }
+
+  versionApprovalKey(providerId: string, installation: AgentProviderInstallation): Omit<VersionApproval, 'approvedAt'> | undefined {
+    if (!providerId || !installation.executable || !installation.version) return undefined;
+    const key: Omit<VersionApproval, 'approvedAt'> = {
+      provider: providerId, executable: installation.executable,
+      runtimeTarget: installation.runtimeTarget, version: installation.version
+    };
+    if (installation.distribution) key.distribution = installation.distribution;
+    return key;
+  }
+
+  approvalMatchesKey(approval: VersionApproval, key: Omit<VersionApproval, 'approvedAt'>): boolean {
+    return approval.provider === key.provider && approval.executable === key.executable &&
+      approval.runtimeTarget === key.runtimeTarget && approval.version === key.version &&
+      (approval.distribution ?? '') === (key.distribution ?? '');
+  }
+
+  agentProviderSetupRows(): Array<{ key: string; providerId: string; installation: AgentProviderInstallation; approvalKey?: Omit<VersionApproval, 'approvedAt'>; approval?: VersionApproval }> {
+    const rows: Array<{ key: string; providerId: string; installation: AgentProviderInstallation; approvalKey?: Omit<VersionApproval, 'approvedAt'>; approval?: VersionApproval }> = [];
+    for (const provider of this.agentProviders) {
+      for (const installation of provider.installations ?? []) {
+        const approvalKey = this.versionApprovalKey(provider.id, installation);
+        if (!approvalKey) continue;
+        rows.push({
+          key: `${provider.id}:${installation.runtimeTarget}:${installation.distribution ?? ''}:${installation.version ?? ''}:${installation.executable ?? ''}`,
+          providerId: provider.id, installation, approvalKey,
+          approval: this.agentVersionApprovals.approvals.find((item) => this.approvalMatchesKey(item, approvalKey))
+        });
+      }
+    }
+    return rows;
+  }
+
+  orphanedVersionApprovals(): VersionApproval[] {
+    const keys = this.agentProviderSetupRows().map((row) => row.approvalKey).filter((key): key is Omit<VersionApproval, 'approvedAt'> => Boolean(key));
+    return this.agentVersionApprovals.approvals.filter((approval) => !keys.some((key) => this.approvalMatchesKey(approval, key)));
+  }
+
+  approveProviderInstallation(providerId: string, installation: AgentProviderInstallation): void {
+    const key = this.versionApprovalKey(providerId, installation);
+    if (!key || this.agentProviderSetupBusy) return;
+    this.agentProviderSetupBusy = true;
+    this.agentProviderSetupError = '';
+    this.api.saveVersionApproval(this.agentVersionApprovals.updatedAt, key).subscribe({
+      next: (snapshot) => {
+        this.agentVersionApprovals = snapshot;
+        this.agentProviderSetupBusy = false;
+        this.loadAgentProviders(true);
+        this.refreshView();
+      },
+      error: (error) => { this.agentProviderSetupBusy = false; this.agentProviderSetupError = this.message(error); this.refreshView(); }
+    });
+  }
+
+  revokeProviderInstallation(approval: VersionApproval): void {
+    if (this.agentProviderSetupBusy) return;
+    const key: Omit<VersionApproval, 'approvedAt'> = {
+      provider: approval.provider, executable: approval.executable,
+      runtimeTarget: approval.runtimeTarget, version: approval.version
+    };
+    if (approval.distribution) key.distribution = approval.distribution;
+    this.agentProviderSetupBusy = true;
+    this.agentProviderSetupError = '';
+    this.api.revokeVersionApproval(this.agentVersionApprovals.updatedAt, key).subscribe({
+      next: (snapshot) => {
+        this.agentVersionApprovals = snapshot;
+        this.agentProviderSetupBusy = false;
+        this.loadAgentProviders(true);
+        this.refreshView();
+      },
+      error: (error) => { this.agentProviderSetupBusy = false; this.agentProviderSetupError = this.message(error); this.refreshView(); }
+    });
+  }
+
+  credentialSaveUnavailableReason(): string {
+    if (!this.agentCredentialDraft.providerId) return 'Wähle einen Provider für den API-Key.';
+    if (!/^[A-Z][A-Z0-9_]{0,63}$/.test(this.agentCredentialDraft.envKey)) {
+      return 'Der Schlüsselname erlaubt nur Großbuchstaben, Ziffern und Unterstriche, zum Beispiel OPENAI_API_KEY.';
+    }
+    if (!this.agentCredentialDraft.envSecret) return 'Gib den Wert des API-Keys ein.';
+    if (!this.agentCredentialDraft.confirmed) return 'Die Speicherung des Schlüssels muss bestätigt werden.';
+    return '';
+  }
+
+  saveProviderCredentials(): void {
+    const reason = this.credentialSaveUnavailableReason();
+    if (reason) { this.agentProviderSetupError = reason; this.refreshView(); return; }
+    if (this.agentProviderSetupBusy) return;
+    const { providerId, envKey, envSecret } = this.agentCredentialDraft;
+    this.agentProviderSetupBusy = true;
+    this.agentProviderSetupError = '';
+    this.api.saveProviderCredentials(providerId, { [envKey]: envSecret }).subscribe({
+      next: (summary) => {
+        this.agentProviderCredentials = [
+          ...this.agentProviderCredentials.filter((item) => item.providerId !== providerId), summary
+        ].sort((left, right) => left.providerId.localeCompare(right.providerId));
+        this.agentCredentialDraft = { ...this.agentCredentialDraft, envSecret: '', confirmed: false };
+        this.agentProviderSetupBusy = false;
+        this.refreshView();
+      },
+      error: (error) => { this.agentProviderSetupBusy = false; this.agentProviderSetupError = this.message(error); this.refreshView(); }
+    });
+  }
+
+  deleteProviderCredentials(providerId: string): void {
+    if (this.agentProviderSetupBusy) return;
+    this.agentProviderSetupBusy = true;
+    this.agentProviderSetupError = '';
+    this.api.deleteProviderCredentials(providerId).subscribe({
+      next: () => {
+        this.agentProviderCredentials = this.agentProviderCredentials.filter((item) => item.providerId !== providerId);
+        this.agentProviderSetupBusy = false;
+        this.refreshView();
+      },
+      error: (error) => { this.agentProviderSetupBusy = false; this.agentProviderSetupError = this.message(error); this.refreshView(); }
     });
   }
 
@@ -674,6 +814,7 @@ export class App implements OnInit, OnDestroy {
         this.agentTimelineCache = undefined;
         if (!this.agentRunForm.providerId) this.agentRunForm.providerId = providers.find((item) => item.available)?.id ?? providers[0]?.id ?? '';
         if (!this.agentOrchestrationForm.providerId) this.agentOrchestrationForm.providerId = providers.find((item) => item.available)?.id ?? providers[0]?.id ?? '';
+        if (!this.agentCredentialDraft.providerId) this.agentCredentialDraft.providerId = this.agentProviders[0]?.id ?? '';
         this.ensureAgentRuntimeSelection();
         this.ensureAgentOrchestrationRuntimeSelection();
         this.agentBusy = false; this.refreshAgentPreflight(); this.refreshView();

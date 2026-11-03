@@ -115,7 +115,8 @@ export class AcpAgentAdapter implements AgentRunnerPort {
     }
     const version = installation.version;
     const exact = version !== undefined && /^acp-synthetic 0\.1\.0$/i.test(version);
-    if (!this.allowUntestedVersions && (installation.support === 'untested' || !exact)) {
+    if (!this.allowUntestedVersions && (installation.support === 'untested'
+      || (!exact && installation.userApproved !== true))) {
       throw new Error('Provider-Version ist nicht durch Contract-Fixtures freigegeben.');
     }
     if (!isAbsolute(request.workspaceRoot)) throw new Error('Workspace muss absolut sein.');

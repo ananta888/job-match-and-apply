@@ -700,6 +700,29 @@ export interface AgentProviderInstallation {
   authStatus?: 'authenticated' | 'unauthenticated' | 'unknown' | 'not_required';
   note?: string;
   executable?: string;
+  userApproved?: true;
+}
+
+export interface VersionApproval {
+  provider: string;
+  executable: string;
+  runtimeTarget: AgentRuntimeTarget;
+  distribution?: string;
+  version: string;
+  approvedAt: string;
+}
+
+export interface VersionApprovalSnapshot {
+  schemaVersion: 1;
+  updatedAt: string | null;
+  approvals: VersionApproval[];
+}
+
+export interface ProviderCredentialSummary {
+  providerId: string;
+  hasSecret: boolean;
+  envKeys: string[];
+  updatedAt?: string;
 }
 
 export interface AgentProvider {

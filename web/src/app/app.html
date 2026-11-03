@@ -1101,6 +1101,62 @@
           @if (agentConfigProfileError) { <p class="approval-block-reason" role="alert">{{ agentConfigProfileError }}</p> }
         </section>
 
+        <section class="panel agent-provider-setup" data-testid="agent-provider-setup" aria-labelledby="agent-provider-setup-heading">
+          <div class="panel-head"><div><span class="kicker">PROVIDER-EINRICHTUNG</span><h3 id="agent-provider-setup-heading">Versionen freigeben und API-Keys hinterlegen</h3><p>Erkannte Laufzeiten werden pro exakter Installation freigegeben. API-Keys werden verschlüsselt gespeichert und nie angezeigt.</p></div><button class="secondary compact" type="button" (click)="loadAgentProviderSetup()" [disabled]="agentProviderSetupBusy">Neu laden</button></div>
+          <fieldset class="agent-setup-versions"><legend>Freigegebene Provider-Versionen</legend>
+            @if (agentProviderSetupRows().length) {
+              <div class="agent-setup-list" data-testid="agent-version-approval-list">
+                @for (row of agentProviderSetupRows(); track row.key) {
+                  <div class="agent-setup-row" [attr.data-support]="row.installation.support" [attr.data-provider]="row.providerId">
+                    <div class="agent-setup-row-main"><strong>{{ agentProviderName(row.providerId) }} · {{ agentRuntimeLabel(row.installation) }}</strong><small>{{ row.installation.version || 'Version unbekannt' }} · {{ row.installation.support }}@if (row.installation.userApproved) { · nutzergenau freigegeben }</small></div>
+                    <div class="agent-setup-row-actions">
+                      @if (row.approval) {
+                        <span class="status" data-testid="agent-version-approved">Freigabe aktiv</span>
+                        <button class="secondary compact" data-testid="agent-version-revoke" type="button" (click)="revokeProviderInstallation(row.approval)" [disabled]="agentProviderSetupBusy">Freigabe zurücknehmen</button>
+                      } @else if (row.installation.support === 'untested') {
+                        <button class="primary compact" data-testid="agent-version-approve" type="button" (click)="approveProviderInstallation(row.providerId, row.installation)" [disabled]="agentProviderSetupBusy">Version freigeben</button>
+                      } @else {
+                        <span class="status">{{ row.installation.support === 'supported' ? 'getestete Version' : 'keine freigabefähige Version' }}</span>
+                      }
+                    </div>
+                  </div>
+                }
+              </div>
+            } @else {
+              <div class="approval-empty"><strong>Keine Installationen erkannt</strong><p>Lokal erkannte Provider-Versionen erscheinen hier zum Freigeben.</p></div>
+            }
+            @if (orphanedVersionApprovals().length) {
+              <div class="agent-setup-list" aria-label="Freigaben ohne erkannte Installation">
+                @for (approval of orphanedVersionApprovals(); track approval.approvedAt + approval.provider + approval.version) {
+                  <div class="agent-setup-row">
+                    <div class="agent-setup-row-main"><strong>{{ agentProviderName(approval.provider) }} · {{ approval.runtimeTarget }}</strong><small>{{ approval.version }} · keine erkannte Installation</small></div>
+                    <div class="agent-setup-row-actions"><button class="secondary compact" data-testid="agent-version-orphan-revoke" type="button" (click)="revokeProviderInstallation(approval)" [disabled]="agentProviderSetupBusy">Freigabe zurücknehmen</button></div>
+                  </div>
+                }
+              </div>
+            }
+            <p class="agent-config-contract-note">Eine Freigabe gilt nur für die exakte Kombination aus Provider, ausführbarer Datei, Laufzeit, Distribution und Version. Fehlende Anmeldung oder eine defekte Hülle werden dadurch nicht überdeckt.</p>
+          </fieldset>
+          <fieldset class="agent-setup-credentials"><legend>API-Keys pro Provider</legend>
+            <div class="agent-credential-form">
+              <label>Provider<select data-testid="credential-provider" [ngModel]="agentCredentialDraft.providerId" (ngModelChange)="agentCredentialDraft.providerId = $event">@for (provider of agentProviders; track provider.id) { <option [value]="provider.id">{{ provider.name }}</option> }</select></label>
+              <label>Schlüsselname<input data-testid="credential-key" type="text" [ngModel]="agentCredentialDraft.envKey" (ngModelChange)="agentCredentialDraft.envKey = $event" list="credential-key-presets" maxlength="64" autocomplete="off" spellcheck="false" placeholder="OPENAI_API_KEY"></label>
+              <label>Wert<input data-testid="credential-secret" type="password" [ngModel]="agentCredentialDraft.envSecret" (ngModelChange)="agentCredentialDraft.envSecret = $event" maxlength="4096" autocomplete="new-password" placeholder="Wert wird nie angezeigt"></label>
+            </div>
+            <datalist id="credential-key-presets">@for (preset of credentialKeyPresets; track preset) { <option [value]="preset"></option> }</datalist>
+            <label class="explicit-confirmation"><input data-testid="credential-confirmation" type="checkbox" [(ngModel)]="agentCredentialDraft.confirmed"><span>Der Schlüssel wird verschlüsselt lokal gespeichert und nie in der Oberfläche oder in Protokollen angezeigt.</span></label>
+            <div class="agent-config-save"><div><p class="agent-config-contract-note" role="status">{{ agentProviderSetupBusy ? 'Vorgang läuft …' : (credentialSaveUnavailableReason() || 'Bereit zum Speichern.') }}</p></div><button class="primary" data-testid="credential-save" type="button" (click)="saveProviderCredentials()" [disabled]="agentProviderSetupBusy || !!credentialSaveUnavailableReason()">{{ agentProviderSetupBusy ? 'Wird gespeichert …' : 'API-Key speichern' }}</button></div>
+            @if (agentProviderCredentials.length) {
+              <ul class="agent-credential-list" data-testid="credential-summary-list">
+                @for (summary of agentProviderCredentials; track summary.providerId) {
+                  <li><strong>{{ agentProviderName(summary.providerId) }}</strong><span>{{ summary.hasSecret ? 'Key hinterlegt' : 'kein Key' }}@if (summary.envKeys.length) { · {{ summary.envKeys.join(', ') }} }</span><button class="secondary compact" data-testid="credential-delete" type="button" (click)="deleteProviderCredentials(summary.providerId)" [disabled]="agentProviderSetupBusy">Entfernen</button></li>
+                }
+              </ul>
+            }
+          </fieldset>
+          @if (agentProviderSetupError) { <p class="approval-block-reason" role="alert">{{ agentProviderSetupError }}</p> }
+        </section>
+
         <section class="stats-grid agent-metrics" aria-label="Agent-Center-Status">
           <article><span class="stat-icon purple">⌘</span><div><small>Verfügbare Provider</small><strong>{{ availableAgentProvidersCount() }}/{{ agentProviders.length }}</strong><p>lokal erkannt</p></div></article>
           <article><span class="stat-icon blue">▶</span><div><small>Aktive Runs</small><strong>{{ activeAgentRunsCount() }}</strong><p>inklusive Warteschlange</p></div></article>

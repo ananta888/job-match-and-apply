@@ -1,0 +1,190 @@
+{
+  "$schema": "../todo.track.schema.json",
+  "version": 1,
+  "owner": "job-match-and-apply",
+  "track": "provider-setup-version-freigabe-api-keys",
+  "created": "2026-11-03",
+  "updated": "2026-11-03",
+  "purpose": "Provider-Einrichtung im Agent Center erleichtern: erkannte Coding-Agenten-Versionen pro exakter Installation nutzergenau freigeben und API-Keys verschlüsselt hinterlegen, ohne Support-, Auth- oder Sandbox-Grenzen aufzuweichen.",
+  "goal": "Eine untested Provider-Version lässt sich nur über eine explizite, exakt passende Nutzerfreigabe auf supported anheben; API-Keys liegen ausschließlich verschlüsselt im lokalen Speicher und erscheinen in Responses oder der UI nie als Klartext.",
+  "status_scale": [
+    "todo",
+    "in_progress",
+    "partial",
+    "blocked",
+    "done"
+  ],
+  "priority_scale": [
+    "low",
+    "medium",
+    "high"
+  ],
+  "risk_scale": [
+    "low",
+    "medium",
+    "high"
+  ],
+  "milestones": [
+    {
+      "id": "M1",
+      "title": "Server-Vertrag, Speicher und Discovery-Overlay",
+      "task_ids": [
+        "PS-001",
+        "PS-002",
+        "PS-003",
+        "PS-004"
+      ],
+      "status": "done"
+    },
+    {
+      "id": "M2",
+      "title": "Angular-UI Provider-Einrichtung",
+      "task_ids": [
+        "PS-005"
+      ],
+      "status": "done"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "PS-001",
+      "title": "Explizite Versionsfreigaben mit Compare-and-Save speichern",
+      "status": "done",
+      "priority": "high",
+      "risk": "medium",
+      "progress_percent": 100,
+      "acceptance_criteria": [
+        "Freigaben werden über einen atomaren JSON-Store mit CAS auf updatedAt gespeichert und unter .local-data/ außerhalb von Git abgelegt.",
+        "Der Schlüssel umfasst Provider, ausführbare Datei, Laufzeit, Distribution und Version exakt; fehlende oder fremde Freigaben führen zu 404 beziehungsweise 409."
+      ],
+      "evidence": [
+        "server/src/agents/version-approvals.ts",
+        "server/src/agents/version-approvals.test.ts"
+      ]
+    },
+    {
+      "id": "PS-002",
+      "title": "Freigaben wirken nur als Overlay auf untested-Installationen",
+      "status": "done",
+      "priority": "high",
+      "risk": "medium",
+      "progress_percent": 100,
+      "acceptance_criteria": [
+        "Nur ein exakt passender Freigabeschlüssel hebt support untested auf supported mit Grund und userApproved an; Auth-Fehler und unavailable bleiben härter.",
+        "Shell-Wrappern und fehlgeschlagenen Hüllen hilft keine Nutzerfreigabe; ein defekter Freigabespeicher lässt die Discovery unverändert untested."
+      ],
+      "evidence": [
+        "server/src/agents/runtime-discovery.ts",
+        "server/src/agents/runtime-discovery.test.ts",
+        "server/src/agents/generic-jsonl-adapter.ts",
+        "server/src/agents/acp-adapter.ts"
+      ]
+    },
+    {
+      "id": "PS-003",
+      "title": "API-Keys verschlüsselt und validiert hinterlegen",
+      "status": "done",
+      "priority": "high",
+      "risk": "high",
+      "progress_percent": 100,
+      "acceptance_criteria": [
+        "Werte liegen als AES-256-GCM-Envelope mit lokalem Schlüsseldatei-Zugriff auf 0600 unter .local-data/; Antworten enthalten nur Anzahl, Namen und Zeitstempel.",
+        "Blocklist und Formatregeln verhindern Prozesskontroll-Variablen wie PATH, LD_PRELOAD und NODE_OPTIONS; Werte dürfen keine Zeilenumbrüche enthalten.",
+        "Der Kindprozess-Umfang bündelt die Schlüssel über einen expliziten Injektionspunkt in die allowlistete Umgebung."
+      ],
+      "evidence": [
+        "server/src/agents/provider-credentials.ts",
+        "server/src/agents/provider-credentials.test.ts",
+        "server/src/agents/generic-jsonl-adapter.ts"
+      ]
+    },
+    {
+      "id": "PS-004",
+      "title": "Routen für Freigaben und Credentials mit Audit und Observability",
+      "status": "done",
+      "priority": "medium",
+      "risk": "medium",
+      "progress_percent": 100,
+      "acceptance_criteria": [
+        "GET/PUT /api/agents/version-approvals, POST .../revoke, GET /api/agents/providers/credentials sowie PUT/DELETE .../:providerId/credentials verlangen confirmed:true, antworten mit no-store und schreiben Audit-Einträge der Kategorie agent_provider_setup.",
+        "Invalidierung des Discovery-Caches nach Freigabe-Änderungen; Secrets erscheinen in keiner Response."
+      ],
+      "evidence": [
+        "server/src/app.ts",
+        "server/src/agent-provider-setup-api.test.ts"
+      ]
+    },
+    {
+      "id": "PS-005",
+      "title": "Provider-Einrichtung im Agent Center bedienen",
+      "status": "done",
+      "priority": "high",
+      "risk": "medium",
+      "progress_percent": 100,
+      "acceptance_criteria": [
+        "Das Panel listet erkannte Installationen mit Support-Status und bietet Version freigeben beziehungsweise Freigabe zurücknehmen; ohne exakte Version erscheint kein Freigabe-Knopf.",
+        "API-Key-Formular mit Provider-Auswahl, Schlüsselname inklusive Presets, Passwortfeld und Bestätigung; die Oberfläche zeigt nur Zusammenfassungen und nie den Schlüsselwert.",
+        "Der Freigabefall hebt die Meldung Wähle eine versionsgenau freigegebene Provider-Laufzeit auf, weil die Installation nach Reload support supported meldet."
+      ],
+      "evidence": [
+        "web/src/app/app.html",
+        "web/src/app/app.ts",
+        "web/src/app/api.service.ts",
+        "web/src/app/models.ts",
+        "web/src/app/app.spec.ts"
+      ]
+    }
+  ],
+  "critical_path_tasks": [
+    "PS-001",
+    "PS-002",
+    "PS-004",
+    "PS-005"
+  ],
+  "tasks_status_summary": {
+    "total": 5,
+    "by_status": {
+      "todo": 0,
+      "in_progress": 0,
+      "partial": 0,
+      "blocked": 0,
+      "done": 5
+    },
+    "progress_percent_done": 100,
+    "by_priority": {
+      "high": 4,
+      "medium": 1,
+      "low": 0
+    },
+    "by_risk": {
+      "high": 1,
+      "medium": 4,
+      "low": 0
+    },
+    "critical_path": {
+      "total": 4,
+      "done": 4,
+      "remaining": 0
+    },
+    "milestones": {
+      "total": 2,
+      "todo": 0,
+      "in_progress": 0,
+      "blocked": 0,
+      "done": 2
+    }
+  },
+  "progress_summary": {
+    "state": "done",
+    "todo_remaining": 0,
+    "in_progress": 0,
+    "partial": 0,
+    "blocked": 0,
+    "done": 5
+  },
+  "summary_notes": [
+    "Freigaben heben ausschließlich untested auf supported; Auth-Status und Hülle bleiben unabhängig härtere Sperren.",
+    "API-Keys werden nie im Klartext zurückgegeben, protokolliert oder im Git abgelegt; Profil-Secret-Verbot bleibt unangetastet.",
+    "Serversuite 752 grün (12 neue Tests), Websuite 63 grün (1 neuer Test), beide Builds grün; Smoke-Test gegen den Dev-Server bestätigt Freigabe, Revoke, Speichern und Löschen."
+  ]
+}

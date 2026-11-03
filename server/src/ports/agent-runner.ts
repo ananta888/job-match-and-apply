@@ -70,6 +70,8 @@ export interface AgentProviderInstallation {
   distribution?: string;
   version?: string;
   support: 'supported' | 'untested' | 'unsupported' | 'unavailable';
+  /** True when support was granted by an explicit local user version approval, not a contract fixture. */
+  userApproved?: true;
   authStatus?: 'authenticated' | 'unauthenticated' | 'unknown' | 'not_required';
   authNote?: string;
   reason?: string;

@@ -7,9 +7,23 @@
   "updated": "2026-11-03",
   "purpose": "Bessere und schnellere Lebensläufe und Anschreiben: dokumentabhängige Rollen-Kriterien, gezielte Finalizer-Rückfragen, CV-Revision-Bindung sowie belegte Budget-Straffung. Grundlage ist die geprüfte Übergabe uebergabe/UEBERGABE.md (Referenzdateien unter uebergabe/latest-reference).",
   "goal": "Die Fünf-Rollen-Kette erzeugt dokumenttypgerechte Entwürfe (Anschreiben, Stellen-CV, allgemeiner CV), fragt vor dem Finalisieren gezielt nach, bindet Dokumente an eine exakte freigegebene CV-Revision, und die Laufzeiten sind gemessen und begründet gestrafft. Alles andere ist im Backlog-Todo dokumentiert.",
-  "status_scale": ["todo", "in_progress", "partial", "blocked", "done"],
-  "priority_scale": ["low", "medium", "high"],
-  "risk_scale": ["low", "medium", "high"],
+  "status_scale": [
+    "todo",
+    "in_progress",
+    "partial",
+    "blocked",
+    "done"
+  ],
+  "priority_scale": [
+    "low",
+    "medium",
+    "high"
+  ],
+  "risk_scale": [
+    "low",
+    "medium",
+    "high"
+  ],
   "planning_policy": {
     "root_scope": "Orchestrierungs-Kriterien, Rückfrage-Vertrag mit API/UI, Case-Bindung, Budget-Messung und Verifikation in diesem Repository.",
     "submodule_scope": "Keine Änderungen am Bewerbungs-Submodule in diesem Track; Layout/OCR liegt im Track cv-layout-ocr-integration.",
@@ -26,19 +40,29 @@
     {
       "id": "M1",
       "title": "Dokumentabhängige Kriterien und CV-Bindung",
-      "task_ids": ["DL-001", "DL-004", "DL-005"],
+      "task_ids": [
+        "DL-001",
+        "DL-004",
+        "DL-005"
+      ],
       "status": "in_progress"
     },
     {
       "id": "M2",
       "title": "Gezielte Finalizer-Rückfragen",
-      "task_ids": ["DL-002", "DL-003"],
+      "task_ids": [
+        "DL-002",
+        "DL-003"
+      ],
       "status": "todo"
     },
     {
       "id": "M3",
       "title": "Geschwindigkeit und Verifikation",
-      "task_ids": ["DL-006", "DL-007"],
+      "task_ids": [
+        "DL-006",
+        "DL-007"
+      ],
       "status": "todo"
     }
   ],
@@ -102,10 +126,10 @@
       "id": "DL-004",
       "title": "Dokumente an exakte CV-Revision binden",
       "type": "feature",
-      "status": "partial",
+      "status": "done",
       "priority": "high",
       "risk": "medium",
-      "progress_percent": 80,
+      "progress_percent": 100,
       "acceptance_criteria": [
         "ApplicationCase trägt optional sourceCv (revisionId, sha256, artifactId) und documentPurpose ('profile_cv' | 'vacancy_cv').",
         "Anschreiben- und Stellen-CV-Läufe lösen die Faktenbasis an die gebundene CV-Revision statt an die live Profil-Datei auf.",
@@ -118,7 +142,8 @@
         "POST /api/application-cases validiert die Bindung serverseitig: Revision muss existieren, Typ cv, lifecycle approved, exakter SHA-256; profileSha256 wird bei Erstellung gepinnt; Fehler 409/400.",
         "Resolver: application_case-Sektion enthält documentPurpose + sourceCv-Bindung; Materialisierung fail-closed bei orchestration_source_cv_binding_broken (Revision weg/geändert/nicht mehr approved) und orchestration_candidate_profile_changed_since_binding (Profil-Datei änderte sich seit Bindung).",
         "Integrationstest agent-orchestration-api.test.ts: 201 mit gepinntem profileSha256, 409 bei falschem/unbekanntem Hash, 400 bei malformed; Lauf succeeded mit 'Bound CV: application_case.sourceCv' im Author-Task; beide Broken-Bindung-Läufe failed mit den erwarteten Fehlern.",
-        "Offen (80%): Angular-Auswahl der Bindung im Bewerbungsfall-Dialog; wird zusammen mit DL-003 (Rückfragen-UI) in einer UI-Session gebaut. Bindungswechsel = neue Bindung mit voller Neuvalidierung (kein stiller Wechsel)."
+        "UI: web/src/app/app.ts lädt freigegebene CV-Revisionen über GET /api/application-cases/source-cv-candidates (nur type=cv, lifecycle=approved, Fall existiert) und bietet im Bewerbungseditor für Anschreiben/E-Mail die Auswahl 'Aufbauend auf freigegebenem Lebenslauf'; createApplicationCase sendet sourceCv {caseId, revisionId, sha256} und documentPurpose; der 5-Agenten-Start im Workbench injiziert die gebundene CV-Revision in den Author-Auftrag ('logisch auf dem Lebenslauf').",
+        "Tests: agent-orchestration-api.test.ts prüft den Kandidaten-Endpunkt (nur freigegebene CV-Revisionen; proposed-CV und approved-Anschreiben ausgeschlossen); app.spec.ts prüft Bindungsauflösung, API-Payload und 5-Agenten-Start mit gebundenem Lebenslauf. Serversuite 740 passed/2 skipped, Websuite 62 passed, beide Builds grün."
       ]
     },
     {
@@ -168,16 +193,49 @@
       "verification_evidence": []
     }
   ],
-  "critical_path_tasks": ["DL-001", "DL-004", "DL-002", "DL-007"],
+  "critical_path_tasks": [
+    "DL-001",
+    "DL-004",
+    "DL-002",
+    "DL-007"
+  ],
   "tasks_status_summary": {
     "total": 7,
-    "by_status": { "todo": 5, "in_progress": 0, "partial": 1, "blocked": 0, "done": 1 },
-    "progress_percent_done": 25.71,
-    "by_priority": { "high": 4, "medium": 2, "low": 1 },
-    "by_risk": { "high": 1, "medium": 4, "low": 2 },
-    "milestones": { "total": 3, "in_progress": 1, "todo": 2, "partial": 0, "blocked": 0, "done": 0 }
+    "by_status": {
+      "todo": 5,
+      "in_progress": 0,
+      "partial": 0,
+      "blocked": 0,
+      "done": 2
+    },
+    "progress_percent_done": 28.57,
+    "by_priority": {
+      "high": 4,
+      "medium": 2,
+      "low": 1
+    },
+    "by_risk": {
+      "high": 1,
+      "medium": 4,
+      "low": 2
+    },
+    "milestones": {
+      "total": 3,
+      "in_progress": 1,
+      "todo": 2,
+      "partial": 0,
+      "blocked": 0,
+      "done": 0
+    }
   },
-  "progress_summary": { "state": "in_progress", "todo_remaining": 5, "in_progress": 0, "partial": 1, "blocked": 0, "done": 1 },
+  "progress_summary": {
+    "state": "in_progress",
+    "todo_remaining": 5,
+    "in_progress": 0,
+    "partial": 0,
+    "blocked": 0,
+    "done": 2
+  },
   "summary_notes": [
     "Scope vom Nutzer bestätigt: Fokus auf bessere/schnellere Lebensläufe und Anschreiben; Laufsteuerung-Rest, Originale-Retention und Echt-Vergleich liegen im Backlog-Todo laufsteuerung-privatsphaere-zu-pruefen.",
     "Übergabe-Abweichung dokumentiert: Dokumentlogik vor Layout/OCR, weil nur Root-Repo berührt ist und der Nutzen für Anschreiben sofort wirksam wird; Reihenfolge in der Übergabe war Faktenbasis zuerst.",

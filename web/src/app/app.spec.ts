@@ -2124,6 +2124,18 @@ describe('App', () => {
     fixture.destroy();
   });
 
+  it('chooses the required OpenRouter key name in the credential form', async () => {
+    apiMock['agentProviders'].mockReturnValue(of([{ id: 'openrouter', name: 'OpenRouter', available: false, installations: [] }]));
+    const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
+    const component = fixture.componentInstance; component.select('agents'); fixture.detectChanges();
+    const select = (fixture.nativeElement as HTMLElement).querySelector<HTMLSelectElement>('[data-testid="credential-provider"]')!;
+    select.value = 'openrouter'; select.dispatchEvent(new Event('change')); fixture.detectChanges();
+    expect(component.agentCredentialDraft.envKey).toBe('OPENROUTER_API_KEY');
+    const name = (fixture.nativeElement as HTMLElement).querySelector<HTMLInputElement>('[data-testid="credential-key"]')!;
+    expect(name.readOnly).toBe(true);
+    fixture.destroy();
+  });
+
   it('refreshes OpenRouter availability after saving and removing its key', async () => {
     const provider = (available: boolean) => ({ id: 'openrouter', name: 'OpenRouter', available, installations: [] });
     apiMock['agentProviders'].mockReturnValue(of([provider(false)]));

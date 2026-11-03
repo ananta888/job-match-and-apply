@@ -1392,6 +1392,10 @@ export function createApp(
       confirmed: z.literal(true),
       env: z.record(z.string(), z.string()),
     }).strict().parse(request.body);
+    if (providerId === 'openrouter' && !payload.env.OPENROUTER_API_KEY?.trim()) {
+      throw Object.assign(new Error('Für OpenRouter muss der Schlüssel unter OPENROUTER_API_KEY gespeichert werden.'), { statusCode: 400 });
+    }
+    providerDiscoveryCache = undefined;
     let summary;
     try {
       summary = await requireProviderCredentials().put(providerId, payload.env);

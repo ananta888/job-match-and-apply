@@ -47,8 +47,8 @@ Portalzugriffe.
 ## OpenRouter in der Oberfläche einrichten
 
 Unter **Agenten → Provider-Einrichtung → API-Keys pro Provider** den Provider
-**openrouter** auswählen. Als Schlüsselname **OPENROUTER_API_KEY** eintragen,
-den persönlichen API-Key in das Passwortfeld **Wert** eingeben, die Speicherung
+**openrouter** auswählen. Der Schlüsselname **OPENROUTER_API_KEY** wird automatisch
+gesetzt. Den persönlichen API-Key in das Passwortfeld **Wert** eingeben, die Speicherung
 bestätigen und **API-Key speichern** wählen. Danach die Providerliste durch
 Neuladen der Seite aktualisieren.
 

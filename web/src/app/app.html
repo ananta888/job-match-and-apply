@@ -1166,8 +1166,8 @@
           </fieldset>
           <fieldset class="agent-setup-credentials"><legend>API-Keys pro Provider</legend>
             <div class="agent-credential-form">
-              <label>Provider<select data-testid="credential-provider" [ngModel]="agentCredentialDraft.providerId" (ngModelChange)="agentCredentialDraft.providerId = $event">@for (provider of agentProviders; track provider.id) { <option [value]="provider.id">{{ provider.name }}</option> }</select></label>
-              <label>Schlüsselname<input data-testid="credential-key" type="text" [ngModel]="agentCredentialDraft.envKey" (ngModelChange)="agentCredentialDraft.envKey = $event" list="credential-key-presets" maxlength="64" autocomplete="off" spellcheck="false" placeholder="OPENAI_API_KEY"></label>
+              <label>Provider<select data-testid="credential-provider" [ngModel]="agentCredentialDraft.providerId" (ngModelChange)="selectCredentialProvider($event)">@for (provider of agentProviders; track provider.id) { <option [value]="provider.id">{{ provider.name }}</option> }</select></label>
+              <label>Schlüsselname<input data-testid="credential-key" type="text" [readOnly]="agentCredentialDraft.providerId === 'openrouter'" [ngModel]="agentCredentialDraft.envKey" (ngModelChange)="agentCredentialDraft.envKey = $event" list="credential-key-presets" maxlength="64" autocomplete="off" spellcheck="false" placeholder="OPENAI_API_KEY"></label>
               <label>Wert<input data-testid="credential-secret" type="password" [ngModel]="agentCredentialDraft.envSecret" (ngModelChange)="agentCredentialDraft.envSecret = $event" maxlength="4096" autocomplete="new-password" placeholder="Wert wird nie angezeigt"></label>
             </div>
             <datalist id="credential-key-presets">@for (preset of credentialKeyPresets; track preset) { <option [value]="preset"></option> }</datalist>

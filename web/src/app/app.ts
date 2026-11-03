@@ -589,8 +589,16 @@ export class App implements OnInit, OnDestroy {
     });
   }
 
+  selectCredentialProvider(providerId: string): void {
+    this.agentCredentialDraft = {
+      providerId, envKey: providerId === 'openrouter' ? 'OPENROUTER_API_KEY' : 'OPENAI_API_KEY',
+      envSecret: '', confirmed: false
+    };
+  }
+
   credentialSaveUnavailableReason(): string {
     if (!this.agentCredentialDraft.providerId) return 'Wähle einen Provider für den API-Key.';
+    if (this.agentCredentialDraft.providerId === 'openrouter' && this.agentCredentialDraft.envKey !== 'OPENROUTER_API_KEY') return 'Für OpenRouter ist der Schlüsselname OPENROUTER_API_KEY erforderlich.';
     if (!/^[A-Z][A-Z0-9_]{0,63}$/.test(this.agentCredentialDraft.envKey)) {
       return 'Der Schlüsselname erlaubt nur Großbuchstaben, Ziffern und Unterstriche, zum Beispiel OPENAI_API_KEY.';
     }
@@ -838,7 +846,7 @@ export class App implements OnInit, OnDestroy {
         this.agentTimelineCache = undefined;
         if (!this.agentRunForm.providerId) this.agentRunForm.providerId = providers.find((item) => item.available)?.id ?? providers[0]?.id ?? '';
         if (!this.agentOrchestrationForm.providerId) this.agentOrchestrationForm.providerId = providers.find((item) => item.available)?.id ?? providers[0]?.id ?? '';
-        if (!this.agentCredentialDraft.providerId) this.agentCredentialDraft.providerId = this.agentProviders[0]?.id ?? '';
+        if (!this.agentCredentialDraft.providerId) this.selectCredentialProvider(this.agentProviders[0]?.id ?? '');
         this.ensureAgentRuntimeSelection();
         this.ensureAgentOrchestrationRuntimeSelection();
         this.agentBusy = false; this.refreshAgentPreflight(); this.refreshView();

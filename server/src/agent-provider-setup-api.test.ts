@@ -67,6 +67,17 @@ const approval = {
 };
 
 describe('agent provider setup API', () => {
+  it('requires the OpenRouter-specific key name instead of silently accepting an unusable key', async () => {
+    const { app } = fixture();
+    const wrong = await request(app).put('/api/agents/providers/openrouter/credentials')
+      .send({ confirmed: true, env: { OPENAI_API_KEY: 'synthetic-key' } });
+    expect(wrong.status).toBe(400);
+    const right = await request(app).put('/api/agents/providers/openrouter/credentials')
+      .send({ confirmed: true, env: { OPENROUTER_API_KEY: 'synthetic-key' } });
+    expect(right.status).toBe(200);
+    expect(right.body.envKeys).toEqual(['OPENROUTER_API_KEY']);
+  });
+
   it('grants and revokes exact version approvals with compare-and-save', async () => {
     const { app } = fixture();
     const initial = await request(app).get('/api/agents/version-approvals').expect(200);

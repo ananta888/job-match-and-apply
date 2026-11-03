@@ -346,7 +346,7 @@ export class GenericJsonlAgentAdapter implements AgentRunnerPort {
       const plan = await boundary.plan({
         provider: this.provider as 'opencode' | 'claude-cli',
         installation,
-        providerExecutable: installation.runtimeExecutable ?? '',
+        providerExecutable: installation.runtimeExecutable ?? installation.executable,
         providerArgs: args,
         workspaceRoot: workspace,
         sandbox: request.sandbox,

@@ -8,6 +8,7 @@ import {
   applyServerOwnedProviderToolMode, type AgentAdapterManifest,
 } from './generic-jsonl-adapter.js';
 import { CODEX_EXEC_MANIFEST, CLAUDE_CLI_MANIFEST, OPENCODE_MANIFEST, mapClaudeStreamEvent, mapCodexJsonlEvent, mapOpenCodeJsonEvent } from './provider-adapters.js';
+import { LinuxBubblewrapSandboxBoundary } from './provider-sandbox.js';
 import type { ProcessLaunchSpec, ProcessCallbacks, SupervisedProcess } from './process-supervisor.js';
 
 describe('provider manifests', () => {
@@ -251,6 +252,26 @@ describe('provider event mapping', () => {
 });
 
 describe('GenericJsonlAgentAdapter process boundary', () => {
+  it('uses the discovered native Linux executable when no WSL runtimeExecutable exists', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'native-provider-start-'));
+    let launch: ProcessLaunchSpec | undefined;
+    const supervisor = { start(spec: ProcessLaunchSpec): SupervisedProcess {
+      launch = spec;
+      return { pid: 42, completion: Promise.resolve({ termination: 'exit', exitCode: 0, signal: null, stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false, startedAt: 'a', finishedAt: 'b' }), async writeInput() {}, async cancel() {} };
+    } };
+    const adapter = new GenericJsonlAgentAdapter(OPENCODE_MANIFEST, supervisor, undefined, undefined, undefined, false, undefined, undefined,
+      new LinuxBubblewrapSandboxBoundary(async () => true, () => '/home/synthetic'));
+    try {
+      const handle = await adapter.start({
+        runId: 'native-start', installation: { provider: 'opencode', runtimeTarget: 'linux', executable: '/usr/local/bin/opencode', version: '1.14.41', support: 'supported' },
+        request: { provider: 'opencode', runtimeTarget: 'linux', workspaceRoot: root, task: 'Synthetic task', sandbox: 'read-only', network: 'disabled', approvalMode: 'deny' },
+        async emit() {}
+      });
+      expect((await handle.completion).state).toBe('succeeded');
+      expect(launch?.args).toContain('/usr/local/bin/opencode');
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+
   it('constructs fixed argv, sends the prompt via stdin and emits parsed events', async () => {
     let captured: ProcessLaunchSpec | undefined; let callbacks: ProcessCallbacks | undefined;
     const supervisor = { start(spec: ProcessLaunchSpec, handlers: ProcessCallbacks): SupervisedProcess {

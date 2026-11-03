@@ -166,8 +166,12 @@ implements ApplicationOrchestrationGateAuthority, ApplicationOrchestrationInputR
         break;
       case 'candidate_evidence': {
         if (!application) throw new Error('orchestration_application_case_not_found');
-        const snapshot = await new LocalCandidateProfileAdapter(configuration.assistant)
-          .evidence(application.documentType);
+        const profileAdapter = new LocalCandidateProfileAdapter(configuration.assistant);
+        if (application.sourceCv && profileAdapter.candidateFileSha256
+          && await profileAdapter.candidateFileSha256() !== application.sourceCv.profileSha256) {
+          throw new Error('orchestration_candidate_profile_changed_since_binding');
+        }
+        const snapshot = await profileAdapter.evidence(application.documentType);
         if (!snapshot.valid) throw new Error('orchestration_candidate_profile_invalid');
         value = {
           contract: 'candidate-evidence-snapshot',
@@ -231,9 +235,22 @@ implements ApplicationOrchestrationGateAuthority, ApplicationOrchestrationInputR
           if (!identity || identity.mode !== application.identityMode) {
             throw new Error('orchestration_application_identity_invalid');
           }
+          if (application.sourceCv) {
+            const bound = (await this.workspace.listArtifactRevisions(application.sourceCv.caseId))
+              .find((revision) => revision.id === application.sourceCv!.revisionId);
+            if (!bound || bound.sha256 !== application.sourceCv.sha256 || bound.type !== 'cv' || bound.lifecycle !== 'approved') {
+              throw new Error('orchestration_source_cv_binding_broken');
+            }
+          }
           value = {
             id: application.id, revision: application.revision, state: application.state,
             documentType: application.documentType, identityMode: application.identityMode,
+            ...(application.documentPurpose ? { documentPurpose: application.documentPurpose } : {}),
+            ...(application.sourceCv ? { sourceCv: {
+              caseId: application.sourceCv.caseId,
+              revisionId: application.sourceCv.revisionId,
+              sha256: application.sourceCv.sha256,
+            } } : {}),
             jobId: application.job.id, company: application.job.company,
             ...(input.workflowId === 'evidence-application-package' ? { identity: {
               mode: identity.mode,

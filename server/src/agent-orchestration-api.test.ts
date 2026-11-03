@@ -237,6 +237,98 @@ describe('public agent orchestration API', () => {
     expect(stale.status).toBe(409);
   }, 30_000);
 
+  it('binds a cover letter to an approved CV revision and fails closed when the binding breaks', async () => {
+    const finalHtml = '<!doctype html><html lang="de"><head><title>Gebundenes Anschreiben</title></head><body><h1>Gebundenes Anschreiben</h1><p>Sicherer Inhalt</p></body></html>';
+    const provider = new CapturingFakeProvider({
+      steps: [{ kind: 'agent_message_completed', data: { text: finalHtml } }],
+      outcome: { state: 'succeeded' },
+    });
+    const value = await apiFixture({ real: true, provider });
+    const sourceCase: ApplicationCase = {
+      ...application(), id: '33333333-3333-4333-8333-333333333334',
+      documentType: 'cv', state: 'approved',
+    };
+    await value.workspace.saveApplicationCase(sourceCase);
+    const revisionContent = '# Freigegebener Lebenslauf';
+    const revision = {
+      id: '44444444-4444-4444-8444-444444444444',
+      applicationCaseId: sourceCase.id,
+      companyKey: 'example-gmbh',
+      jobId: sourceCase.job.id,
+      type: 'cv' as const,
+      lifecycle: 'approved' as const,
+      sha256: createHash('sha256').update(revisionContent).digest('hex'),
+      bytes: Buffer.byteLength(revisionContent),
+      artifactPath: `${sourceCase.id}/revisions/44444444-4444-4444-8444-444444444444.md`,
+      pipelineContractVersion: 'unverified',
+      createdAt: new Date().toISOString(),
+    };
+    await value.workspace.saveArtifactRevision(revision);
+
+    const created = await request(value.app).post('/api/application-cases').send({
+      match: { job: sourceCase.job },
+      identityId: realIdentity.id,
+      documentType: 'cover_letter',
+      documentPurpose: 'vacancy_cv',
+      sourceCv: { caseId: sourceCase.id, revisionId: revision.id, sha256: revision.sha256 },
+    });
+    expect(created.status, created.text).toBe(201);
+    expect(created.body.sourceCv).toMatchObject({
+      caseId: sourceCase.id, revisionId: revision.id, sha256: revision.sha256,
+    });
+    expect(String(created.body.sourceCv.profileSha256)).toMatch(/^[a-f0-9]{64}$/);
+
+    const wrongSha = await request(value.app).post('/api/application-cases').send({
+      match: { job: sourceCase.job }, identityId: realIdentity.id, documentType: 'cover_letter',
+      sourceCv: { caseId: sourceCase.id, revisionId: revision.id, sha256: '0'.repeat(64) },
+    });
+    expect(wrongSha.status).toBe(409);
+    const unknownRevision = await request(value.app).post('/api/application-cases').send({
+      match: { job: sourceCase.job }, identityId: realIdentity.id, documentType: 'cover_letter',
+      sourceCv: { caseId: sourceCase.id, revisionId: '55555555-5555-4555-8555-555555555555', sha256: revision.sha256 },
+    });
+    expect(unknownRevision.status).toBe(409);
+    const malformedSha = await request(value.app).post('/api/application-cases').send({
+      match: { job: sourceCase.job }, identityId: realIdentity.id, documentType: 'cover_letter',
+      sourceCv: { caseId: sourceCase.id, revisionId: revision.id, sha256: 'nothex' },
+    });
+    expect(malformedSha.status).toBe(400);
+
+    const started = await request(value.app).post('/api/agent-orchestrations').send({
+      workflowId: 'evidence-application-package', providerId: 'fake', prompt: 'Prepare an evidence-backed proposal.',
+      runtimeTarget, applicationCaseId: created.body.id,
+    });
+    expect(started.status, started.text).toBe(202);
+    const completed = await waitForStatus(value.app, started.body.id);
+    expect(completed.body.status, JSON.stringify(completed.body, null, 2)).toBe('succeeded');
+    const authorTask = provider.requests.find((candidate) => candidate.metadata?.nodeRole === 'author')?.task ?? '';
+    expect(authorTask).toContain('Bound CV: application_case.sourceCv');
+    expect(authorTask).toContain(`"revisionId":"${revision.id}"`);
+    expect(authorTask).toContain('"documentPurpose":"vacancy_cv"');
+
+    const brokenCase: ApplicationCase = structuredClone(created.body);
+    brokenCase.sourceCv = { ...brokenCase.sourceCv!, sha256: '1'.repeat(64) };
+    await value.workspace.saveApplicationCase(brokenCase);
+    const broken = await request(value.app).post('/api/agent-orchestrations').send({
+      workflowId: 'evidence-application-package', providerId: 'fake', prompt: 'Prepare an evidence-backed proposal.',
+      runtimeTarget, applicationCaseId: created.body.id,
+    });
+    expect(broken.status, broken.text).toBe(202);
+    const failedRun = await waitForStatus(value.app, broken.body.id, ['failed']);
+    expect(JSON.stringify(failedRun.body)).toContain('orchestration_source_cv_binding_broken');
+
+    const changedProfileCase: ApplicationCase = structuredClone(created.body);
+    changedProfileCase.sourceCv = { ...changedProfileCase.sourceCv!, profileSha256: '2'.repeat(64) };
+    await value.workspace.saveApplicationCase(changedProfileCase);
+    const changedProfile = await request(value.app).post('/api/agent-orchestrations').send({
+      workflowId: 'evidence-application-package', providerId: 'fake', prompt: 'Prepare an evidence-backed proposal.',
+      runtimeTarget, applicationCaseId: created.body.id,
+    });
+    expect(changedProfile.status, changedProfile.text).toBe(202);
+    const failedProfile = await waitForStatus(value.app, changedProfile.body.id, ['failed']);
+    expect(JSON.stringify(failedProfile.body)).toContain('orchestration_candidate_profile_changed_since_binding');
+  }, 30_000);
+
   it('uses the bound incognito identity while keeping candidate-profile contact claims out of every role', async () => {
     const finalHtml = '<!doctype html><html lang="de"><head><title>Inkognito CV</title></head><body><h1>Alex Beispiel</h1><p>Senior Software Engineer</p></body></html>';
     const provider = new CapturingFakeProvider({

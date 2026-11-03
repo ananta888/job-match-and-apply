@@ -36,6 +36,8 @@ export interface ClaimPatchOperation { claimId: string; field: string; value: un
 export interface CandidateProfilePort {
   summary(): Promise<CandidateProfileSummary>;
   evidence(outputType: CandidateEvidenceSnapshot['outputType']): Promise<CandidateEvidenceSnapshot>;
+  /** Digest of the candidate profile file; used for binding-time pinning, no subprocess. */
+  candidateFileSha256?(): Promise<string>;
   patch(operations: ClaimPatchOperation[], confirmed: boolean): Promise<{ status: string; updatedClaimIds: string[] }>;
   addImportProposals(proposals: Array<{ id: string; statement: string; sha256: string }>, confirmed: boolean): Promise<{ status: string; addedClaimIds: string[] }>;
 }

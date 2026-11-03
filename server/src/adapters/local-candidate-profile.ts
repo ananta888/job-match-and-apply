@@ -118,5 +118,9 @@ export class LocalCandidateProfileAdapter implements CandidateProfilePort {
     return createHash('sha256').update(snapshot).digest('hex');
   }
 
+  async candidateFileSha256(): Promise<string> {
+    return this.candidateSha256(this.path(this.settings.candidateProfilePath));
+  }
+
   private path(value: string): string { return isAbsolute(value) ? value : resolve(process.cwd(), '..', value); }
 }

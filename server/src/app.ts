@@ -7,7 +7,7 @@ import { z } from 'zod';
 import { DemoJobSourceAdapter } from './adapters/demo-job-source.js';
 import { LocalApplicationAssistantAdapter } from './adapters/local-application-assistant.js';
 import { assertTrustedHostMcpLaunch, inspectTrustedHostMcpRuntime, McpJobSourceAdapter } from './adapters/mcp-job-source.js';
-import type { AppConfig, ApplicationCaseState, SearchPreferenceMatch, SearchProfile } from './domain/models.js';
+import type { AppConfig, ApplicationCase, ApplicationCaseState, SearchPreferenceMatch, SearchProfile } from './domain/models.js';
 import type { JobSourcePort } from './ports/job-source.js';
 import type { ConfigStore } from './services/config-store.js';
 import { JsonConfigStore, MemoryConfigStore } from './services/config-store.js';
@@ -2957,15 +2957,31 @@ export function createApp(
   app.post('/api/application-cases', asyncRoute(async (request, response) => {
     const payload = z.object({
       match: z.custom<SearchPreferenceMatch>((value) => Boolean(value && typeof value === 'object')),
-      identityId: z.string().min(1), documentType: z.enum(['cv', 'cover_letter', 'email']).default('cover_letter')
-    }).parse(request.body);
+      identityId: z.string().min(1), documentType: z.enum(['cv', 'cover_letter', 'email']).default('cover_letter'),
+      documentPurpose: z.enum(['profile_cv', 'vacancy_cv']).optional(),
+      sourceCv: z.object({
+        caseId: z.string().uuid(), revisionId: z.string().uuid(), sha256: z.string().regex(/^[a-f0-9]{64}$/),
+      }).strict().optional(),
+    }).strict().parse(request.body);
     const config = await store.load();
     const identity = config.identities.find((item) => item.id === payload.identityId);
     if (!identity) { response.status(404).json({ error: 'Identität nicht gefunden.' }); return; }
+    let sourceCv: ApplicationCase['sourceCv'];
+    if (payload.sourceCv) {
+      const bound = (await workspace.listArtifactRevisions(payload.sourceCv.caseId))
+        .find((revision) => revision.id === payload.sourceCv!.revisionId);
+      if (!bound || bound.sha256 !== payload.sourceCv.sha256 || bound.type !== 'cv' || bound.lifecycle !== 'approved') {
+        throw Object.assign(new Error('Gebundene CV-Revision existiert nicht, ist kein freigegebener Lebenslauf oder der Hash stimmt nicht.'), { statusCode: 409 });
+      }
+      const profileAdapter = new LocalCandidateProfileAdapter(config.assistant);
+      if (!profileAdapter.candidateFileSha256) throw Object.assign(new Error('Profiladapter unterstützt keine Bindungsprüfung.'), { statusCode: 409 });
+      sourceCv = { ...payload.sourceCv, profileSha256: await profileAdapter.candidateFileSha256() };
+    }
     const now = new Date().toISOString();
     const application = {
       id: randomUUID(), job: payload.match.job, identityId: identity.id, identityMode: identity.mode,
-      documentType: payload.documentType, state: 'selected' as const, createdAt: now, updatedAt: now,
+      documentType: payload.documentType, documentPurpose: payload.documentPurpose, sourceCv,
+      state: 'selected' as const, createdAt: now, updatedAt: now,
       artifactNames: [], warnings: [], revision: 1
     };
     await workspace.saveApplicationCase(application);

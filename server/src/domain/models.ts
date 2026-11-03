@@ -161,12 +161,25 @@ export interface JobInventoryEntry {
 
 export type ApplicationCaseState = 'selected' | 'analysis' | 'questions' | 'draft' | 'review' | 'approved' | 'exported' | 'dry_run' | 'submitted' | 'closed';
 
+export type ApplicationDocumentPurpose = 'profile_cv' | 'vacancy_cv';
+
+/** Server-issued binding to a human-approved general CV revision of an application case. */
+export interface ApplicationCaseSourceCv {
+  caseId: string;
+  revisionId: string;
+  sha256: string;
+  /** Candidate profile file digest at binding time; a mismatch fails orchestration closed. */
+  profileSha256: string;
+}
+
 export interface ApplicationCase {
   id: string;
   job: JobPosting;
   identityId: string;
   identityMode: 'real' | 'incognito';
   documentType: 'cv' | 'cover_letter' | 'email';
+  documentPurpose?: ApplicationDocumentPurpose;
+  sourceCv?: ApplicationCaseSourceCv;
   state: ApplicationCaseState;
   createdAt: string;
   updatedAt: string;

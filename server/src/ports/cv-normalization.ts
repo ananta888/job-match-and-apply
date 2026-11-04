@@ -169,13 +169,32 @@ export interface CvTheme {
   original?: CvThemeOriginalLayout;
 }
 
+export interface CvLayoutExtractionInput {
+  /** Original PDF bytes for the text layer (pdftotext -bbox-layout); absent for image uploads. */
+  pdf?: Buffer;
+  /** Page images (PNG) in page order for OCR; transient, rendered and deleted by the caller/adapter. */
+  images?: Buffer[];
+  pageSizes?: Array<{ width: number; height: number }>;
+  sha256: string;
+  fileName: string;
+  ocrMode: 'auto' | 'always' | 'off';
+  minCharsPerPage: number;
+  languages: string;
+}
+
+export interface CvNormalizationResult {
+  facts: CvFact[];
+  warnings: string[];
+  conflicts: CvNormalizationConflict[];
+  artifact: unknown;
+}
+
 export interface CvNormalizationPort {
-  normalize(envelope: CvNormalizationEnvelope): Promise<{
-    facts: CvFact[];
-    warnings: string[];
-    conflicts: CvNormalizationConflict[];
-    artifact: unknown;
-  }>;
+  normalize(envelope: CvNormalizationEnvelope): Promise<CvNormalizationResult>;
+  /** Deterministic layout extraction (cv-extraction 1.0); optional, the flat text path remains the fallback. */
+  extractLayout?(input: CvLayoutExtractionInput): Promise<import('../services/cv-extraction.js').CvExtractionDocument>;
+  /** Structured normalization from a cv-extraction document instead of flat text. */
+  normalizeExtraction?(extraction: import('../services/cv-extraction.js').CvExtractionDocument, source: { mimeType: string; byteSize: number; fileName: string }): Promise<CvNormalizationResult>;
   /** Validate user-supplied facts against the submodule's versioned capabilities before persisting them. */
   validateUserFacts(facts: CvFact[]): Promise<void>;
   adopt(input: {

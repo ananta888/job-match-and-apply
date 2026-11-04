@@ -12,6 +12,7 @@ import {
   type CvAdoptionLedgerEntry, type CvProfileSnapshot,
 } from '../ports/cv-normalization.js';
 import { extractLayoutFingerprint, validateLayoutFingerprint } from './cv-layout-fingerprint.js';
+import { summarizeCvExtraction, type CvExtractionDocument, type CvExtractionSummary } from './cv-extraction.js';
 import { checkAtsHtml, type AtsCheckReport } from './ats-check.js';
 import type { CvAiStructuringImportPort } from './cv-ai-structuring.js';
 
@@ -22,7 +23,19 @@ export const CV_MIME_TYPES = {
   'application/pdf': ['.pdf'],
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
   'application/vnd.oasis.opendocument.text': ['.odt'],
+  // Scans: one page image each, read only through OCR (cv_layout.py, tesseract).
+  'image/png': ['.png'],
+  'image/jpeg': ['.jpg', '.jpeg'],
 } as const;
+
+/** OCR/layout settings from the environment; deterministic and local (poppler, tesseract). */
+export interface CvOcrSettings { mode: 'auto' | 'always' | 'off'; minCharsPerPage: number; languages: string }
+export function cvOcrSettings(env: NodeJS.ProcessEnv = process.env): CvOcrSettings {
+  const mode = ['auto', 'always', 'off'].includes(env.CV_OCR_MODE ?? '') ? env.CV_OCR_MODE as CvOcrSettings['mode'] : 'auto';
+  const minChars = Number(env.CV_OCR_MIN_CHARS_PER_PAGE ?? 200);
+  const languages = /^[a-z]{3}(?:\+[a-z]{3}){0,3}$/.test(env.CV_OCR_LANGUAGES ?? '') ? env.CV_OCR_LANGUAGES! : 'deu+eng';
+  return { mode, minCharsPerPage: Number.isSafeInteger(minChars) && minChars >= 1 ? minChars : 200, languages };
+}
 
 const MAX_SOURCE_BYTES = 10 * 1024 * 1024;
 const MAX_EXTRACTED_CHARACTERS = 2_000_000;
@@ -41,7 +54,7 @@ export type CvRecognitionVersionKind = 'deterministic' | 'ai';
 
 export interface CvRecognitionProviderWitness {
   id: string;
-  runtimeTarget: 'windows' | 'wsl';
+  runtimeTarget: 'windows' | 'wsl' | 'linux' | 'darwin';
   version: string;
   adapterVersion: string;
   witnessSha256?: string;
@@ -130,6 +143,10 @@ export interface CvImportRecord {
   activeRecognitionVersionId?: string;
   /** Style-only layout pattern captured from the original document at import time. Never carries fact content. */
   layoutFingerprint?: CvLayoutFingerprint;
+  /** Deterministic layout blocks (cv-extraction 1.0); encrypted with the record, omitted from REST like the artifact. */
+  layoutExtraction?: CvExtractionDocument;
+  /** Public, text-free summary of the recognition path (text layer / OCR, pages, blocks, confidence). */
+  extractionSummary?: CvExtractionSummary;
   theme?: CvTheme;
   adoption?: {
     adoptedAt: string; adoptedClaimIds: string[]; adoptedRecordIds: string[];
@@ -162,6 +179,7 @@ export function publicCvImportRecord(record: CvImportRecord) {
   delete view.normalizationArtifact;
   delete view.unresolvedConflicts;
   delete view.recognitionVersions;
+  delete view.layoutExtraction;
   if (view.proposal) delete (view.proposal as unknown as Record<string, unknown>).html;
   return view;
 }
@@ -329,7 +347,8 @@ export type CvFactOperation =
   | { action: 'add'; category: CvFactCategory; recordId?: string; newRecordKey?: string; field: string; value: string; explicitlyConfirmed?: true };
 
 export class CvImportService implements CvAiStructuringImportPort {
-  constructor(private readonly repository: CvImportRepository, private readonly normalization: CvNormalizationPort) {}
+  constructor(private readonly repository: CvImportRepository, private readonly normalization: CvNormalizationPort,
+    private readonly ocr: CvOcrSettings = cvOcrSettings()) {}
 
   async import(input: { fileName: string; mimeType: keyof typeof CV_MIME_TYPES; data: Buffer }): Promise<CvImportRecord> {
     const source = validateSource(input);
@@ -344,7 +363,29 @@ export class CvImportService implements CvAiStructuringImportPort {
       source: { fileName: source.fileName, mimeType: source.mimeType, sha256: source.sha256, byteSize: source.bytes },
       extractedText: extracted.text, warnings: extracted.warnings,
     };
-    const normalized = await this.normalization.normalize(envelope);
+    // Structured path: layout blocks from the original (text layer and/or OCR). Any failure
+    // falls back to the flat text with a warning instead of blocking the import; image
+    // scans have no flat text and must fail closed instead of silently losing content.
+    let layoutExtraction: CvExtractionDocument | undefined;
+    const isImage = source.mimeType === 'image/png' || source.mimeType === 'image/jpeg';
+    if (this.normalization.extractLayout && this.normalization.normalizeExtraction) {
+      try {
+        layoutExtraction = await this.normalization.extractLayout!({
+          ...(source.mimeType === 'application/pdf' ? { pdf: input.data } : {}),
+          ...(isImage ? { images: [input.data] } : {}),
+          sha256: source.sha256, fileName: source.fileName,
+          ocrMode: isImage ? 'always' : this.ocr.mode,
+          minCharsPerPage: this.ocr.minCharsPerPage, languages: this.ocr.languages,
+        });
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        extracted.warnings.push({ code: 'layout_extraction_unavailable', detail: `Layout-/OCR-Erfassung nicht verfügbar; es gilt der flache Text. ${cleanText(detail, 200)}`.trim() });
+      }
+    }
+    if (isImage && !layoutExtraction) badRequest('Ein Bildscan kann nur mit lokaler OCR eingelesen werden; bitte PDF oder DOCX verwenden.');
+    const normalized = layoutExtraction
+      ? await this.normalization.normalizeExtraction!(layoutExtraction, { mimeType: source.mimeType, byteSize: source.bytes, fileName: source.fileName })
+      : await this.normalization.normalize(envelope);
     const facts = validateNormalizedFacts(normalized.facts, source.sha256);
     // Capture a style-only layout fingerprint before the upload bytes are dropped. Best-effort and fail-open.
     const layoutFingerprint = validateLayoutFingerprint(await extractLayoutFingerprint(source.mimeType, input.data));
@@ -367,6 +408,7 @@ export class CvImportService implements CvAiStructuringImportPort {
       normalizationArtifact: structuredClone(recognitionVersion.normalizationArtifact),
       recognitionVersions: [recognitionVersion], activeRecognitionVersionId: recognitionVersion.id,
       ...(layoutFingerprint ? { layoutFingerprint } : {}),
+      ...(layoutExtraction ? { layoutExtraction, extractionSummary: summarizeCvExtraction(layoutExtraction) } : {}),
     };
     const record: CvImportRecord = { ...draft, sha256: recordHash(draft) };
     await this.repository.create(record);
@@ -1275,6 +1317,10 @@ async function extractCvText(mimeType: keyof typeof CV_MIME_TYPES, buffer: Buffe
     parser.write(html); parser.end(); text = parts.join('');
     if (ignoredActive > 0) warnings.push({ code: 'active_html_ignored', detail: `${ignoredActive} aktive oder nicht-textuelle HTML-Elemente wurden ignoriert.` });
     if (externalReferences > 0) warnings.push({ code: 'external_html_references_ignored', detail: `${externalReferences} externe HTML-Referenzen wurden nicht geladen.` });
+  } else if (mimeType === 'image/png' || mimeType === 'image/jpeg') {
+    // No text layer: the OCR path fills the structure; the flat text stays empty.
+    text = '';
+    warnings.push({ code: 'image_requires_ocr', detail: 'Bildscan ohne Textschicht; der Text stammt vollständig aus der lokalen OCR.' });
   } else if (mimeType === 'application/pdf') {
     const rawPdf = buffer.toString('latin1');
     if (/\/(?:JavaScript|JS|OpenAction|AA|Launch|RichMedia|EmbeddedFile|SubmitForm|ImportData|GoToR)\b/i.test(rawPdf)
@@ -1313,7 +1359,10 @@ async function extractCvText(mimeType: keyof typeof CV_MIME_TYPES, buffer: Buffe
     }
   }
   text = text.replace(/\r/g, '').replace(/[\t ]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
-  if (!text || text.length > MAX_EXTRACTED_CHARACTERS) badRequest('Der extrahierte Lebenslauf ist leer oder größer als 2 Millionen Zeichen.');
+  // Image scans carry no text layer by definition; the local OCR path provides the
+  // content and fails closed on empty results instead of this flat check.
+  const flatTextRequired = mimeType !== 'image/png' && mimeType !== 'image/jpeg';
+  if ((flatTextRequired && !text) || text.length > MAX_EXTRACTED_CHARACTERS) badRequest('Der extrahierte Lebenslauf ist leer oder größer als 2 Millionen Zeichen.');
   return { text, warnings };
 }
 

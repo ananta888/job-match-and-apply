@@ -7,9 +7,10 @@ import { spawn } from 'node:child_process';
 import YAML from 'yaml';
 import type {
   CvAdoptionLedgerEntry, CvAdoptionResult, CvAdoptionRevocationResult, CvFact, CvFactCategory,
-  CvNormalizationEnvelope, CvNormalizationPort, CvNormalizationConflict, CvProfileSnapshot,
-  CvProfileSnapshotRestoreResult,
+  CvLayoutExtractionInput, CvNormalizationEnvelope, CvNormalizationPort, CvNormalizationConflict,
+  CvNormalizationResult, CvProfileSnapshot, CvProfileSnapshotRestoreResult,
 } from '../ports/cv-normalization.js';
+import { validateCvExtraction, type CvExtractionDocument } from '../services/cv-extraction.js';
 import type {
   CvAiStructuringSelection, CvAiStructuringValidationPort,
 } from '../services/cv-ai-structuring.js';
@@ -20,6 +21,49 @@ import { buildMinimalLocalChildEnvironment } from '../services/process-environme
 import { SafeHttpError, type SafeErrorStage } from '../services/safe-http-error.js';
 
 const sha256 = (value: Buffer | string) => createHash('sha256').update(value).digest('hex');
+
+const MAX_RENDER_PAGES = 30;
+const MAX_RENDERED_PAGE_BYTES = 10 * 1024 * 1024;
+const RENDER_TIMEOUT_MS = 60_000;
+
+/** Reads PNG width/height from IHDR without decoding the image. */
+function pngSize(image: Buffer): { width: number; height: number } {
+  if (image.length < 24 || !image.subarray(0, 8).equals(Buffer.from('89504e470d0a1a0a', 'hex'))) {
+    throw cvDependencyFailure('cv_layout_render_invalid', 'Gerenderte Seite ist kein gültiges PNG.');
+  }
+  return { width: image.readUInt32BE(16), height: image.readUInt32BE(20) };
+}
+
+/**
+ * Bounded, fully transient pdftoppm rendering for OCR inputs: private temp
+ * directory, capped pages/pixels/bytes, process timeout, and unconditional
+ * cleanup in finally (success, error, timeout and abort alike).
+ */
+async function renderPdfPagesTransiently(pdf: Buffer): Promise<{ images: Buffer[]; pageSizes: Array<{ width: number; height: number }> }> {
+  const directory = await mkdtemp(join(tmpdir(), 'cv-render-'));
+  try {
+    const pdfPath = join(directory, 'original.pdf');
+    await writeFile(pdfPath, pdf, { mode: 0o600 });
+    const { execFile } = await import('node:child_process');
+    const { promisify } = await import('node:util');
+    const run = promisify(execFile);
+    await run('pdftoppm', ['-png', '-scale-to', '1600', '-f', '1', '-l', String(MAX_RENDER_PAGES), pdfPath, join(directory, 'page')], {
+      timeout: RENDER_TIMEOUT_MS, maxBuffer: 1024 * 1024, windowsHide: true,
+    } as never);
+    const { readdir } = await import('node:fs/promises');
+    const names = (await readdir(directory)).filter((name) => /^page-?\d+\.png$/.test(name)).sort();
+    const images: Buffer[] = []; const pageSizes: Array<{ width: number; height: number }> = [];
+    for (const name of names.slice(0, MAX_RENDER_PAGES)) {
+      const image = await readFile(join(directory, name));
+      if (image.length > MAX_RENDERED_PAGE_BYTES) throw cvDependencyFailure('cv_layout_render_too_large', 'Gerenderte Seite überschreitet die Größengrenze.');
+      images.push(image);
+      pageSizes.push(pngSize(image));
+    }
+    return { images, pageSizes };
+  } finally {
+    await rm(directory, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
 const CONTRACT_FACT_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 /** Commands that read or mutate the private candidate profile and therefore need the full path proof. */
 const CV_PROFILE_COMMANDS = new Set([
@@ -76,6 +120,57 @@ export class SubmoduleCvNormalizationAdapter implements CvNormalizationPort {
       };
     const artifact = await this.run(
       ['normalize-extracted', '--extracted-envelope', '-', '--output', '-'], JSON.stringify(contractEnvelope),
+    );
+    return {
+      facts: factsFromArtifact(artifact), warnings: warningsFromArtifact(artifact),
+      conflicts: conflictsFromArtifact(artifact), artifact,
+    };
+  }
+
+  /**
+   * Layout extraction (text layer and/or OCR) through scripts/cv_layout.py. Inputs
+   * are written to a private temporary directory that is removed afterwards; page
+   * images for OCR are rendered transiently and deleted in finally. Nothing is
+   * logged and no network is involved (poppler and tesseract are local system
+   * packages).
+   */
+  async extractLayout(input: CvLayoutExtractionInput): Promise<CvExtractionDocument> {
+    if (!input.pdf && !input.images?.length) {
+      throw cvDependencyFailure('cv_layout_input_missing', 'Für die Layout-Erfassung fehlt die Originaldatei.');
+    }
+    let images = input.images ? input.images.slice(0, 30) : undefined;
+    let pageSizes = input.pageSizes?.slice(0, 30);
+    // Scans and thin text layers need OCR; rendered pages are transient only.
+    if (!images?.length && input.pdf && input.ocrMode !== 'off') {
+      const rendered = await renderPdfPagesTransiently(input.pdf);
+      images = rendered.images;
+      pageSizes = rendered.pageSizes;
+    }
+    const directory = await mkdtemp(join(tmpdir(), 'cv-layout-'));
+    try {
+      const args = ['--output', '-', '--sha256', input.sha256, '--file-name', input.fileName.slice(0, 200), '--ocr-mode', input.ocrMode,
+        '--min-chars', String(Math.max(1, Math.floor(input.minCharsPerPage))), '--languages', input.languages];
+      if (input.pdf) { const pdf = join(directory, 'original.pdf'); await writeFile(pdf, input.pdf, { mode: 0o600 }); args.push('--pdf', pdf); }
+      if (images?.length) {
+        const paths: string[] = [];
+        for (const [index, image] of images.entries()) {
+          const path = join(directory, `page-${String(index + 1).padStart(2, '0')}.png`);
+          await writeFile(path, image, { mode: 0o600 }); paths.push(path);
+        }
+        args.push('--images', ...paths);
+      }
+      if (pageSizes?.length) args.push('--page-sizes', pageSizes.map((size) => `${Math.max(1, Math.round(size.width))}x${Math.max(1, Math.round(size.height))}`).join(','));
+      const parsed = await this.run(args, undefined, 'cv_layout.py');
+      return validateCvExtraction(parsed);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  }
+
+  async normalizeExtraction(extraction: CvExtractionDocument, source: { mimeType: string; byteSize: number; fileName: string }): Promise<CvNormalizationResult> {
+    const artifact = await this.run(
+      ['normalize-extraction', '--extraction', '-', '--media-type', source.mimeType, '--byte-size', String(source.byteSize), '--file-name', source.fileName.slice(0, 200), '--output', '-'],
+      JSON.stringify(extraction),
     );
     return {
       facts: factsFromArtifact(artifact), warnings: warningsFromArtifact(artifact),
@@ -495,8 +590,8 @@ export class SubmoduleCvNormalizationAdapter implements CvNormalizationPort {
     return result;
   }
 
-  private async run(args: string[], stdin?: string): Promise<Record<string, unknown>> {
-    const script = resolve(this.root, 'scripts', 'cv_import_contract.py');
+  private async run(args: string[], stdin?: string, scriptName: 'cv_import_contract.py' | 'cv_layout.py' = 'cv_import_contract.py'): Promise<Record<string, unknown>> {
+    const script = resolve(this.root, 'scripts', scriptName);
     if (!within(this.root, script) || !within(this.privateProfilesRoot, this.candidate)
       || !within(this.privateProfilesRoot, this.style) || basename(this.candidate) !== 'candidate-profile.yaml'
       || basename(this.style) !== 'style-profile.yaml') {
@@ -844,6 +939,7 @@ function materializationSuggestionIds(
   }
   if (!exactKeys(artifact.extraction, [
     'engine', 'text_sha256', 'line_count', 'line_manifest', 'warnings', 'conflicts', 'ai_structuring',
+    ...('block_manifest' in artifact.extraction ? ['block_manifest'] : []),
   ]) || !Array.isArray(artifact.extraction.ai_structuring)
     || artifact.extraction.ai_structuring.length !== 1) {
     dependencyError('AI-CV-Materialisierung lieferte keinen eindeutigen Pruefnachweis.');

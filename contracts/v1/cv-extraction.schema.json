@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://skillsprinters.local/contracts/cv-extraction.schema.json",
+  "title": "cv-extraction 1.0",
+  "description": "Deterministisches Zwischenformat der Lebenslauf-Vorerfassung: Seiten mit Spalten und Blöcken in Lesereihenfolge, erkannte Überschriften, Quelle je Dokument (Textschicht, OCR, DOCX, HTML, Text) und Konfidenz. Koordinaten sind Pixel der Seitenbilder (OCR) oder darauf skalierte PDF-Punkte. Keine Interpretation, keine Fakten: das ist die Eingabe für cv_import_contract.py normalize-extraction und den KI-Nachlauf, der nur Block-IDs zitieren darf.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract", "contractVersion", "source", "pages", "headings", "warnings"],
+  "properties": {
+    "contract": { "const": "cv-extraction" },
+    "contractVersion": { "const": "1.0" },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "sha256"],
+      "properties": {
+        "kind": { "enum": ["text-layer", "ocr", "text-layer+ocr", "docx", "html", "txt"] },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "fileName": { "type": "string", "maxLength": 200 },
+        "engine": { "type": "string", "maxLength": 120 },
+        "languages": { "type": "array", "maxItems": 4, "items": { "type": "string", "pattern": "^[a-z]{3}$" } },
+        "ocrTriggered": { "enum": ["missing-text-layer", "thin-text-layer", "image", "always", "none"] },
+        "textLayerChars": { "type": "integer", "minimum": 0, "maximum": 2000000 }
+      }
+    },
+    "pages": {
+      "type": "array",
+      "maxItems": 30,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["page", "width", "height", "columns", "blocks"],
+        "properties": {
+          "page": { "type": "integer", "minimum": 1, "maximum": 30 },
+          "width": { "type": "integer", "minimum": 1, "maximum": 20000 },
+          "height": { "type": "integer", "minimum": 1, "maximum": 20000 },
+          "columns": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 4,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["id", "x", "width", "role"],
+              "properties": {
+                "id": { "type": "string", "pattern": "^p[0-9]{1,2}c[0-9]$" },
+                "x": { "type": "integer", "minimum": 0, "maximum": 20000 },
+                "width": { "type": "integer", "minimum": 1, "maximum": 20000 },
+                "role": { "enum": ["main", "side"] }
+              }
+            }
+          },
+          "blocks": {
+            "type": "array",
+            "maxItems": 400,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["id", "column", "order", "kind", "bbox", "confidence", "lines"],
+              "properties": {
+                "id": { "type": "string", "pattern": "^p[0-9]{1,2}c[0-9]b[0-9]{2,3}$" },
+                "column": { "type": "string", "pattern": "^p[0-9]{1,2}c[0-9]$" },
+                "order": { "type": "integer", "minimum": 0, "maximum": 999 },
+                "kind": { "enum": ["heading", "paragraph", "list-item", "date-line", "contact", "unknown"] },
+                "bbox": { "type": "array", "minItems": 4, "maxItems": 4, "items": { "type": "integer", "minimum": 0, "maximum": 20000 } },
+                "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+                "lines": { "type": "array", "minItems": 1, "maxItems": 200, "items": { "type": "string", "maxLength": 2000 } }
+              }
+            }
+          }
+        }
+      }
+    },
+    "headings": {
+      "type": "array",
+      "maxItems": 200,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["block", "text"],
+        "properties": {
+          "block": { "type": "string", "pattern": "^p[0-9]{1,2}c[0-9]b[0-9]{2,3}$" },
+          "text": { "type": "string", "minLength": 1, "maxLength": 200 },
+          "section": { "enum": ["profile", "contact", "employment", "project", "education", "skill", "certification", "language", "additional", "unknown"] }
+        }
+      }
+    },
+    "layoutFingerprint": { "type": "object" },
+    "warnings": { "type": "array", "maxItems": 100, "items": { "type": "string", "maxLength": 500 } }
+  }
+}

@@ -2682,6 +2682,26 @@ export class App implements OnInit, OnDestroy {
     });
   }
 
+  canRetryFinalizerQuickly(run: AgentOrchestrationRecord): boolean {
+    return run.status === 'failed' && run.providerId === 'openrouter' && run.workflowId === 'evidence-application-package'
+      && run.nodes.some(node => node.nodeId === 'finalizer' && node.status === 'failed' && node.failureCategory !== 'needs_input');
+  }
+  retryFinalizerQuickly(run: AgentOrchestrationRecord): void {
+    if (!this.canRetryFinalizerQuickly(run) || this.applicationRetryBusy) return;
+    this.applicationRetryBusy = true; this.agentOrchestrationError = '';
+    this.api.retryAgentOrchestrationNode(run.id, 'finalizer', undefined, 'off').subscribe({
+      next: created => {
+        this.applicationRetryBusy = false;
+        this.agentOrchestrations = [created, ...this.agentOrchestrations.filter(item => item.id !== created.id)];
+        if (created.scope.applicationCaseId === this.cvSelectedApplicationCaseId) this.cvAgentOrchestrationId = created.id;
+        if (created.scope.applicationCaseId === this.selectedApplicationCaseId) this.applicationAgentOrchestrationId = created.id;
+        this.notice = 'Nur der Abschluss läuft erneut mit Reasoning Aus. Fertige Vorstufen bleiben erhalten; das gespeicherte Profil bleibt unverändert.';
+        this.refreshView();
+      },
+      error: error => { this.applicationRetryBusy = false; this.agentOrchestrationError = this.message(error); this.refreshView(); },
+    });
+  }
+
   applicationRetryNode(): AgentOrchestrationRecord['nodes'][number] | undefined {
     const orchestration = this.applicationAgentOrchestration();
     if (!orchestration || orchestration.status !== 'failed') return undefined;

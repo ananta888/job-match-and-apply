@@ -1823,6 +1823,7 @@ export function createApp(
     const nodeId = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/).parse(request.params.nodeId);
     const payload = z.object({
       confirmed: z.literal(true),
+      reasoning: z.enum(['default','off','low','medium','high']).optional(),
       refinement: z.object({
         instructions: z.string().trim().max(8_000).default(''),
         includePreviousVersion: z.boolean().default(false),
@@ -1843,7 +1844,7 @@ export function createApp(
       throw Object.assign(new Error('Antworten und eine vorherige Fassung schließen sich aus.'), { statusCode: 400 });
     }
     response.setHeader('cache-control', 'no-store');
-    response.status(202).json(await orchestrationService.retryNode(id, nodeId, refinement));
+    response.status(202).json(await orchestrationService.retryNode(id, nodeId, refinement, payload.reasoning));
   }));
 
   app.post('/api/agent-orchestrations/:orchestrationId/cancel', asyncRoute(async (request, response) => {

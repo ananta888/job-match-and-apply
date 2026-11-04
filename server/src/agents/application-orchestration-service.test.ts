@@ -670,3 +670,37 @@ it('retries with the frozen raw sections instead of resolving changed candidate 
   expect(run?.request.metadata?.reasoning).toBe('off');
   await center.dispose();
 });
+
+it.each(['openrouter', 'fake'])('explicit fast finalizer retry with provider %s', async providerId => {
+  const root = await temporaryRoot();
+  class FinalizerProvider extends RoleOutputProvider {
+    override start(context: ProviderRunContext): Promise<AgentRunHandle> {
+      if (context.request.metadata?.nodeId === 'finalizer' && context.request.metadata?.reasoning !== 'off') {
+        return new FakeAgentProvider({steps: [], outcome: {state: 'failed', failure: {code: 'openrouter_output_truncated', message: 'synthetic budget failure', retryable: false}}}, providerId).start(context);
+      }
+      return super.start(context);
+    }
+  }
+  const center = new AgentControlCenter(new MemoryAgentRunStore(), [new FinalizerProvider(undefined, providerId)], {maxParallel: 2, maxParallelPerProvider: 2, allowedWorkspaceRoots: [root]});
+  const service = new ApplicationAgentOrchestrationService(center, new AgentArtifactStore(join(root, 'artifacts')), new MemoryApplicationOrchestrationStore(), gateAuthority, inputResolver, {runPersistenceProtection: 'ephemeral', pollIntervalMs: 2});
+  const initial = await service.create({...applicationInput(root), providerId, model: 'synthetic/frozen', roleSettings: {finalizer: {reasoning: 'high'}}});
+  const failed = await waitForStatus(service, initial.id);
+  expect(failed.status).toBe('failed');
+  if (providerId !== 'openrouter') {
+    await expect(service.retryNode(initial.id, 'finalizer', undefined, 'off')).rejects.toThrow('reasoning_override_not_allowed');
+  } else {
+    const retried = await service.retryNode(initial.id, 'finalizer', undefined, 'off');
+    const completed = await waitForStatus(service, retried.id);
+    expect(completed.status).toBe('succeeded');
+    expect(completed.runConfig?.roleSettings?.finalizer?.reasoning).toBe('off');
+    expect((await service.get(initial.id))?.runConfig?.roleSettings?.finalizer?.reasoning).toBe('high');
+    expect(completed.nodes.slice(0,4).map(n=>n.artifacts)).toEqual(failed.nodes.slice(0,4).map(n=>n.artifacts));
+    const oldNode = failed.nodes.find(n=>n.nodeId === 'finalizer')!;
+    const newNode = completed.nodes.find(n=>n.nodeId === 'finalizer')!;
+    expect(newNode.inputDigests).toEqual(oldNode.inputDigests);
+    const run = await center.get(newNode.runIds[0]!);
+    expect(run?.request.metadata).toMatchObject({reasoning: 'off', maxOutputTokens: 10_000});
+    expect(run?.request.model).toBe('synthetic/frozen');
+  }
+  await center.dispose();
+});

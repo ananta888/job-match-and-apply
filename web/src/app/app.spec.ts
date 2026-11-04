@@ -2629,4 +2629,17 @@ describe('App', () => {
     fixture.destroy();
   });
 
+  it('retries only the failed OpenRouter finalizer explicitly without reasoning', () => {
+    const fixture = TestBed.createComponent(App); const component = fixture.componentInstance;
+    const failed = {...orchestrationFixture('failed'), providerId: 'openrouter'};
+    failed.nodes = [{nodeId: 'finalizer', role: 'finalizer', status: 'failed', attempts: 1, runIds: [], dependsOn: [], inputDigests: {}, artifacts: []}];
+    apiMock['retryAgentOrchestrationNode'].mockReturnValue(of({...failed, id: 'new-fast-retry', status: 'running'}));
+    expect(component.canRetryFinalizerQuickly(failed)).toBe(true);
+    expect(component.canRetryFinalizerQuickly({...failed, providerId: 'opencode'})).toBe(false);
+    component.retryFinalizerQuickly(failed);
+    expect(apiMock['retryAgentOrchestrationNode']).toHaveBeenCalledWith(failed.id, 'finalizer', undefined, 'off');
+    expect(component.notice).toContain('Reasoning Aus');
+    fixture.destroy();
+  });
+
 });

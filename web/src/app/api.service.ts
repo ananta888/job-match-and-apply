@@ -1,5 +1,6 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
+import type { CareerReasoning } from './models';
 import { Observable } from 'rxjs';
 import type { AtsCheckReport, AgentArtifactAdoptionResult, AgentArtifactContent, AgentArtifactRecord, AgentConfigProfile, AgentConfigProfileView, AgentNodeRetryRefinement, AgentOrchestrationConfirmationInput, AgentOrchestrationConflict, AgentOrchestrationConflictResolutionRequest, AgentOrchestrationCreateRequest, AgentOrchestrationRecord, AgentProvider, AgentQueueSnapshot, AgentRecoveryDecision, AgentRecoveryLease, AgentRecoveryResolution, AgentRecoverySnapshot, AgentRun, AgentRunEvent, AgentRunEventsPage, AgentRunPreflight, AgentRunRequest, AgentWorkflow, AppConfig, ApplicationCase, ApplicationSourceCvCandidate, ApplicationDraft, ApplicationExportResult, ApplicationPipelineFinalizeResult, ApplicationProfileSetupStatus, ApplicationStyleProfileView, ArtifactRevision, CandidateMatchAnalysis, CandidateProfileSummary, CompanyCrm, CorrelatedMail, CvAiProviderSelection, CvAiStructuringOptions, CvAiStructuringPublicRun, CvAiStructuringSelection, CvAdoptionRevocationCandidates, CvFactOperation, CvIncognitoPreview, CvImportRecord, CvProfileSnapshotList, CvImportSummary, CvRecognitionVersionList, CvTheme, DataInventory, EditableApplicationStyleProfile, IdentityProfile, JobDecision, JobInventoryCategory, JobInventoryView, JobMatch, JobSearchMcpRuntimeCandidate, JobSourceCapabilities, LanguageCheckResult, MailAccount, McpRuntimeStatus, ProfileImportPreview, ProviderModelCatalog, ProviderCredentialSummary, AgentWslDistributionsView, SearchProfile, SearchRunSummary, SearchSchedule, SourceStatus, VersionApproval, VersionApprovalSnapshot } from './models';
 
@@ -364,10 +365,10 @@ export class ApiService {
       expectedRevision, ...confirmations
     });
   }
-  retryAgentOrchestrationNode(orchestrationId: string, nodeId: string, refinement?: AgentNodeRetryRefinement): Observable<AgentOrchestrationRecord> {
+  retryAgentOrchestrationNode(orchestrationId: string, nodeId: string, refinement?: AgentNodeRetryRefinement, reasoning?: CareerReasoning): Observable<AgentOrchestrationRecord> {
     return this.http.post<AgentOrchestrationRecord>(
       `/api/agent-orchestrations/${encodeURIComponent(orchestrationId)}/nodes/${encodeURIComponent(nodeId)}/retry`,
-      { confirmed: true, ...(refinement ? { refinement } : {}) },
+      { confirmed: true, ...(refinement ? { refinement } : {}), ...(reasoning !== undefined ? {reasoning} : {}) },
     );
   }
   cancelAgentOrchestration(orchestrationId: string, expectedRevision: number): Observable<AgentOrchestrationRecord> {

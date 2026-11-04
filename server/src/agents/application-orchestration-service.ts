@@ -1532,12 +1532,15 @@ export class ApplicationAgentOrchestrationService {
   /**
    * Targeted retry of exactly one failed node: the fork reuses validated
    * predecessors, invalidates the failed node and its transitive dependents,
-   * and keeps the frozen run configuration of the source record. A refinement
+   * and keeps the frozen run configuration of the source record. An explicit
+   * OpenRouter-finalizer reasoning choice creates a new frozen config only in
+   * the fork; it never rewrites the source or the saved profile. A refinement
    * (answers/instructions) feeds only the follow-up finalizer run; answers stay
    * untrusted editing input and never become candidate evidence.
    */
-  async retryNode(id: string, nodeId: string, refinement?: FinalizerRefinement): Promise<ApplicationOrchestrationRecord> {
+  async retryNode(id: string, nodeId: string, refinement?: FinalizerRefinement, reasoningOverride?: CareerReasoning): Promise<ApplicationOrchestrationRecord> {
     await this.initialize();
+    validateCareerSettings(reasoningOverride, undefined);
     if (this.retryLocks.has(id)) {
       throw Object.assign(new Error('Für diese Orchestrierung läuft bereits eine Wiederholung.'), { statusCode: 409 });
     }
@@ -1569,6 +1572,13 @@ export class ApplicationAgentOrchestrationService {
       if (!workflow || workflow.version !== source.workflowVersion) throw new Error('application_orchestration_workflow_contract_changed');
       const plan = workflow.plan(source.providerId);
       const { input, sections } = await this.retryContext(source, plan);
+      if (reasoningOverride !== undefined) {
+        if (source.providerId !== 'openrouter' || source.workflowId !== 'evidence-application-package' || nodeId !== 'finalizer') {
+          throw Object.assign(new Error('application_orchestration_reasoning_override_not_allowed'), {statusCode: 409});
+        }
+        input.roleSettings = freezeCareerRoles(input);
+        input.roleSettings.finalizer = {...input.roleSettings.finalizer, reasoning: reasoningOverride};
+      }
       const affected = new Set<string>([nodeId]);
       for (let grew = true; grew;) {
         grew = false;
@@ -1611,6 +1621,15 @@ export class ApplicationAgentOrchestrationService {
           budget: { ...EMPTY_BUDGET },
         };
       });
+      const retryRunConfig: NonNullable<ApplicationOrchestrationRecord['runConfig']> = source.runConfig ? clone(source.runConfig) : {
+        workflowVersion: source.workflowVersion, providerId: source.providerId, runtimeTarget: input.runtimeTarget,
+        ...(input.wslDistribution ? {wslDistribution: input.wslDistribution} : {}),
+        ...(input.model ? {model: input.model} : {}), frozenAt: source.createdAt,
+      };
+      if (reasoningOverride !== undefined) {
+        retryRunConfig.roleSettings = clone(input.roleSettings);
+        retryRunConfig.frozenAt = createdAt;
+      }
       const record: ApplicationOrchestrationRecord = {
         schemaVersion: 1,
         id: newId,
@@ -1620,14 +1639,7 @@ export class ApplicationAgentOrchestrationService {
         providerId: source.providerId,
         status: 'queued',
         ...(source.providerInstallation ? { providerInstallation: structuredClone(source.providerInstallation) } : {}),
-        runConfig: source.runConfig ? structuredClone(source.runConfig) : {
-          workflowVersion: source.workflowVersion,
-          providerId: source.providerId,
-          runtimeTarget: input.runtimeTarget,
-          ...(input.wslDistribution ? { wslDistribution: input.wslDistribution } : {}),
-          ...(input.model ? { model: input.model } : {}),
-          frozenAt: source.createdAt,
-        },
+        runConfig: retryRunConfig,
         retryOf: { orchestrationId: source.id, nodeId },
         ...(refinement ? { refinement: refinementBinding(refinement) } : {}),
         ...(source.clarifications ? { clarifications: true as const } : {}),

@@ -478,6 +478,13 @@ describe('public agent orchestration API', () => {
     const atsNode = failed.body.nodes.find((node: { nodeId: string }) => node.nodeId === 'ats');
     expect(atsNode.status).toBe('failed');
 
+    const forbiddenOverride = await request(value.app)
+      .post(`/api/agent-orchestrations/${failed.body.id}/nodes/ats/retry`).send({confirmed: true, reasoning: 'off'});
+    expect(forbiddenOverride.status).toBe(409);
+    const invalidOverride = await request(value.app)
+      .post(`/api/agent-orchestrations/${failed.body.id}/nodes/ats/retry`).send({confirmed: true, reasoning: 'unlimited'});
+    expect(invalidOverride.status).toBe(400);
+
     const retried = await request(value.app)
       .post(`/api/agent-orchestrations/${failed.body.id}/nodes/ats/retry`)
       .send({ confirmed: true });

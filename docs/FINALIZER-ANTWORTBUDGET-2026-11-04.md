@@ -15,3 +15,10 @@ Korrektur:
 Regressionen prüfen die 50.000 Tokens auch im tatsächlichen HTTP-Anfragerumpf, Marker/Prompt-Konsistenz, Abbruchkategorie, fehlende Nutzungsdaten und den unveränderten Schutz gegen abgeschnittene Dokumente.
 
 Verifikation: 797 Backend- und 76 Angular-Tests bestanden, zwei bestehende Tests übersprungen; Server-/Angular-Build erfolgreich (bekannte Bundle-Warnung bleibt). Sicherheitsprüfung erfolgreich. Unabhängiges Review ohne kritische oder wichtige Befunde. Ein echter Abschluss ist mit diesen Tests allein nicht belegt.
+
+## Echter High-Vergleich und begrenzte schnelle Alternative
+Der anschließende echte High-Test mit gleicher Datenbasis erreichte 50.000 Ausgabetokens. Anbieterdiagnose: reasoningTokens=50.000, answerCharacters=0, finishReason=length; Laufzeit etwa 103 Sekunden. Es entstand kein HTML. Ein höheres Gesamtlimit ist daher für diesen Fall keine belegte Lösung.
+
+Der schnelle Wiederholungsweg verändert ausdrücklich nur das Finalizer-Reasoning in einer neuen, eingefrorenen Run-Konfiguration. Anbieter, Modell, Rohdaten und vier geprüfte Vorstufen bleiben unverändert. Der Ursprung bleibt High; das gespeicherte Providerprofil wird nicht geändert. Die API verweigert diese Ausnahme für andere Anbieter oder Knoten. Die normale Wiederholung ohne Override bleibt unverändert. UI-Beschriftung: „Nur Abschluss schnell wiederholen · Reasoning Aus“.
+
+Schneller Retry: 799 Backend-Tests (zwei übersprungen), 77 Angular-Tests, Builds und Sicherheitsprüfung bestanden; unabhängiges Review ohne wichtige Befunde.

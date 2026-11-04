@@ -195,7 +195,9 @@ function cvAiOptions(record: CvImportRecord): CvAiStructuringOptions {
     contract: 'cv-ai-structuring-options', contractVersion: '1.0', capturedAt: FIXED_TIME,
     cvImport: { id: record.id, revision: record.revision, sha256: record.sha256 },
     providers: [{
-      providerId: 'fake-interactive', installations: [{
+      // The UI intentionally hides synthetic test providers; a visible provider
+      // id exercises the real selection contract.
+      providerId: 'opencode', installations: [{
         runtimeTarget: 'windows', version: '1.0.0', adapterVersion: 'fixture-1', support: 'supported',
         authStatus: 'not_required', ready: true, blockers: [],
         network: {

@@ -52,7 +52,7 @@
         "LO-003",
         "LO-004"
       ],
-      "status": "done"
+      "status": "partial"
     },
     {
       "id": "M3",
@@ -79,12 +79,6 @@
       ],
       "verification_evidence": [
         "Referenz: uebergabe/latest-reference/jobsuche-backend/integrations/bewerbungs-schreib-assistent/scripts/cv_layout.py (539 Zeilen, SHA-geprüft)."
-      ],
-      "evidence": [
-        "integrations/bewerbungs-schreib-assistent/scripts/cv_layout.py",
-        "integrations/bewerbungs-schreib-assistent/scripts/cv_import_contract.py",
-        "integrations/bewerbungs-schreib-assistent/tests/test_cv_layout.py",
-        "Submodule-Commit fb2dd0d"
       ]
     },
     {
@@ -101,14 +95,9 @@
         "Seitenrender nur transient; nach Import liegen keine Bilder mehr im lokalen Speicher.",
         "Fehlende Tools (poppler-utils, tesseract) führen zu klaren diagnose-Fehlern, nicht zu stillen Ausfällen."
       ],
-      "verification_evidence": [],
-      "evidence": [
-        "server/src/services/cv-extraction.ts",
-        "server/src/adapters/submodule-cv-normalization.ts",
-        "server/src/services/cv-imports.ts",
-        "server/src/services/cv-layout-import.test.ts",
-        "contracts/v1/cv-extraction.schema.json",
-        "Root-Commit 6821c50"
+      "verification_evidence": [
+        "Root-Suite: 814+2 gruen zum Commitzeitpunkt, Exit 0",
+        "Root-Commit 6821c50 (cv-extraction.ts, Adapter, cv-imports, Vertrag, Tests)"
       ]
     },
     {
@@ -124,12 +113,9 @@
         "KI-Strukturierungsprompt erhält Layout-Blöcke zusätzlich zum Zeilenmanifest; Anker bleiben exakt und prüfbar.",
         "Ohne Layout-Quelle bleibt der bestehende Ablauf unverändert."
       ],
-      "verification_evidence": [],
-      "evidence": [
-        "server/src/services/cv-ai-structuring-prompt.ts",
-        "server/src/services/cv-ai-structuring.ts",
-        "server/src/services/cv-ai-structuring.test.ts",
-        "server/src/services/cv-ai-structuring-prompt.test.ts"
+      "verification_evidence": [
+        "cv-ai-structuring*.test.ts gruen inkl. injiziertem Transport-Nachweis (Task enthaelt UNTRUSTED_CV_LAYOUT_BLOCKS)",
+        "Root-Commit b33a7eb"
       ]
     },
     {
@@ -144,32 +130,31 @@
         "scripts/diagnose.mjs prüft pdftotext, pdftoppm und tesseract inkl. Version.",
         "README/docs nennen die neuen lokalen Systemabhängigkeiten."
       ],
-      "verification_evidence": [],
-      "evidence": [
-        "scripts/diagnose.mjs",
-        "README.md"
+      "verification_evidence": [
+        "node scripts/diagnose.mjs: Exit 0, pdftotext/pdftoppm/tesseract + deu+eng",
+        "Root-Commit b33a7eb (scripts/diagnose.mjs, README.md)"
       ]
     },
     {
       "id": "LO-005",
       "title": "Verifikation gegen Referenz-PDF",
       "type": "verification",
-      "status": "done",
+      "status": "partial",
       "priority": "high",
       "risk": "low",
-      "progress_percent": 100,
+      "progress_percent": 85,
       "acceptance_criteria": [
         "Durchlauf mit lokaler Referenz-PDF (ohne Personendaten in Git) durch alle Studio-Schritte.",
         "npm test und npm run build grün; cv-studio e2e grün.",
         "Abgleich mit offenem Punkt 'KI-Stand gegen deterministischen Stand' aus cv-studio-real-pdf-walkthrough, ohne Todo-Duplikat."
       ],
-      "verification_evidence": [],
-      "evidence": [
-        "npm test: 19 Repo-Skripte + 816+2 Server + 77 Web, Exit 0",
-        "npm run build: Exit 0",
-        "npm run security:scan: Exit 0",
-        "Submodule 117/117, Exit 0",
-        "keine lokale Referenz-PDF auffindbar; synthetische E2E vollstaendig geprueft"
+      "verification_evidence": [
+        "Browser-E2E: npm --prefix web run e2e -- cv-studio.spec.ts --workers=2 → Exit 0, 7 passed (Log /tmp/opencode/lo5-e2e5.log)",
+        "npm test (Root): Repo-Skripte 19/19, Server 816+2, Web 77, Exit 0 (Log /tmp/opencode/lo5-test.log)",
+        "npm run build: Exit 0 (Log /tmp/opencode/lo5-build.log); npm run security:scan: Exit 0 (Log /tmp/opencode/lo5-security.log)",
+        "Submodule unittest discover: 117 Tests OK, Exit 0 (Log /tmp/opencode/lo5-sub.log); Submodule-Commits fb2dd0d + f3d267a (Detail-Todo todos/active/cv-layout-extraction.json)",
+        "node scripts/diagnose.mjs: Exit 0 (pdftotext/pdftoppm/tesseract + deu+eng)",
+        "OFFEN: Durchlauf mit persoenlicher Referenz-PDF — keine Datei lokal auffindbar; private Abnahme bleibt offen und wird nicht durch synthetische Tests ersetzt behauptet"
       ]
     }
   ],
@@ -184,11 +169,11 @@
     "by_status": {
       "todo": 0,
       "in_progress": 0,
-      "partial": 0,
+      "partial": 1,
       "blocked": 0,
-      "done": 5
+      "done": 4
     },
-    "progress_percent_done": 100.0,
+    "progress_percent_done": 97.0,
     "by_priority": {
       "high": 3,
       "medium": 2,
@@ -204,20 +189,23 @@
       "todo": 0,
       "in_progress": 0,
       "blocked": 0,
-      "done": 3
+      "done": 2,
+      "partial": 1
     }
   },
   "progress_summary": {
-    "state": "done",
+    "state": "partial",
     "todo_remaining": 0,
     "in_progress": 0,
-    "partial": 0,
+    "partial": 1,
     "blocked": 0,
-    "done": 5
+    "done": 4
   },
   "summary_notes": [
     "Startet nach oder parallel zu M1 des Tracks dokumentqualitaet-anschreiben-cv; Submodule-Release-Takt bestimmt das Timing.",
     "Referenz aus uebergabe/reference-33c7019 gezielt portiert; cv-original-evidence/persistente Originale bewusst nicht uebernommen.",
-    "Offene private Abnahme: echter Durchlauf mit persoenlicher Referenz-PDF (nicht lokal auffindbar) bleibt offen; synthetische E2E deckt alle Studio-Schritte."
+    "Offene private Abnahme: echter Durchlauf mit persoenlicher Referenz-PDF (nicht lokal auffindbar) bleibt offen; synthetische E2E deckt alle Studio-Schritte.",
+    "LO-005 bewusst partial: Browser-E2E cv-studio derzeit 2/7 gruen (Selektor-Drift zur CV-UX); private Referenz-PDF-Abnahme offen.",
+    "Browser-E2E cv-studio 7/7 gruen (Selektor-Anpassung an lesbare Feldbezeichnungen, sichtbare Provider-IDs in der Fixture, Axe target-size und 320px-Overflow des Feldsatzes gefixt)."
   ]
 }

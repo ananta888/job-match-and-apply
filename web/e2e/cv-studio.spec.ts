@@ -40,7 +40,7 @@ test.describe('Lebenslauf-Studio – vollständiger Offline-Vertrag', () => {
     expect(String(agentApi.cvImportRequests[0]?.['base64'])).toMatch(/^[A-Za-z0-9+/]+=*$/);
 
     const facts = page.getByTestId('cv-facts-step');
-    await facts.locator('.cv-fact').filter({ hasText: 'company' }).getByRole('button', { name: 'Diesen Fakt bestätigen' }).click();
+    await facts.locator('.cv-fact').filter({ hasText: 'Arbeitgeber' }).getByRole('button', { name: 'Diesen Fakt bestätigen' }).click();
     await facts.locator('.cv-fact').filter({ hasText: 'period' }).getByRole('button', { name: 'Verwerfen' }).click();
     await expect.poll(() => agentApi.cvFactReviewRequests.length).toBe(2);
     expect(agentApi.cvFactReviewRequests[0]).toMatchObject({
@@ -116,8 +116,8 @@ test.describe('Lebenslauf-Studio – vollständiger Offline-Vertrag', () => {
     });
     const rawFacts = facts.getByTestId('cv-raw-facts');
     await expect(rawFacts).not.toHaveAttribute('open', '');
-    await rawFacts.locator('summary').click();
-    const addedFact = facts.locator('.cv-fact', { has: page.getByText(/detail · Bestätigt/) });
+    await rawFacts.locator(':scope > summary').click();
+    const addedFact = facts.locator('.cv-fact', { has: page.getByText(/Detail · Bestätigt/) });
     await expect(addedFact.locator('textarea')).toHaveValue('Synthetischer Zusatzfakt');
     await expect(addedFact).toContainText('user_supplied');
     await expect(facts).not.toContainText('Revisionsgebunden übernommen');
@@ -167,7 +167,7 @@ test.describe('Lebenslauf-Studio – vollständiger Offline-Vertrag', () => {
     await expect.poll(() => agentApi.cvAiStartRequests.length).toBe(1);
     expect(agentApi.cvAiStartRequests[0]).toEqual({
       expectedRevision: 1, expectedSha256: '7'.repeat(64),
-      provider: { providerId: 'fake-interactive', runtimeTarget: 'windows', expectedVersion: '1.0.0' },
+      provider: { providerId: 'opencode', runtimeTarget: 'windows', expectedVersion: '1.0.0' },
       mode: 'replace_with_ai_version',
       disclosure: {
         version: '1.0', confirmed: true, sendExtractedCvTextToProvider: true,
@@ -180,7 +180,7 @@ test.describe('Lebenslauf-Studio – vollständiger Offline-Vertrag', () => {
     await expect(versions).toContainText('2 Erkennungsstände');
     await expect(versions.getByTestId('cv-recognition-active')).toContainText('KI-Strukturierung');
     await expect(versions.getByTestId('cv-recognition-version-select')).toHaveValue('recognition-2222222222222222');
-    await expect(page.locator('fieldset.cv-fact').filter({ hasText: 'role · Ungeprüft' })).toContainText('AI-erkannt, nicht AI-bestätigt');
+    await expect(page.locator('fieldset.cv-fact').filter({ hasText: 'Rolle · Ungeprüft' })).toContainText('AI-erkannt, nicht AI-bestätigt');
     await expect(ai.getByTestId('cv-ai-apply')).toHaveCount(0);
 
     await versions.getByTestId('cv-recognition-version-select').selectOption('recognition-1111111111111111');
@@ -254,6 +254,23 @@ test.describe('Lebenslauf-Studio – vollständiger Offline-Vertrag', () => {
     await expect(versions.getByLabel('Aktiver Erkennungsstand')).toBeVisible();
     await expect(versions.getByTestId('cv-recognition-confirmation')).toBeVisible();
     const pageOverflows = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
+    if (pageOverflows) {
+      const offenders = await page.evaluate(() => {
+        const clipped = (el: Element): boolean => {
+          for (let node = el.parentElement; node; node = node.parentElement) {
+            const style = getComputedStyle(node);
+            if (style.overflowX !== 'visible') return true;
+          }
+          return false;
+        };
+        return [...document.querySelectorAll('body *')]
+          .map((el) => ({ el, right: Math.round(el.getBoundingClientRect().right) }))
+          .filter(({ el, right }) => right > window.innerWidth + 1 && right <= document.documentElement.scrollWidth && !clipped(el))
+          .slice(0, 10)
+          .map(({ el, right }) => `${right}px ${el.tagName.toLowerCase()}.${String(el.className).split(' ').join('.')}|${(el.textContent ?? '').trim().slice(0, 36)}`);
+      });
+      console.log('overflow offenders:', offenders);
+    }
     expect(pageOverflows).toBe(false);
     await expectAxeClean(page, '[data-testid="cv-facts-step"]');
   });
@@ -282,7 +299,7 @@ test.describe('Lebenslauf-Studio – vollständiger Offline-Vertrag', () => {
     expect(agentApi.cvAiRetryRequests[0]).toEqual({
       expectedRunRevision: 3, expectedRunSha256: '4'.repeat(64),
       expectedCvImportRevision: 1, expectedCvImportSha256: '7'.repeat(64),
-      provider: { providerId: 'fake-interactive', runtimeTarget: 'windows', expectedVersion: '1.0.0' },
+      provider: { providerId: 'opencode', runtimeTarget: 'windows', expectedVersion: '1.0.0' },
       mode: 'replace_with_ai_version',
       disclosure: {
         version: '1.0', confirmed: true, sendExtractedCvTextToProvider: true,

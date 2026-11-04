@@ -39,7 +39,7 @@
 .cv-source-card strong, .cv-style-reference strong { margin-top: 5px; color: #263149; font-size: 9px; overflow-wrap: anywhere; }
 .cv-source-card code, .cv-style-reference code { display: block; margin-top: 5px; color: #4e3db2; font-size: 8px; overflow-wrap: anywhere; }
 .cv-delete-import { margin-top: 14px; padding: 12px 14px; border: 1px solid #f0ced4; border-radius: 10px; color: #76303b; background: #fffafb; }
-.cv-delete-import summary { cursor: pointer; font-size: 9px; font-weight: 800; }
+.cv-delete-import summary { cursor: pointer; font-size: 9px; font-weight: 800; min-height: 24px; padding: 5px 2px; box-sizing: border-box; }
 .cv-delete-import p, .cv-delete-import label { display: block; font-size: 8px; line-height: 1.5; }
 .cv-delete-import input { width: 100%; margin: 7px 0 10px; padding: 9px 10px; border: 1px solid #e3bdc4; border-radius: 8px; color: #4b2730; background: white; font: 9px/1.4 monospace; }
 .cv-step-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
@@ -98,7 +98,7 @@
 .cv-ai-status progress { width: 100%; height: 10px; margin: 6px 0 2px; accent-color: #6755d3; }
 .cv-ai-suggestions { margin-top: 18px; padding-top: 18px; border-top: 1px solid #dcd8ef; }
 .cv-ai-legacy-review { margin-top: 16px; padding: 11px 13px; border: 1px solid #ddd9eb; border-radius: 9px; background: #fbfafe; }
-.cv-ai-legacy-review > summary { cursor: pointer; color: #514778; font-size: 9px; font-weight: 800; }
+.cv-ai-legacy-review > summary { cursor: pointer; color: #514778; font-size: 9px; font-weight: 800; min-height: 24px; padding: 5px 2px; box-sizing: border-box; }
 .cv-ai-timeline { margin: 16px 0 0; padding: 0 0 0 24px; list-style: none; border-left: 2px solid #cac2ef; }
 .cv-ai-timeline > li { position: relative; margin: 0 0 17px; }
 .cv-ai-timeline > li::before { content: 'AI'; position: absolute; left: -35px; top: 13px; display: grid; width: 20px; height: 20px; place-items: center; border: 2px solid white; border-radius: 50%; color: white; background: #6651c8; box-shadow: 0 0 0 1px #aaa0d7; font-size: 6px; font-weight: 900; }
@@ -141,7 +141,7 @@
 .cv-fact-timeline > li { position: relative; margin: 0 0 18px; }
 .cv-fact-timeline > li::before { content: ''; position: absolute; left: -30px; top: 18px; width: 10px; height: 10px; border: 2px solid white; border-radius: 50%; background: #6d5ce7; box-shadow: 0 0 0 1px #bfc5d2; }
 .cv-raw-facts { margin-top: 14px; padding: 12px 14px; border: 1px solid #dfe3e9; border-radius: 10px; background: #fafbfc; }
-.cv-raw-facts > summary { cursor: pointer; color: #445066; font-size: 9px; font-weight: 800; }
+.cv-raw-facts > summary { cursor: pointer; color: #445066; font-size: 9px; font-weight: 800; min-height: 24px; padding: 5px 2px; box-sizing: border-box; }
 .cv-raw-facts > p { color: #657084; font-size: 8px; line-height: 1.5; }
 .cv-raw-facts .cv-fact-timeline { margin-top: 13px; }
 .cv-fact-record { overflow: hidden; border: 1px solid #e0e4eb; border-radius: 11px; }
@@ -159,7 +159,10 @@
 .cv-fact-form > div { min-width: 0; }
 .cv-fact-form input, .cv-fact-form select, .cv-fact-form textarea, .cv-theme-fields select, .cv-target select, .cv-agent-selection select { width: 100%; margin-top: 6px; padding: 9px 10px; border: 1px solid #dfe3e9; border-radius: 8px; color: #263149; background: white; font: 10px/1.45 inherit; }
 .cv-fact-form textarea { resize: vertical; }
-.cv-provenance { display: grid; grid-template-columns: minmax(160px, .7fr) 1fr; gap: 10px; margin: 10px 0; color: #657084; font-size: 8px; }
+p.cv-provenance { display: grid; grid-template-columns: minmax(160px, .7fr) 1fr; gap: 10px; margin: 10px 0; color: #657084; font-size: 8px; }
+details.cv-provenance { display: block; margin: 10px 0; color: #657084; font-size: 8px; }
+details.cv-provenance > p { display: grid; grid-template-columns: minmax(160px, .7fr) 1fr; gap: 10px; margin: 4px 0 0; }
+details.cv-provenance > summary, .cv-fact-technical > summary { cursor: pointer; min-height: 24px; padding: 5px 4px; box-sizing: border-box; font-size: 10px; font-weight: 600; }
 .cv-provenance code { overflow-wrap: anywhere; }
 .cv-fact-actions { display: flex; justify-content: flex-end; gap: 7px; flex-wrap: wrap; }
 .cv-adoption-bar { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 18px; margin-top: 20px; padding: 15px; border: 1px solid #d9d4fb; border-radius: 11px; background: #f8f7ff; }
@@ -224,6 +227,10 @@
   .cv-fact-form { grid-template-columns: 1fr; }
   .cv-fact-form .wide { grid-column: auto; }
   .cv-provenance, .cv-adoption-bar, .cv-recognition-confirm { grid-template-columns: 1fr; }
+  details.cv-provenance > p, p.cv-provenance { grid-template-columns: 1fr; }
+  .cv-ai-provider, .cv-ai-provider fieldset { min-width: 0; }
+  .cv-ai-provider .agent-config-model-input { flex-wrap: wrap; }
+  .cv-ai-provider .agent-config-model-input input { min-width: 0; }
   .cv-recognition-confirm > button { width: 100%; }
   .cv-adoption-bar > button, .cv-adoption-bar > div, .cv-adoption-bar > div button { width: 100%; }
   .cv-claim-management-actions > button, .cv-profile-snapshots > button { width: 100%; justify-self: stretch; }

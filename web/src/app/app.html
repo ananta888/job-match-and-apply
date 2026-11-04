@@ -254,6 +254,29 @@
             </article>
           }
         </section>
+        <section class="panel" data-testid="profile-recognized-cv" aria-labelledby="profile-recognized-cv-heading">
+          <div class="panel-head"><div><span class="kicker">ERKANNTER LEBENSLAUF</span><h3 id="profile-recognized-cv-heading">Mein erkannter Lebenslauf</h3><p>Die erkannten Angaben bleiben einzeln lesbar und korrigierbar. Jede Korrektur ist eine neue, noch zu prüfende Aussage — nichts wird automatisch bestätigt oder übernommen.</p></div><button class="secondary compact" type="button" (click)="loadProfileCvOverview()" [disabled]="busy">Neu laden</button></div>
+          @if (!cvImport) {
+            <div class="approval-empty"><strong>Noch kein Lebenslauf erkannt</strong><p>Lade im Lebenslauf-Studio eine Datei hoch. Nach der Erkennung erscheint die Übersicht hier automatisch.</p><button class="primary" type="button" (click)="select('cv'); selectCvStep(1)">Zum Upload im Lebenslauf-Studio</button></div>
+          } @else {
+            <div class="cv-recognized-status">
+              <label for="profile-cv-import-select">Erkannter Import</label>
+              <select id="profile-cv-import-select" data-testid="profile-cv-import-select" [ngModel]="cvImport.id" (ngModelChange)="loadProfileCvImport($event)" [disabled]="busy">
+                @for (item of cvImportInventory; track item.id) { <option [value]="item.id">{{ item.source.fileName }} · {{ item.updatedAt | date:'short' }}</option> }
+              </select>
+              @if (cvRecognitionActiveVersion(); as version) {
+                <p class="info-box" data-testid="profile-cv-recognition">Aktiver Erkennungsstand: <strong>{{ version.label }}</strong> · {{ cvRecognitionVersionKindLabel(version.kind) }} · {{ version.factCounts.total }} Angaben · {{ cvFactCount('pending') }} offen zu prüfen</p>
+              }
+              <button class="secondary compact" type="button" (click)="revealSensitiveIdentity = !revealSensitiveIdentity" [attr.aria-pressed]="revealSensitiveIdentity">{{ revealSensitiveIdentity ? 'Sensible Werte verbergen' : 'Sensible Werte bewusst anzeigen' }}</button>
+            </div>
+            <app-cv-facts-editor [facts]="cvImport.facts" [busy]="busy" [revealSensitive]="revealSensitiveIdentity" [drafts]="cvFactDrafts"
+              (draftChange)="updateCvFactDraftShared($event.fact, $event.field, $event.value)"
+              (saveFact)="saveCvFact($event)"
+              (decideFact)="decideCvFactShared($event.fact, $event.decision)"
+              (addFacts)="submitCvFactOperations($event)"
+              (resetDraft)="resetCvFactDraft($event)" />
+          }
+        </section>
         <section class="panel profile-setup" data-testid="application-profile-setup" aria-labelledby="profile-setup-heading">
           <div class="panel-head"><div><span class="kicker">LOKALES ONBOARDING</span><h3 id="profile-setup-heading">Kandidaten- und Stilprofil vorbereiten</h3></div><button class="secondary compact" type="button" (click)="loadProfileSetup()">Status aktualisieren</button></div>
           @if (profileSetup; as setup) {
@@ -602,67 +625,16 @@
                   }
                 }
               </section>
-              <fieldset class="cv-add-fact"><legend>Eigenen atomaren Fakt ergänzen</legend>
-                <p>Neue Angaben sind <code>user_supplied</code>, aber standardmäßig ungeprüft. Eine ausdrückliche Bestätigung ersetzt die getrennte Profilübernahme nicht.</p>
-                <div class="cv-fact-form">
-                  <div><label for="cv-new-fact-category">Kategorie</label><select id="cv-new-fact-category" data-testid="cv-new-fact-category" [ngModel]="cvNewFactDraft.category" (ngModelChange)="setCvNewFactCategory($event)">@for (category of cvFactCategories; track category) { <option [value]="category">{{ cvFactCategoryLabel(category) }}</option> }</select></div>
-                  <div><label for="cv-new-fact-target">Station</label><select id="cv-new-fact-target" data-testid="cv-new-fact-target" [ngModel]="cvNewFactDraft.target" (ngModelChange)="setCvNewFactTarget($event)"><option value="new_record">Neue Station anlegen</option><option value="existing_record">Vorhandene Station ergänzen</option></select></div>
-                  @if (cvNewFactDraft.target === 'existing_record') {
-                    <div><label for="cv-new-fact-record">Vorhandene Station</label><select id="cv-new-fact-record" data-testid="cv-new-fact-record" [(ngModel)]="cvNewFactDraft.recordId"><option value="">Bitte wählen</option>@for (recordId of cvNewFactRecordIds(); track recordId) { <option [value]="recordId">{{ cvNewFactRecordLabel(recordId) }}</option> }</select></div>
-                  } @else {
-                    <div><label for="cv-new-fact-record-key">Bezeichnung der neuen Station</label><input id="cv-new-fact-record-key" data-testid="cv-new-fact-record-key" [(ngModel)]="cvNewFactDraft.newRecordKey" pattern="[a-z][a-z0-9-]{0,63}" maxlength="64" autocomplete="off"><small class="field-help">Kurz und lesbar, zum Beispiel <code>employer-beispiel</code>.</small></div>
-                  }
-                  <div><label for="cv-new-fact-field-select">Feld</label><select id="cv-new-fact-field-select" data-testid="cv-new-fact-field-select" [ngModel]="cvNewFactFieldSelectValue()" (ngModelChange)="setCvNewFactField($event)">@for (field of cvNewFactFieldOptions(); track field) { <option [value]="field">{{ cvFactFieldLabel(field) }}</option> }<option value="__custom__">Andere Feldkennung …</option></select></div>
-                  @if (cvNewFactFieldCustom()) { <div><label for="cv-new-fact-field">Andere Feldkennung</label><input id="cv-new-fact-field" data-testid="cv-new-fact-field" [(ngModel)]="cvNewFactDraft.field" pattern="[a-z][a-z0-9_.]*(?:\[[0-9]{1,4}\])?" maxlength="64" autocomplete="off"></div> }
-                  <div class="wide"><label for="cv-new-fact-value">Aussage</label><textarea id="cv-new-fact-value" data-testid="cv-new-fact-value" [(ngModel)]="cvNewFactDraft.value" rows="3" maxlength="5000"></textarea></div>
-                </div>
-                <label class="explicit-confirmation"><input data-testid="cv-new-fact-confirmation" type="checkbox" [(ngModel)]="cvNewFactDraft.explicitlyConfirmed"><span>Diesen selbst eingegebenen Fakt mit dieser atomaren Aktion ausdrücklich als inhaltlich richtig bestätigen. Ohne Haken bleibt er ungeprüft.</span></label>
-                <div class="cv-fact-actions"><button class="primary compact" data-testid="cv-new-fact-add" type="button" (click)="addCvFact()" [disabled]="cvBusy || !!cvNewFactUnavailableReason()">Fakt revisionsgebunden ergänzen</button></div>
-              </fieldset>
-              <ng-template #cvFactRecords let-groups>
-              <ol class="cv-fact-timeline">
-                @for (group of groups; track group.category + ':' + group.recordId) {
-                  <li>
-                    <article class="cv-fact-record" [attr.data-category]="group.category">
-                      <header><span>{{ cvFactCategoryLabel(group.category) }}</span><div><strong>{{ group.title }}</strong><small>{{ group.period || group.recordId }}</small></div></header>
-                      @for (fact of group.facts; track fact.id) {
-                        <fieldset class="cv-fact" [attr.data-decision]="fact.decision">
-                          <legend>{{ cvFactFieldLabel(fact.field) }} · {{ cvFactDecisionLabel(fact.decision) }}</legend>
-                          <div class="cv-fact-form">
-                            <label>Kategorie<select [ngModel]="cvFactDraft(fact).category" (ngModelChange)="updateCvFactDraft(fact, 'category', $event)">@for (category of cvFactCategories; track category) { <option [value]="category">{{ cvFactCategoryLabel(category) }}</option> }</select></label>
-                            <label class="wide">Aussage<textarea [ngModel]="cvFactDraft(fact).value" (ngModelChange)="updateCvFactDraft(fact, 'value', $event)" rows="3" maxlength="5000"></textarea></label>
-                          </div>
-                          <details class="cv-fact-technical"><summary>Technische Feldzuordnung</summary>
-                            <div class="cv-fact-form">
-                              <label>Datensatz-ID<input [ngModel]="cvFactDraft(fact).recordId" readonly aria-readonly="true"></label>
-                              <label>Feldkennung<input [ngModel]="cvFactDraft(fact).field" (ngModelChange)="updateCvFactDraft(fact, 'field', $event)" pattern="[a-z][a-z0-9_.]*(?:\[[0-9]{1,4}\])?" maxlength="64"><small class="field-help">Nur nötig, wenn die Aussage im falschen Feld liegt.</small></label>
-                            </div>
-                          </details>
-                          <details class="cv-provenance"><summary>Quelle &amp; Herkunft</summary><p><span>Quelle: {{ fact.provenance.anchor }} · {{ fact.provenance.origin }} @if (fact.provenance.recognition?.method === 'ai_assisted') { · <strong>AI-erkannt, nicht AI-bestätigt</strong> }</span><code>{{ fact.provenance.sourceSha256 }}</code>@if (fact.provenance.recognition?.suggestionId) { <span>Suggestion: <code>{{ fact.provenance.recognition?.suggestionId }}</code></span> }@if (fact.claimId && fact.decision === 'confirmed') { <span>Claim: <code>{{ fact.claimId }}</code></span> }</p></details>
-                          <div class="cv-fact-actions">
-                            <button class="secondary compact" type="button" (click)="saveCvFact(fact)" [disabled]="cvBusy || !cvFactDraftDirty(fact)">Änderung speichern</button>
-                            <button class="secondary compact" type="button" (click)="decideCvFact(fact, 'reject')" [disabled]="cvBusy || cvFactDraftDirty(fact) || fact.decision === 'rejected'">Verwerfen</button>
-                            <button class="primary compact" type="button" (click)="decideCvFact(fact, 'confirm')" [disabled]="cvBusy || cvFactDraftDirty(fact) || fact.decision === 'confirmed'">Diesen Fakt bestätigen</button>
-                          </div>
-                        </fieldset>
-                      }
-                    </article>
-                  </li>
-                }
-              </ol>
-              </ng-template>
               <div class="cv-local-facts-heading">
                 @if (cvRecognitionActiveVersion(); as activeVersion) { <span class="cv-origin-badge" [class.ai]="activeVersion.kind === 'ai'" [class.local]="activeVersion.kind === 'deterministic'">AKTIVER STAND · {{ cvRecognitionVersionKindLabel(activeVersion.kind) }}</span> }
-                <div><h3>Strukturierte Stationen</h3><p>Stationen bleiben bis zu deiner Einzelentscheidung ungeprüft. Ein KI-Erkennungsstand ist keine fachliche Bestätigung.</p></div>
+                <div><h3>Erkannte Angaben</h3><p>Stationen bleiben bis zu deiner Einzelentscheidung ungeprüft. Ein KI-Erkennungsstand ist keine fachliche Bestätigung.</p></div>
               </div>
-              <ng-container *ngTemplateOutlet="cvFactRecords; context: { $implicit: cvStructuredFactGroups() }"></ng-container>
-              @if (cvRawFactGroups().length) {
-                <details class="cv-raw-facts" data-testid="cv-raw-facts">
-                  <summary>Weitere Rohfakten ({{ cvRawFactGroups().length }} Gruppen)</summary>
-                  <p><code>additional/other</code>-Inhalte bleiben vollständig prüfbar, sind für eine ruhigere Stationsansicht aber standardmäßig eingeklappt.</p>
-                  <ng-container *ngTemplateOutlet="cvFactRecords; context: { $implicit: cvRawFactGroups() }"></ng-container>
-                </details>
-              }
+              <app-cv-facts-editor [facts]="imported.facts" [busy]="cvBusy" [revealSensitive]="revealSensitiveIdentity" [drafts]="cvFactDrafts"
+                (draftChange)="updateCvFactDraftShared($event.fact, $event.field, $event.value)"
+                (saveFact)="saveCvFact($event)"
+                (decideFact)="decideCvFactShared($event.fact, $event.decision)"
+                (addFacts)="submitCvFactOperations($event)"
+                (resetDraft)="resetCvFactDraft($event)" />
               @if (imported.adoption; as adoption) {
                 <div class="info-box ready" data-testid="cv-adoption-proof"><strong>Revisionsgebunden übernommen</strong><p>{{ adoption.adoptedClaimIds.length }} bestätigte Claims und {{ adoption.adoptedRecordIds.length }} Datensätze · CandidateProfile {{ adoption.candidateProfileRevision }} · <code>{{ adoption.candidateProfileSha256 }}</code></p></div>
                 <div class="cv-step-actions"><button class="primary" type="button" (click)="selectCvStep(3)">Zum Schreibstil →</button></div>

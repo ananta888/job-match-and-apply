@@ -1,5 +1,5 @@
 import { TestBed } from '@angular/core/testing';
-import { EMPTY, of, throwError } from 'rxjs';
+import { EMPTY, of, Subject, throwError } from 'rxjs';
 import { App } from './app';
 import { ApiService } from './api.service';
 import type { AgentArtifactRecord, AgentConfigProfileView, AgentOrchestrationConflict, AgentOrchestrationRecord, AgentRecoveryRun, AgentRun, AgentRunPreflight, AgentRunRequest, AppConfig, ApplicationCase, ApplicationStyleProfileView, ArtifactRevision, CorrelatedMail, CvAiStructuringOptions, CvAiStructuringPublicRun, CvImportRecord, CvLayoutFingerprint, CvRecognitionVersionList, JobInventoryView } from './models';
@@ -2474,6 +2474,89 @@ describe('App', () => {
     component.retryApplicationFailedNode();
     expect(apiMock['retryAgentOrchestrationNode']).toHaveBeenCalledWith(failed.id, 'ats');
     expect(component.applicationAgentOrchestrationId).toBe('55555555-5555-5555-8555-555555555555');
+    fixture.destroy();
+  });
+
+  it('shows the recognized CV in the profile section and loads the newest import automatically', async () => {
+    const record = cvImportFixture();
+    apiMock['cvImports'].mockReturnValue(of([{ id: record.id, revision: record.revision, sha256: record.sha256, status: record.status, createdAt: record.createdAt, updatedAt: record.updatedAt, source: record.source, factCounts: { total: 2, pending: 2, confirmed: 0, rejected: 0 }, warningCount: 0, unresolvedConflictCount: 0, hasTheme: false, hasLayoutFingerprint: false, hasAdoption: false, hasProposal: false }]));
+    apiMock['cvImport'].mockReturnValue(of(record));
+    const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
+    const component = fixture.componentInstance;
+    component.select('identity'); fixture.detectChanges(); await fixture.whenStable();
+    expect(apiMock['cvImport']).toHaveBeenCalledWith(record.id);
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).toContain('Mein erkannter Lebenslauf');
+    expect(text).toContain('Arbeitgeber');
+    expect(text).toContain('Beispiel GmbH');
+    fixture.destroy();
+  });
+
+  it('edits one recognized fact without dropping other drafts and keeps corrections unconfirmed', async () => {
+    const record = cvImportFixture();
+    const edited = {
+      ...record,
+      revision: record.revision + 1,
+      facts: record.facts.map((fact, index) => index === 0
+        ? { ...fact, value: 'Korrigierter Arbeitgeber', decision: 'pending' as const, provenance: { ...fact.provenance, origin: 'user_supplied' as const } }
+        : fact),
+    };
+    apiMock['reviewCvFacts'].mockReturnValue(of(edited));
+    const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
+    const component = fixture.componentInstance;
+    (component as unknown as { applyCvImport(value: CvImportRecord): void }).applyCvImport(record);
+    component.updateCvFactDraftShared(record.facts[0]!, 'value', 'Korrigierter Arbeitgeber');
+    component.updateCvFactDraftShared(record.facts[1]!, 'value', 'Zweiter, noch nicht gespeicherter Entwurf');
+    component.saveCvFact(record.facts[0]!);
+    expect(apiMock['reviewCvFacts']).toHaveBeenCalledTimes(1);
+    expect(apiMock['reviewCvFacts'].mock.calls[0]![1]).toHaveLength(1);
+    expect(apiMock['reviewCvFacts'].mock.calls[0]![1][0]).toEqual(expect.objectContaining({ action: 'edit', factId: record.facts[0]!.id, value: 'Korrigierter Arbeitgeber' }));
+    expect(component.cvFactDrafts[record.facts[1]!.id]?.value).toBe('Zweiter, noch nicht gespeicherter Entwurf');
+    expect(component.cvImport!.facts[0]!.decision).toBe('pending');
+    expect(component.cvImport!.facts[0]!.provenance.origin).toBe('user_supplied');
+    fixture.destroy();
+  });
+
+  it('masks recognized contact values until the user explicitly reveals them', async () => {
+    const record: CvImportRecord = {
+      ...cvImportFixture(),
+      facts: [{
+        id: 'fact-contact-email', category: 'contact', recordId: 'person-1', field: 'email',
+        value: 'person@example.org', decision: 'pending',
+        provenance: { sourceSha256: '6'.repeat(64), anchor: 'Zeile 2', origin: 'imported' },
+      }],
+    };
+    const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
+    const component = fixture.componentInstance;
+    (component as unknown as { applyCvImport(value: CvImportRecord): void }).applyCvImport(record);
+    component.select('identity'); fixture.detectChanges(); await fixture.whenStable();
+    const element = fixture.nativeElement as HTMLElement;
+    expect(element.querySelector('[data-testid="cv-fact-masked"]')).toBeTruthy();
+    expect(element.textContent).not.toContain('person@example.org');
+    component.revealSensitiveIdentity = true;
+    fixture.detectChanges();
+    expect(element.querySelector('[data-testid="cv-fact-masked"]')).toBeNull();
+    expect(element.textContent).toContain('person@example.org');
+    fixture.destroy();
+  });
+
+  it('does not let a late fact response overwrite a newly selected import', async () => {
+    const importA = cvImportFixture();
+    const importB: CvImportRecord = { ...cvImportFixture(), id: '77777777-7777-4777-8777-777777777777', revision: 2, sha256: 'b'.repeat(64) };
+    const late = new Subject<CvImportRecord>();
+    apiMock['reviewCvFacts'].mockReturnValue(late);
+    const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
+    const component = fixture.componentInstance;
+    (component as unknown as { applyCvImport(value: CvImportRecord): void }).applyCvImport(importA);
+    component.updateCvFactDraftShared(importA.facts[0]!, 'value', 'Späte Änderung');
+    component.saveCvFact(importA.facts[0]!);
+    // The user switches to another import before the old save answers.
+    (component as unknown as { applyCvImport(value: CvImportRecord): void }).applyCvImport(importB);
+    late.next({ ...importA, revision: 9, facts: importA.facts.map((fact) => ({ ...fact, value: 'Veraltete Antwort' })) });
+    late.complete();
+    fixture.detectChanges(); await fixture.whenStable();
+    expect(component.cvImport!.id).toBe(importB.id);
+    expect(component.cvImport!.facts[0]!.value).not.toBe('Veraltete Antwort');
     fixture.destroy();
   });
 

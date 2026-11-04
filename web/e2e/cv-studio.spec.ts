@@ -32,7 +32,7 @@ test.describe('Lebenslauf-Studio – vollständiger Offline-Vertrag', () => {
     });
     await expect(page.getByTestId('cv-facts-step')).toBeVisible();
     await expect(page.getByTestId('cv-facts-step')).toContainText('Synthetische Zeitangabe');
-    await expect(steps.getByRole('button', { name: /2 Fakten/ })).toHaveAttribute('aria-current', 'step');
+    await expect(steps.getByRole('button', { name: /Fakten/ })).toHaveAttribute('aria-current', 'step');
     await expect.poll(() => agentApi.cvImportRequests.length).toBe(1);
     expect(agentApi.cvImportRequests[0]).toMatchObject({
       fileName: 'synthetischer-cv.html', mimeType: 'text/html', confirmed: true
@@ -40,8 +40,8 @@ test.describe('Lebenslauf-Studio – vollständiger Offline-Vertrag', () => {
     expect(String(agentApi.cvImportRequests[0]?.['base64'])).toMatch(/^[A-Za-z0-9+/]+=*$/);
 
     const facts = page.getByTestId('cv-facts-step');
-    await facts.locator('.cv-fact').filter({ hasText: 'Arbeitgeber' }).getByRole('button', { name: 'Diesen Fakt bestätigen' }).click();
-    await facts.locator('.cv-fact').filter({ hasText: 'period' }).getByRole('button', { name: 'Verwerfen' }).click();
+    await facts.locator('.cv-fact').filter({ hasText: 'Arbeitgeber' }).getByRole('button', { name: 'Bestätigen' }).click();
+    await facts.locator('.cv-fact').filter({ hasText: 'Zeitraum' }).getByRole('button', { name: 'Nicht verwenden' }).click();
     await expect.poll(() => agentApi.cvFactReviewRequests.length).toBe(2);
     expect(agentApi.cvFactReviewRequests[0]).toMatchObject({
       expectedRevision: 1, expectedSha256: '7'.repeat(64), confirmed: true,
@@ -103,23 +103,27 @@ test.describe('Lebenslauf-Studio – vollständiger Offline-Vertrag', () => {
       name: 'synthetischer-cv.html', mimeType: 'text/html', buffer: Buffer.from('<html><body>Fixture</body></html>')
     });
     const facts = page.getByTestId('cv-facts-step');
-    await facts.getByTestId('cv-new-fact-value').fill('Synthetischer Zusatzfakt');
-    await facts.getByTestId('cv-new-fact-confirmation').check();
-    await facts.getByTestId('cv-new-fact-add').click();
+    await facts.getByTestId('cv-add-field-text').fill('Synthetischer Zusatzfakt');
+    await facts.getByTestId('cv-add-submit-additional').click();
     await expect.poll(() => agentApi.cvFactReviewRequests.length).toBe(1);
     expect(agentApi.cvFactReviewRequests[0]).toMatchObject({
       expectedRevision: 1, expectedSha256: '7'.repeat(64), confirmed: true,
       operations: [{
-        action: 'add', category: 'additional', newRecordKey: 'additional-fact', field: 'detail',
-        value: 'Synthetischer Zusatzfakt', explicitlyConfirmed: true
+        action: 'add', category: 'additional', field: 'text',
+        value: 'Synthetischer Zusatzfakt'
       }]
     });
+    expect(agentApi.cvFactReviewRequests[0].operations[0]).not.toHaveProperty('explicitlyConfirmed');
     const rawFacts = facts.getByTestId('cv-raw-facts');
     await expect(rawFacts).not.toHaveAttribute('open', '');
     await rawFacts.locator(':scope > summary').click();
-    const addedFact = facts.locator('.cv-fact', { has: page.getByText(/Detail · Bestätigt/) });
-    await expect(addedFact.locator('textarea')).toHaveValue('Synthetischer Zusatzfakt');
+    const addedFact = facts.locator('.cv-fact', { has: page.getByText('Synthetischer Zusatzfakt') });
+    await expect(addedFact).toContainText('Synthetischer Zusatzfakt');
     await expect(addedFact).toContainText('user_supplied');
+    // Adds stay unverified until an explicit decision.
+    await addedFact.getByRole('button', { name: 'Bestätigen' }).click();
+    await expect.poll(() => agentApi.cvFactReviewRequests.length).toBe(2);
+    expect(agentApi.cvFactReviewRequests[1].operations[0]).toMatchObject({ action: 'confirm' });
     await expect(facts).not.toContainText('Revisionsgebunden übernommen');
     await expectAxeClean(page, '[data-testid="cv-facts-step"]');
 
@@ -133,8 +137,8 @@ test.describe('Lebenslauf-Studio – vollständiger Offline-Vertrag', () => {
     await deletion.getByTestId('cv-delete-import').click();
     await expect.poll(() => agentApi.cvImportDeleteRequests.length).toBe(1);
     expect(agentApi.cvImportDeleteRequests[0]).toEqual({
-      confirmation: 'DELETE cv-import 66666666-6666-4666-8666-666666666666', expectedRevision: 2,
-      expectedSha256: '2'.repeat(64)
+      confirmation: 'DELETE cv-import 66666666-6666-4666-8666-666666666666', expectedRevision: 3,
+      expectedSha256: '3'.repeat(64)
     });
     await expect(page.getByTestId('cv-source-state')).toHaveCount(0);
     await expectAxeClean(page, '[data-testid="cv-import-step"]');
@@ -180,7 +184,7 @@ test.describe('Lebenslauf-Studio – vollständiger Offline-Vertrag', () => {
     await expect(versions).toContainText('2 Erkennungsstände');
     await expect(versions.getByTestId('cv-recognition-active')).toContainText('KI-Strukturierung');
     await expect(versions.getByTestId('cv-recognition-version-select')).toHaveValue('recognition-2222222222222222');
-    await expect(page.locator('fieldset.cv-fact').filter({ hasText: 'Rolle · Ungeprüft' })).toContainText('AI-erkannt, nicht AI-bestätigt');
+    await expect(page.locator('.cv-fact').filter({ hasText: 'Position' })).toContainText('AI-erkannt, nicht AI-bestätigt');
     await expect(ai.getByTestId('cv-ai-apply')).toHaveCount(0);
 
     await versions.getByTestId('cv-recognition-version-select').selectOption('recognition-1111111111111111');
@@ -190,7 +194,7 @@ test.describe('Lebenslauf-Studio – vollständiger Offline-Vertrag', () => {
       body: { expectedRevision: 2, expectedSha256: '2'.repeat(64), confirmed: true }
     });
     await expect(versions.getByTestId('cv-recognition-active')).toContainText('Deterministische Erkennung');
-    await expect(page.locator('fieldset.cv-fact').filter({ hasText: 'period · Ungeprüft' })).toBeVisible();
+    await expect(page.locator('.cv-fact').filter({ hasText: 'Zeitraum' }).first()).toBeVisible();
 
     await versions.getByTestId('cv-recognition-version-select').selectOption('recognition-2222222222222222');
     await expect.poll(() => agentApi.cvRecognitionVersionActivationRequests.length).toBe(2);
@@ -314,7 +318,7 @@ test.describe('Lebenslauf-Studio – vollständiger Offline-Vertrag', () => {
     agentApi.seedCvPipelineCase();
     await openCvStudio(page);
     const steps = page.locator('nav[aria-label="Lebenslauf-Schritte"]');
-    await expect(steps.getByRole('button', { name: /2 Fakten/ })).toBeDisabled();
+    await expect(steps.getByRole('button', { name: /Fakten/ })).toBeDisabled();
     await expect(steps.getByRole('button', { name: /6 Agentenlauf/ })).toBeDisabled();
     await page.getByTestId('cv-file-input').setInputFiles({ name: 'nicht-erlaubt.txt', mimeType: 'text/plain', buffer: Buffer.from('fixture') });
     await expect(page.getByRole('alert')).toContainText('ausschließlich PDF, DOCX, ODT, HTML und HTM');

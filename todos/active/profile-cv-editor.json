@@ -1,0 +1,172 @@
+{
+  "$schema": "../todo.track.schema.json",
+  "version": 1,
+  "owner": "job-match-and-apply",
+  "track": "profile-cv-editor",
+  "created": "2026-11-04",
+  "updated": "2026-11-04",
+  "purpose": "Den nach der Erkennung geladenen Lebenslauf in 'Profil & Identitaet' sichtbar und vollstaendig einzeln bearbeitbar machen; ein gemeinsamer Angular-Fakteneditor dient Profil und CV-Studio ohne Doppelkopie.",
+  "goal": "Stationenkarten mit lesbaren Bezeichnungen, gefuehrte Ergaenzung, Einzelkorrektur/-entscheidung, technische Angaben sekundär, sensible Werte nur nach expliziter Anzeige; bestehende Quellbindungen/CAS bleiben erhalten.",
+  "status_scale": [
+    "todo",
+    "in_progress",
+    "partial",
+    "blocked",
+    "done"
+  ],
+  "priority_scale": [
+    "low",
+    "medium",
+    "high"
+  ],
+  "risk_scale": [
+    "low",
+    "medium",
+    "high"
+  ],
+  "milestones": [
+    {
+      "id": "M1",
+      "title": "Gemeinsamer Fakteneditor",
+      "task_ids": [
+        "PCE-001"
+      ],
+      "status": "done"
+    },
+    {
+      "id": "M2",
+      "title": "Profilflaeche und Studio-Wiederverwendung",
+      "task_ids": [
+        "PCE-002",
+        "PCE-003"
+      ],
+      "status": "done"
+    },
+    {
+      "id": "M3",
+      "title": "Regressionen und Browser-E2E",
+      "task_ids": [
+        "PCE-004"
+      ],
+      "status": "done"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "PCE-001",
+      "title": "Gemeinsamer cv-facts-editor mit cv-facts-view-Helfern",
+      "status": "done",
+      "priority": "high",
+      "risk": "medium",
+      "progress_percent": 100,
+      "acceptance_criteria": [
+        "Deutsche Feldbezeichnungen inkl. contact.* und details[n]; Gruppierung category:recordId ohne Zusammenfuehren gleicher recordIds; Titel 'Berufsstation 2' statt Hash.",
+        "Jede Kategorie einzeln bearbeitbar (inkl. Beschaeftigungsart, Niveau, Aussteller/Gueltigkeit, Zusatzfelder); mehrere offene Entwuerfe ueberleben das Speichern eines Feldes."
+      ],
+      "verification_evidence": [
+        "cv-facts-view.spec.ts: 4 Tests",
+        "app.spec.ts: Entwurfs-/Maskierungs-/Importwechsel-Tests",
+        "Web-Suite 85/85, Exit 0"
+      ]
+    },
+    {
+      "id": "PCE-002",
+      "title": "Flaeche 'Mein erkannter Lebenslauf' in Profil & Identitaet",
+      "status": "done",
+      "priority": "high",
+      "risk": "medium",
+      "progress_percent": 100,
+      "acceptance_criteria": [
+        "Import, aktiver Erkennungsstand und offene Pruefungen sichtbar; Uebersicht erscheint automatisch nach Erkennung/Neuladen, ohne KI-Wiederholung.",
+        "Ohne Import verstaendlicher Upload-Einstieg; sensible Kontaktwerte maskiert bis 'Sensible Werte bewusst anzeigen'."
+      ],
+      "verification_evidence": [
+        "profile-cv-editor.spec.ts: 3 Browser-Tests (Auto-Laden, Bearbeitung, Maskierung, Upload-Einstieg)",
+        "npm run e2e: 10/10 Exit 0"
+      ]
+    },
+    {
+      "id": "PCE-003",
+      "title": "CV-Studio nutzt denselben Editor",
+      "status": "done",
+      "priority": "high",
+      "risk": "medium",
+      "progress_percent": 100,
+      "acceptance_criteria": [
+        "Schritt 2 rendert die gemeinsame Komponente (keine zweite Faktenliste); gefuehrte Ergaenzung in allen Kategorien inkl. leerer Kategorien."
+      ],
+      "verification_evidence": [
+        "app.html Studio-Austausch",
+        "cv-studio E2E 7/7 gruen (Add/Confirm-Flow an neuen Editor angepasst)"
+      ]
+    },
+    {
+      "id": "PCE-004",
+      "title": "Regressionen, Schutz und E2E",
+      "status": "done",
+      "priority": "high",
+      "risk": "low",
+      "progress_percent": 100,
+      "acceptance_criteria": [
+        "Gleiche recordIds verschiedener Kategorien getrennt; unbekannte Felder erreichbar; Zeitangaben unveraendert.",
+        "Verspaetete Antworten ueberschreiben keinen neuen Import; CAS-409 bleibt Fehlerpfad; keine personenbezogenen Daten als Fixtures."
+      ],
+      "verification_evidence": [
+        "cv-facts-view.spec.ts Gruppierungsfaelle",
+        "app.spec.ts Late-Response-Test",
+        "npm test gesamt Exit 0, security:scan Exit 0, Builds Exit 0"
+      ]
+    }
+  ],
+  "critical_path_tasks": [
+    "PCE-001",
+    "PCE-002"
+  ],
+  "tasks_status_summary": {
+    "total": 4,
+    "by_status": {
+      "todo": 0,
+      "in_progress": 0,
+      "partial": 0,
+      "blocked": 0,
+      "done": 4
+    },
+    "progress_percent_done": 100,
+    "by_priority": {
+      "high": 4,
+      "medium": 0,
+      "low": 0
+    },
+    "by_risk": {
+      "high": 0,
+      "medium": 3,
+      "low": 1
+    },
+    "critical_path": {
+      "total": 2,
+      "done": 2,
+      "remaining": 0
+    },
+    "milestones": {
+      "total": 3,
+      "todo": 0,
+      "in_progress": 0,
+      "blocked": 0,
+      "done": 3
+    }
+  },
+  "progress_summary": {
+    "state": "done",
+    "todo_remaining": 0,
+    "in_progress": 0,
+    "partial": 0,
+    "blocked": 0,
+    "done": 4
+  },
+  "summary_notes": [
+    "Adaptiert aus REF/src/components/CvFactsEditor.jsx, ResumeFacts.jsx und src/lib/resumeFacts.js (Verhalten/Gruppierung/Beschriftung); React nicht eingebaut.",
+    "Gegenueber Lab-Referenz: Niveau und alle Nebenfelder sind editierbar (kein Nur-Lesen-Chip); fehlende Stationstitel werden nummeriert; Korrekturen bleiben stets neue ungepruefte Fakten.",
+    "Korrekturen am Vertrag: add ohne automatische Bestaetigung (explizite Entscheidung danach); edit ersetzt den Fakt durch einen neuen user_supplied-Fakt (Serververtrag), Test belegt die erneute Pruefung.",
+    "Grenze: fachliche CV-Abnahme/Echtdatenpruefung bleibt offen; nur synthetische Fixtures."
+  ]
+}

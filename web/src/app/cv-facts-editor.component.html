@@ -1,0 +1,246 @@
+@if (!facts.length) {
+  <p class="field-help">In diesem Erkennungsstand sind noch keine Angaben vorhanden.</p>
+}
+@for (section of sections; track section.id) {
+  <section class="cv-facts-editor__section" [attr.data-category]="section.id">
+    <h3 class="cv-facts-editor__heading">{{ section.label }} <small>{{ section.records.length }} {{ section.records.length === 1 ? 'Station' : section.kind === 'fields' ? 'Angaben' : 'Stationen' }}</small></h3>
+    @if (section.kind === 'card') {
+      @for (record of section.records; track trackRecord($index, record); let i = $index) {
+        <article class="cv-fact-record" [attr.data-record]="record.recordId">
+          <header><span>{{ blockLabels[record.category] ?? section.label }}</span><div><strong>{{ record.title }}</strong>@if (record.period) { <small>{{ record.period }}</small> }</div></header>
+          <div class="cv-fact-form">
+            @for (fact of recordFields(record).main; track fact.id) {
+              <div class="cv-fact" [attr.data-decision]="fact.decision">
+              <label [class.wide]="isDetail(fact)">{{ label(fact) }}
+                @if (fact.provenance?.origin === 'user_supplied') { <small class="cv-facts-editor__origin">(Korrektur)</small> }
+                @if (fact.provenance.recognition?.method === 'ai_assisted') { <small class="cv-facts-editor__origin">AI-erkannt, nicht AI-bestätigt</small> }
+                @if (masked(fact)) {
+                  <input data-testid="cv-fact-masked" [value]="'••••••••'" readonly aria-readonly="true">
+                  <small class="field-help">Sensible Werte bewusst anzeigen, um zu prüfen.</small>
+                } @else if (editing(fact)) {
+                  <input [ngModel]="draftOf(fact).value" (ngModelChange)="draftChange.emit({ fact, field: 'value', value: $event })" maxlength="5000" [attr.data-testid]="'cv-fact-input-' + fact.id">
+                } @else {
+                  <span class="cv-facts-editor__value">{{ fact.value }}</span>
+                }
+              </label>
+              <div class="cv-fact-actions">
+                @if (!masked(fact)) {
+                  @if (editing(fact)) {
+                    <button class="primary compact" type="button" [disabled]="busy || !dirty(fact)" (click)="save(fact)">Änderung speichern</button>
+                    <button class="secondary compact" type="button" [disabled]="busy" (click)="cancelEdit(fact)">Abbrechen</button>
+                  } @else {
+                    <button class="secondary compact" type="button" [disabled]="busy" (click)="startEdit(fact)">Korrigieren</button>
+                  }
+                  <button class="secondary compact" type="button" [disabled]="busy || dirty(fact) || fact.decision === 'confirmed'" (click)="decide(fact, 'confirm')">Bestätigen</button>
+                  <button class="secondary compact" type="button" [disabled]="busy || dirty(fact) || fact.decision === 'rejected'" (click)="decide(fact, 'reject')">Nicht verwenden</button>
+                }
+              </div>
+              </div>
+            }
+          </div>
+          @if (recordFields(record).details.length) {
+            <ul class="cv-facts-editor__details">
+              @for (fact of recordFields(record).details; track fact.id) {
+                <li class="cv-fact" [attr.data-decision]="fact.decision">
+                  @if (masked(fact)) {
+                    <span class="cv-facts-editor__value">••••••••</span>
+                  } @else if (editing(fact)) {
+                    <input [ngModel]="draftOf(fact).value" (ngModelChange)="draftChange.emit({ fact, field: 'value', value: $event })" maxlength="5000" [attr.data-testid]="'cv-fact-input-' + fact.id">
+                    <button class="primary compact" type="button" [disabled]="busy || !dirty(fact)" (click)="save(fact)">Änderung speichern</button>
+                    <button class="secondary compact" type="button" [disabled]="busy" (click)="cancelEdit(fact)">Abbrechen</button>
+                  } @else {
+                    <span class="cv-facts-editor__value">{{ fact.value }}</span>
+                    <button class="secondary compact" type="button" [disabled]="busy" (click)="startEdit(fact)">Korrigieren</button>
+                  }
+                  <button class="secondary compact" type="button" [disabled]="busy || dirty(fact) || fact.decision === 'confirmed'" (click)="decide(fact, 'confirm')">Bestätigen</button>
+                  <button class="secondary compact" type="button" [disabled]="busy || dirty(fact) || fact.decision === 'rejected'" (click)="decide(fact, 'reject')">Nicht verwenden</button>
+                </li>
+              }
+            </ul>
+          }
+          <div class="cv-fact-actions">
+            @if (record.category === 'employment') {
+              <button class="secondary compact" type="button" [attr.data-testid]="'cv-add-open-record-' + record.recordId" [disabled]="busy" (click)="openAdd(record.category)">Tätigkeit ergänzen</button>
+            }
+            <button class="secondary compact" type="button" [disabled]="busy" (click)="confirmRecord(record)">Alles richtig</button>
+          </div>
+          <details class="cv-fact-technical"><summary>Technische Details</summary>
+            <dl class="cv-facts-editor__technical">
+              <div><dt>Station</dt><dd><code>{{ record.recordId }}</code></dd></div>
+              <div><dt>Kategorie</dt><dd><code>{{ record.category }}</code></dd></div>
+              @for (fact of record.facts; track fact.id) {
+                <div><dt>{{ label(fact) }}</dt><dd><code>{{ fact.field }}</code> · <code>{{ fact.id }}</code> · {{ fact.provenance.origin }}@if (fact.provenance.recognition?.method === 'ai_assisted') { · <strong>AI-erkannt, nicht AI-bestätigt</strong> }@if (fact.claimId) { · Claim <code>{{ fact.claimId }}</code> }</dd></div>
+              }
+            </dl>
+          </details>
+          @if (addOpen === record.category && record.category === 'employment') {
+            <div class="cv-facts-editor__add">
+              <h4>Tätigkeit ergänzen</h4>
+              <div class="cv-fact-form">
+                @for (field of addFields(record.category); track field.key) {
+                  <label>{{ field.label }}<input [attr.data-testid]="'cv-add-field-' + field.key" [ngModel]="addValues[field.key] || ''" (ngModelChange)="addValues[field.key] = $event" maxlength="5000"></label>
+                }
+              </div>
+              <div class="cv-fact-actions">
+                <button class="primary compact" type="button" [attr.data-testid]="'cv-add-submit-record-' + record.recordId" [disabled]="busy" (click)="submitAdd(record.category, record)">Hinzufügen (zu bestätigen)</button>
+                <button class="secondary compact" type="button" (click)="closeAdd()">Abbrechen</button>
+              </div>
+            </div>
+          }
+        </article>
+      }
+      @if (addOpen !== section.id) {
+        <button class="secondary" type="button" [attr.data-testid]="'cv-add-open-' + section.id" [disabled]="busy" (click)="openAdd(section.id)">{{ blockLabels[section.id] ?? section.label }} hinzufügen</button>
+      } @else {
+        <div class="cv-facts-editor__add">
+          <h4>{{ blockLabels[section.id] ?? section.label }} hinzufügen</h4>
+          <div class="cv-fact-form">
+            @for (field of addFields(section.id); track field.key) {
+              <label>{{ field.label }}<input [attr.data-testid]="'cv-add-field-' + field.key" [ngModel]="addValues[field.key] || ''" (ngModelChange)="addValues[field.key] = $event" maxlength="5000"></label>
+            }
+          </div>
+          <label>Andere Feldkennung (optional)<input [ngModel]="addCustomField" (ngModelChange)="addCustomField = $event" maxlength="64" placeholder="z. B. employment_type"></label>
+          <div class="cv-fact-actions">
+            <button class="primary compact" type="button" [attr.data-testid]="'cv-add-submit-' + section.id" [disabled]="busy" (click)="submitAdd(section.id)">Hinzufügen (zu bestätigen)</button>
+            <button class="secondary compact" type="button" (click)="closeAdd()">Abbrechen</button>
+          </div>
+        </div>
+      }
+    }
+    @if (section.kind === 'chips') {
+      @for (group of chipGroups(section.id); track group.group) {
+        <div class="cv-facts-editor__chipgroup"><h4>{{ group.group || (section.id === 'skill' ? 'Allgemein' : 'Ohne Gruppe') }}</h4>
+          <ul class="cv-facts-editor__chips">
+            @for (record of group.records; track trackRecord($index, record)) {
+              <li class="cv-fact" [attr.data-decision]="chipName(record)?.decision">
+                @if (chipName(record); as name) {
+                  @if (masked(name)) {
+                    <span class="cv-facts-editor__value">••••••••</span>
+                  } @else if (editing(name)) {
+                    <input [ngModel]="draftOf(name).value" (ngModelChange)="draftChange.emit({ fact: name, field: 'value', value: $event })" maxlength="5000">
+                    <button class="primary compact" type="button" [disabled]="busy || !dirty(name)" (click)="save(name)">Speichern</button>
+                    <button class="secondary compact" type="button" (click)="cancelEdit(name)">Abbrechen</button>
+                  } @else {
+                    <span class="cv-facts-editor__value">{{ name.value }}</span>
+                    <button class="secondary compact" type="button" [disabled]="busy" (click)="startEdit(name)" [attr.aria-label]="label(name) + ' korrigieren'">Korrigieren</button>
+                  }
+                  <button class="secondary compact" type="button" [attr.aria-label]="label(name) + ' bestätigen'" [disabled]="busy || dirty(name) || name.decision === 'confirmed'" (click)="decide(name, 'confirm')">Bestätigen</button>
+                  <button class="secondary compact" type="button" [attr.aria-label]="label(name) + ' nicht verwenden'" [disabled]="busy || dirty(name) || name.decision === 'rejected'" (click)="decide(name, 'reject')">Nicht verwenden</button>
+                }
+                @if (chipLevel(record); as level) {
+                  <span class="cv-facts-editor__level"> · {{ label(level) }}:
+                    @if (masked(level)) {
+                      <span class="cv-facts-editor__value">••••••••</span>
+                    } @else if (editing(level)) {
+                      <input [ngModel]="draftOf(level).value" (ngModelChange)="draftChange.emit({ fact: level, field: 'value', value: $event })" maxlength="5000">
+                      <button class="primary compact" type="button" [disabled]="busy || !dirty(level)" (click)="save(level)">Speichern</button>
+                      <button class="secondary compact" type="button" (click)="cancelEdit(level)">Abbrechen</button>
+                    } @else {
+                      <span class="cv-facts-editor__value">{{ level.value }}</span>
+                      <button class="secondary compact" type="button" [disabled]="busy" (click)="startEdit(level)" [attr.aria-label]="label(level) + ' korrigieren'">Korrigieren</button>
+                      <button class="secondary compact" type="button" [attr.aria-label]="label(level) + ' bestätigen'" [disabled]="busy || dirty(level) || level.decision === 'confirmed'" (click)="decide(level, 'confirm')">Bestätigen</button>
+                      <button class="secondary compact" type="button" [attr.aria-label]="label(level) + ' nicht verwenden'" [disabled]="busy || dirty(level) || level.decision === 'rejected'" (click)="decide(level, 'reject')">Nicht verwenden</button>
+                    }
+                  </span>
+                }
+              </li>
+            }
+          </ul>
+        </div>
+      }
+      <div class="cv-facts-editor__add">
+        <h4>{{ section.id === 'skill' ? 'Kenntnis hinzufügen' : 'Sprache hinzufügen' }}</h4>
+        <div class="cv-fact-form">
+          @for (field of addFields(section.id); track field.key) {
+            <label>{{ field.label }}<input [attr.data-testid]="'cv-add-field-' + field.key" [ngModel]="addValues[field.key] || ''" (ngModelChange)="addValues[field.key] = $event" maxlength="5000"></label>
+          }
+        </div>
+        <div class="cv-fact-actions">
+          <button class="primary compact" type="button" [attr.data-testid]="'cv-add-submit-' + section.id" [disabled]="busy" (click)="submitAdd(section.id)">Hinzufügen (zu bestätigen)</button>
+        </div>
+      </div>
+    }
+    @if (section.kind === 'fields') {
+      <div class="cv-fact-form">
+        @for (record of section.records; track trackRecord($index, record)) {
+          @for (fact of record.facts; track fact.id) {
+            <div class="cv-fact" [attr.data-decision]="fact.decision">
+            <label>{{ label(fact) }}
+              @if (fact.provenance?.origin === 'user_supplied') { <small class="cv-facts-editor__origin">(Korrektur)</small> }
+              @if (fact.provenance.recognition?.method === 'ai_assisted') { <small class="cv-facts-editor__origin">AI-erkannt, nicht AI-bestätigt</small> }
+              @if (masked(fact)) {
+                <input data-testid="cv-fact-masked" [value]="'••••••••'" readonly aria-readonly="true">
+              } @else if (editing(fact)) {
+                <input [ngModel]="draftOf(fact).value" (ngModelChange)="draftChange.emit({ fact, field: 'value', value: $event })" maxlength="5000" [attr.data-testid]="'cv-fact-input-' + fact.id">
+              } @else {
+                <span class="cv-facts-editor__value">{{ fact.value }}</span>
+              }
+            </label>
+            <div class="cv-fact-actions">
+              @if (!masked(fact)) {
+                @if (editing(fact)) {
+                  <button class="primary compact" type="button" [disabled]="busy || !dirty(fact)" (click)="save(fact)">Änderung speichern</button>
+                  <button class="secondary compact" type="button" (click)="cancelEdit(fact)">Abbrechen</button>
+                } @else {
+                  <button class="secondary compact" type="button" [disabled]="busy" (click)="startEdit(fact)">Korrigieren</button>
+                }
+                <button class="secondary compact" type="button" [disabled]="busy || dirty(fact) || fact.decision === 'confirmed'" (click)="decide(fact, 'confirm')">Bestätigen</button>
+                <button class="secondary compact" type="button" [disabled]="busy || dirty(fact) || fact.decision === 'rejected'" (click)="decide(fact, 'reject')">Nicht verwenden</button>
+              }
+            </div>
+              <details class="cv-fact-technical"><summary>Technische Details</summary>
+                <p><code>{{ fact.field }}</code> · <code>{{ fact.id }}</code> · {{ fact.provenance.origin }} · Station <code>{{ record.recordId }}</code></p>
+              </details>
+              </div>
+          }
+        }
+      </div>
+      <div class="cv-facts-editor__add">
+        <h4>Angabe hinzufügen</h4>
+        <div class="cv-fact-form">
+          @for (field of addFields(section.id); track field.key) {
+            <label>{{ field.label }}<input [attr.data-testid]="'cv-add-field-' + field.key" [ngModel]="addValues[field.key] || ''" (ngModelChange)="addValues[field.key] = $event" maxlength="5000"></label>
+          }
+        </div>
+        <div class="cv-fact-actions">
+          <button class="primary compact" type="button" [attr.data-testid]="'cv-add-submit-' + section.id" [disabled]="busy" (click)="submitAdd(section.id)">Hinzufügen (zu bestätigen)</button>
+        </div>
+      </div>
+    }
+  </section>
+}
+@if (rawRecords().length) {
+  <details class="cv-raw-facts" data-testid="cv-raw-facts">
+    <summary>Weitere Rohangaben ({{ rawRecords().length }} {{ rawRecords().length === 1 ? 'Gruppe' : 'Gruppen' }})</summary>
+    <p class="field-help">Zusätzliche oder ungewöhnliche Angaben bleiben vollständig erreichbar und einzeln bearbeitbar.</p>
+    @for (record of rawRecords(); track trackRecord($index, record)) {
+      <article class="cv-fact-record" [attr.data-record]="record.recordId">
+        <header><span>Weitere Angabe</span><div><strong>{{ record.title }}</strong></div></header>
+        <div class="cv-fact-form">
+          @for (fact of record.facts; track fact.id) {
+            <label class="wide">{{ label(fact) }} ({{ fact.field }})
+              @if (editing(fact)) {
+                <input [ngModel]="draftOf(fact).value" (ngModelChange)="draftChange.emit({ fact, field: 'value', value: $event })" maxlength="5000">
+              } @else {
+                <span class="cv-facts-editor__value">{{ fact.value }}</span>
+              }
+            </label>
+            <div class="cv-fact-actions">
+              @if (editing(fact)) {
+                <button class="primary compact" type="button" [disabled]="busy || !dirty(fact)" (click)="save(fact)">Änderung speichern</button>
+                <button class="secondary compact" type="button" (click)="cancelEdit(fact)">Abbrechen</button>
+              } @else {
+                <button class="secondary compact" type="button" [disabled]="busy" (click)="startEdit(fact)">Korrigieren</button>
+              }
+              <button class="secondary compact" type="button" [disabled]="busy || dirty(fact) || fact.decision === 'confirmed'" (click)="decide(fact, 'confirm')">Bestätigen</button>
+              <button class="secondary compact" type="button" [disabled]="busy || dirty(fact) || fact.decision === 'rejected'" (click)="decide(fact, 'reject')">Nicht verwenden</button>
+            </div>
+            <details class="cv-fact-technical"><summary>Technische Details</summary>
+              <p><code>{{ fact.field }}</code> · <code>{{ fact.id }}</code> · {{ fact.provenance.origin }} · Quelle {{ fact.provenance.anchor }}</p>
+            </details>
+          }
+        </div>
+      </article>
+    }
+  </details>
+}

@@ -599,6 +599,21 @@ export class AgentApiStub {
     return clone(application);
   }
 
+  /** Seeds the synthetic CV import with optional extra facts (lazy default record). */
+  seedCvImport(extraFacts: CvImportRecord['facts'] = []): void {
+    this.cvImport = cvImportRecord();
+    this.cvImport.facts.push(...extraFacts.map((fact) => clone(fact)));
+    this.initializeCvRecognitionVersions(this.cvImport);
+  }
+
+  /** Replaces the synthetic CV import record (profile tests supply their own facts). */
+  useCvImport(record: CvImportRecord | undefined): void {
+    this.cvImport = record ? clone(record) : undefined;
+    this.cvRecognitionVersions = undefined;
+    this.cvRecognitionFacts.clear();
+    if (this.cvImport) this.initializeCvRecognitionVersions(this.cvImport);
+  }
+
   seedCvPipelineCase(): ApplicationCase {
     const application: ApplicationCase = { ...clone(PIPELINE_CASE), documentType: 'cv' };
     this.applicationCases.set(application.id, application);

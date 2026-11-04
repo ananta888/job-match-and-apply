@@ -328,3 +328,34 @@ details.cv-provenance > summary, .cv-fact-technical > summary { cursor: pointer;
 .cv-incognito-artifacts { display: grid; gap: 6px; margin: 0 0 11px; padding: 0; list-style: none; }
 .cv-incognito-artifacts li { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 7px 10px; border: 1px solid #e4e7ed; border-radius: 8px; background: white; font-size: 9px; }
 .cv-incognito-preview .cv-html-preview { margin-top: 11px; }
+
+/* Shared recognized-CV facts editor (profile panel + CV studio) */
+.cv-facts-editor__section { margin: 18px 0; padding: 15px; border: 1px solid #dfe3e9; border-radius: 12px; background: rgba(255, 255, 255, .72); }
+.cv-facts-editor__heading { margin: 0 0 10px; color: #263c5c; font-size: 13px; }
+.cv-facts-editor__heading small { color: #657084; font-size: 8px; font-weight: 700; }
+.cv-facts-editor__value { display: inline-block; margin-top: 6px; padding: 9px 10px; border: 1px solid #eef1f6; border-radius: 8px; background: #fafbfd; color: #263149; font: 11px/1.45 inherit; overflow-wrap: anywhere; }
+.cv-facts-editor__origin { color: #8a6d1f; font-weight: 600; }
+.cv-facts-editor__details { margin: 10px 0; padding-left: 18px; }
+.cv-facts-editor__details li { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0; }
+.cv-facts-editor__chipgroup { margin: 10px 0; }
+.cv-facts-editor__chipgroup h4 { margin: 6px 0; color: #525d70; font-size: 10px; font-weight: 700; }
+.cv-facts-editor__chips { display: flex; flex-wrap: wrap; gap: 9px; margin: 0; padding: 0; list-style: none; }
+.cv-facts-editor__chips li { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 8px 10px; border: 1px solid #dfe3e9; border-radius: 999px; background: white; }
+.cv-facts-editor__chips .cv-facts-editor__value { margin-top: 0; padding: 2px 6px; border: 0; background: transparent; font-size: 10px; }
+.cv-facts-editor__level { color: #525d70; font-size: 9px; }
+.cv-facts-editor__add { margin: 10px 0; padding: 13px; border: 1px dashed #cdd7e6; border-radius: 10px; background: #fbfcfe; }
+.cv-facts-editor__add h4 { margin: 0 0 8px; color: #445269; font-size: 10px; }
+.cv-facts-editor__technical { display: grid; grid-template-columns: 1fr; gap: 6px; margin: 6px 0 0; }
+.cv-facts-editor__technical div { display: grid; grid-template-columns: minmax(120px, .5fr) 1fr; gap: 8px; }
+.cv-facts-editor__technical dt { color: #657084; font-size: 8px; font-weight: 700; }
+.cv-facts-editor__technical dd { margin: 0; overflow-wrap: anywhere; }
+@media (max-width: 760px) {
+  .cv-facts-editor__chips li { border-radius: 10px; }
+  .cv-facts-editor__technical div { grid-template-columns: 1fr; }
+}
+
+/* Comfortable touch/keyboard targets (above the 24px WCAG floor): action
+   buttons get real padding, inputs keep their existing roomy field styling. */
+.cv-facts-editor__section button { min-height: 30px; min-width: 30px; padding-block: 6px; }
+.cv-facts-editor__section input, .cv-facts-editor__section select, .cv-facts-editor__section textarea { min-height: 30px; }
+.cv-facts-editor__chips li button { min-height: 28px; }

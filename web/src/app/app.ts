@@ -3,6 +3,8 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { DomSanitizer, type SafeResourceUrl } from '@angular/platform-browser';
 import { ApiService } from './api.service';
+import { CvFactsEditorComponent } from './cv-facts-editor.component.js';
+import { cvFactGroupIsRaw, groupCvFactRecords, type CvFactRecordView } from './cv-facts-view.js';
 import { forkJoin, type Subscription } from 'rxjs';
 import type { AgentApproval, AgentArtifactContent, AgentArtifactRecord, AgentConfigProfile, AgentConfigProfileView, AgentOrchestrationConfirmationInput, AgentOrchestrationConflict, AgentOrchestrationConflictStrategy, AgentOrchestrationCreateRequest, AgentOrchestrationGate, AgentOrchestrationRecord, AgentProvider, AgentProviderConfigProfile, AgentProviderInstallation, AgentQueueBlockReason, AgentQueueSnapshot, AgentRecoveryDecision, AgentRecoveryLease, AgentRecoveryRun, AgentRun, AgentRunEvent, AgentRunPreflight, AgentRunRequest, AgentRunStatus, AgentRuntimeTarget, AgentWorkflow, AgentWorkspaceMode, AppConfig, ApplicationCase, ApplicationSourceCvCandidate, ApplicationDraft, ApplicationExportResult, ApplicationNextActionsProposalProjection, ApplicationProfileSetupStatus, ApplicationStyleDocumentType, ApplicationStyleExampleDocumentType, ApplicationStyleProfileView, ArtifactRevision, CandidateMatchAnalysis, CandidateProfileSummary, CompanyCrm, CorrelatedMail, CvAiProviderSelection, CvAiStructuringOptions, CvAiStructuringPublicRun, CvAiStructuringSelection, CvAiStructuringSuggestion, CvAdoptionLedgerEntry, CvFact, CvFactCategory, CvFactDecision, CvFactOperation, CvImportRecord, CvImportSummary, CvIncognitoPreview, CvProfileSnapshotSummary, CvRecognitionVersionList, CvRecognitionVersionSummary, CvTheme, CvLayoutFingerprint, CvLayoutSection, CvThemeOriginalLayout, CvLayoutPalette, JobInventoryView, JobInventoryCategory, SearchRunSummary, AtsCheckReport, JobSearchMcpRuntimeCandidate, DataInventory, EditableApplicationStyleProfile, EmployerResponseTriageProposalProjection, IdentityProfile, JobDecision, JobMatch, JobSourceCapabilities, LanguageCheckResult, MailAccount, McpRuntimeStatus, ProfileImportPreview, ProviderModelCatalog, ProviderCredentialSummary, AgentWslDistribution, AgentWslDistributionsView, SearchSchedule, Section, SourceCapability, SourceStatus, VersionApproval, VersionApprovalSnapshot } from './models';
 
@@ -73,7 +75,7 @@ interface CvAiSuggestionGroup {
 
 @Component({
   selector: 'app-root',
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, CvFactsEditorComponent],
   templateUrl: './app.html',
   styleUrl: './app.scss'
 })
@@ -425,7 +427,7 @@ export class App implements OnInit, OnDestroy {
     if (section !== 'agents') { this.stopAgentStream(); this.closeAgentRecoveryDialog(); }
     if (section !== 'cv') this.stopCvAiPolling();
     if (section === 'jobs') this.loadJobs();
-    if (section === 'identity') { this.loadProfileSetup(); this.loadCandidateProfile(); }
+    if (section === 'identity') { this.loadProfileSetup(); this.loadCandidateProfile(); this.loadProfileCvOverview(); }
     if (section === 'cv') this.loadCvStudio();
     if (section === 'applications') {
       this.loadApplicationCases();
@@ -3987,81 +3989,63 @@ export class App implements OnInit, OnDestroy {
     this.selectCvStep(next);
   }
 
+  /** Identity panel: the recognized CV appears automatically from the current import. */
+  loadProfileCvImport(importId: string): void {
+    if (!importId || importId === this.cvImport?.id) return;
+    this.api.cvImport(importId).subscribe({
+      next: (record) => { this.applyCvImport(record, true); this.loadCvRecognitionVersions(); this.refreshView(); },
+      error: (error) => { this.cvError = this.message(error); this.refreshView(); },
+    });
+  }
+
+  loadProfileCvOverview(): void {
+    if (this.cvImport) { this.loadCvImportInventory(); this.loadCvRecognitionVersions(); return; }
+    this.api.cvImports(20).subscribe({
+      next: (records) => {
+        this.cvImportInventory = records;
+        const newest = records[0];
+        if (!this.cvImport && newest) {
+          this.api.cvImport(newest.id).subscribe({
+            next: (record) => { this.applyCvImport(record, true); this.loadCvRecognitionVersions(); this.refreshView(); },
+            error: () => this.refreshView(),
+          });
+        } else this.refreshView();
+      },
+      error: () => this.refreshView(),
+    });
+  }
+
+  updateCvFactDraftShared(fact: CvFact, field: 'category' | 'recordId' | 'field' | 'value', value: string): void {
+    this.updateCvFactDraft(fact, field, value);
+  }
+
+  resetCvFactDraft(fact: CvFact): void {
+    delete this.cvFactDrafts[fact.id];
+  }
+
+  decideCvFactShared(fact: CvFact, decision: 'confirm' | 'reject'): void {
+    this.decideCvFact(fact, decision);
+  }
+
+  submitCvFactOperations(operations: CvFactOperation[]): void {
+    if (!operations.length) return;
+    this.mutateCvFacts(operations, operations.every((operation) => operation.action === 'add')
+      ? 'Der ergänzte Fakt wurde als ungeprüfter Nutzerfakt gespeichert und muss noch bestätigt werden.'
+      : 'Die Korrektur wurde revisionsgebunden gespeichert und ist erneut zu prüfen.');
+  }
+
   cvFactGroups(): CvFactGroup[] {
-    const groups = new Map<string, { facts: CvFact[]; index: number }>();
-    for (const [index, fact] of (this.cvImport?.facts ?? []).entries()) {
-      const key = `${fact.category}:${fact.recordId}`;
-      const current = groups.get(key);
-      groups.set(key, { facts: [...(current?.facts ?? []), fact], index: current?.index ?? index });
-    }
-    const records = [...groups.entries()].map(([key, group]) => {
-      const recordId = group.facts[0]?.recordId ?? key;
-      const category = group.facts[0]?.category ?? 'additional';
-      const role = this.cvGroupFactValue(group.facts, ['role', 'position', 'title', 'job_title']);
-      const company = this.cvGroupFactValue(group.facts, ['company', 'employer', 'organization']);
-      const period = this.cvGroupFactValue(group.facts, ['period', 'date_range', 'duration'])
-        ?? this.cvGroupDateRange(group.facts);
-      const generic = this.cvGroupFactValue(group.facts, ['name', 'title', 'degree', 'institution', 'description']);
-      const title = category === 'employment'
-        ? [role, company].filter(Boolean).join(' · ') || recordId
-        : generic || recordId;
-      return { recordId, category, facts: group.facts, title, ...(period ? { period } : {}), index: group.index };
-    });
-    const employment = records.filter((record) => record.category === 'employment').sort((left, right) => {
-      const leftEnd = this.cvEmploymentDateRank(left.facts, true);
-      const rightEnd = this.cvEmploymentDateRank(right.facts, true);
-      if (leftEnd !== rightEnd) return rightEnd - leftEnd;
-      const leftStart = this.cvEmploymentDateRank(left.facts, false);
-      const rightStart = this.cvEmploymentDateRank(right.facts, false);
-      return rightStart - leftStart || left.index - right.index;
-    });
-    return [...employment, ...records.filter((record) => record.category !== 'employment').sort((left, right) => left.index - right.index)]
-      .map(({ index: _index, ...record }) => record);
+    return groupCvFactRecords(this.cvImport?.facts ?? []);
   }
 
   cvStructuredFactGroups(): CvFactGroup[] {
-    return this.cvFactGroups().filter((group) => !this.cvFactGroupIsRaw(group));
+    return this.cvFactGroups().filter((group) => !cvFactGroupIsRaw(group));
   }
 
   cvRawFactGroups(): CvFactGroup[] {
-    return this.cvFactGroups().filter((group) => this.cvFactGroupIsRaw(group));
+    return this.cvFactGroups().filter((group) => cvFactGroupIsRaw(group));
   }
 
-  private cvFactGroupIsRaw(group: CvFactGroup): boolean {
-    if (group.category === 'additional') return true;
-    return group.facts.length > 0 && group.facts.every((fact) => {
-      const root = fact.field.toLocaleLowerCase('en-US').split('.')[0]!.replace(/\[[0-9]{1,4}\]$/, '');
-      return root === 'other' || root === 'additional';
-    });
-  }
-
-  private cvGroupFactValue(facts: CvFact[], fields: string[]): string | undefined {
-    const allowed = new Set(fields);
-    for (const decision of ['confirmed', 'pending'] as const) {
-      const match = facts.find((fact) => fact.decision === decision
-        && allowed.has(fact.field.toLocaleLowerCase('en-US').split('.').at(-1)!.replace(/\[[0-9]{1,4}\]$/, '')));
-      if (match?.value.trim()) return match.value.trim();
-    }
-    return undefined;
-  }
-
-  private cvGroupDateRange(facts: CvFact[]): string | undefined {
-    const start = this.cvGroupFactValue(facts, ['start_date', 'start']);
-    const end = this.cvGroupFactValue(facts, ['end_date', 'end']);
-    return start || end ? `${start ?? '?'} – ${end ?? 'heute'}` : undefined;
-  }
-
-  private cvEmploymentDateRank(facts: CvFact[], end: boolean): number {
-    const value = end
-      ? this.cvGroupFactValue(facts, ['end_date', 'end', 'period', 'date_range', 'duration'])
-      : this.cvGroupFactValue(facts, ['start_date', 'start', 'period', 'date_range', 'duration']);
-    if (!value) return Number.NEGATIVE_INFINITY;
-    if (end && /\b(?:present|current|heute|aktuell|gegenwärtig|laufend|now)\b/i.test(value)) return Number.MAX_SAFE_INTEGER;
-    const dates = [...value.matchAll(/\b((?:19|20)\d{2})(?:[-/.](0?[1-9]|1[0-2]))?\b/g)]
-      .map((match) => Number(match[1]) * 12 + Number(match[2] ?? (end ? 12 : 1)));
-    if (!dates.length) return Number.NEGATIVE_INFINITY;
-    return end ? dates.at(-1)! : dates[0]!;
-  }
 
   cvFactFieldLabel(field: string): string {
     const leaf = field.split('.').at(-1) ?? field;
@@ -4730,11 +4714,23 @@ export class App implements OnInit, OnDestroy {
     const current = this.cvImport;
     if (!current || this.cvBusy) return;
     this.cvBusy = true; this.cvError = '';
+    // Saving one fact must never silently drop other unsaved field edits.
+    const savedIds = new Set(operations.map((operation) => 'factId' in operation ? operation.factId : ''));
+    const preservedDrafts = Object.fromEntries(
+      Object.entries(this.cvFactDrafts).filter(([factId]) => !savedIds.has(factId)),
+    );
     this.api.reviewCvFacts(current, operations).subscribe({
       next: (record) => {
-        this.applyCvImport(record, true); this.cvBusy = false; this.cvNotice = notice; afterSuccess?.(); this.refreshView();
+        // A late answer must never overwrite a different, newly selected import.
+        if (this.cvImport?.id !== current.id) { this.cvBusy = false; this.refreshView(); return; }
+        this.applyCvImport(record, true);
+        this.cvFactDrafts = { ...this.cvFactDrafts, ...preservedDrafts };
+        this.cvBusy = false; this.cvNotice = notice; afterSuccess?.(); this.refreshView();
       },
-      error: (error) => this.failCv(error)
+      error: (error) => {
+        if (this.cvImport?.id !== current.id) { this.cvBusy = false; this.refreshView(); return; }
+        this.failCv(error);
+      }
     });
   }
 

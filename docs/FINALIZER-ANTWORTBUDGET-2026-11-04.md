@@ -22,3 +22,17 @@ Der anschließende echte High-Test mit gleicher Datenbasis erreichte 50.000 Ausg
 Der schnelle Wiederholungsweg verändert ausdrücklich nur das Finalizer-Reasoning in einer neuen, eingefrorenen Run-Konfiguration. Anbieter, Modell, Rohdaten und vier geprüfte Vorstufen bleiben unverändert. Der Ursprung bleibt High; das gespeicherte Providerprofil wird nicht geändert. Die API verweigert diese Ausnahme für andere Anbieter oder Knoten. Die normale Wiederholung ohne Override bleibt unverändert. UI-Beschriftung: „Nur Abschluss schnell wiederholen · Reasoning Aus“.
 
 Schneller Retry: 799 Backend-Tests (zwei übersprungen), 77 Angular-Tests, Builds und Sicherheitsprüfung bestanden; unabhängiges Review ohne wichtige Befunde.
+
+## Live-Ergebnis der schnellen Variante
+Mit demselben Modell deepseek/deepseek-v4.1-flash-1017, exakt identischem Prompt und denselben Eingabe-Digests:
+| Einstellung | Dauer Abschluss | Ausgabe-Tokens | Reasoning-Tokens | Ergebnis |
+| --- | --- | --- | --- | --- |
+| High, Limit 50.000 | 102,791 s | 50.000 | 50.000 | length, null HTML-Zeichen |
+| Off, Limit 10.000 | 13,015 s | 2.733 | 0 | stop, 8.763 HTML-Zeichen |
+
+Alle vier Vorstufen-Artefakte sind identisch wiederverwendet. Off erzeugte einen erfolgreichen Gesamtlauf mit final_html; der hashgebundene Ergebnis-Endpunkt antwortet mit HTTP 200 und exakt passendem SHA-256. Browserprüfung: sichtbare Überschrift, sechs Haupt-/Abschnittsüberschriften, 6.244 sichtbare Zeichen, keine Script-Elemente. Das belegt Ausführung und Anzeige, keine vollständige fachliche CV-Abnahme.
+
+Das gespeicherte Providerprofil und der High-Ursprung wurden nicht verändert. Für weitere Starts kann das Abschluss-Reasoning in der bestehenden Rollen-Konfiguration ausdrücklich auf Off gesetzt werden; der schnelle Retry bleibt eine separate, sichtbare Auswahl.
+
+## Weiterhin offene Übernahme
+Layout-/OCR-Submodularbeit ist weiterhin offen: todos/active/cv-layout-ocr-integration.json enthält fünf Aufgaben mit Status todo. Der vorhandene Layout-Fingerprint ersetzt cv_layout.py, Tesseract-/Poppler-Layoutanalyse und das Durchreichen von Layout-Blöcken in den Strukturierungsprompt nicht. Diese Live-Prüfung schließt jenen Track nicht ab.

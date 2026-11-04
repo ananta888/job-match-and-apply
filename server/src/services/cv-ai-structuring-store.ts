@@ -132,7 +132,7 @@ export interface CvAiStructuringRunRecord {
     extractedTextSha256: string;
     baseProposalSha256: string;
     lineManifestSha256: string;
-    promptTemplateVersion: 'cv-ai-structuring/1.0';
+    promptTemplateVersion: 'cv-ai-structuring/1.0' | 'cv-ai-structuring/2.0';
     promptSha256: string;
     outputContractVersion: '1.0';
     outputSchemaSha256: string;
@@ -273,7 +273,7 @@ function assertRecord(record: CvAiStructuringRunRecord): void {
     ...record.auditTrail.map((entry) => entry.detailSha256),
   ].filter((value): value is string => value !== undefined);
   if (digests.some((value) => !SHA256.test(value))) throw new Error('cv_ai_run_digest_invalid');
-  if (!/^source-cv-[a-f0-9]{16}$/.test(record.binding.sourceId) || record.binding.promptTemplateVersion !== 'cv-ai-structuring/1.0'
+  if (!/^source-cv-[a-f0-9]{16}$/.test(record.binding.sourceId) || !['cv-ai-structuring/1.0', 'cv-ai-structuring/2.0'].includes(record.binding.promptTemplateVersion)
     || record.binding.outputContractVersion !== '1.0') throw new Error('cv_ai_run_binding_invalid');
   if (record.auditTrail.length < 1 || record.auditTrail.length > MAX_AUDIT_ENTRIES
     || record.auditTrail.some((entry, index) => entry.sequence !== index + 1 || !validDate(entry.occurredAt)

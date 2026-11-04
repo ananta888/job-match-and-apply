@@ -60,6 +60,14 @@ anschließend für den Dokumentlauf den Provider **openrouter** wählen.
 
 ## Echte Upstream-Integrationen
 
+Für den CV-Layout-/OCR-Import (PDF-Textschicht, transienter Seitenrender, lokale OCR)
+werden die lokalen Systempakete `poppler-utils` (`pdftotext`, `pdftoppm`) und
+`tesseract` mit den Sprachen `deu` und `eng` benötigt (unter Ubuntu/WSL:
+`sudo apt install poppler-utils tesseract-ocr tesseract-ocr-deu tesseract-ocr-eng`).
+`npm run diagnose` prüft Tools und Sprachen. Ohne diese Pakete bleibt der flache
+Textimport erhalten; Bildscans werden verständlich abgelehnt statt still falsch
+eingelesen.
+
 Für `job-search-mcp` wird Python 3.12 benötigt. Das Setup bevorzugt die vorhandene
 Ubuntu/WSL2-Runtime; native Windows-Ausführung muss bewusst gewählt werden:
 

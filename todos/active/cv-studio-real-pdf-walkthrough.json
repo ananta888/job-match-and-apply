@@ -4,7 +4,7 @@
   "owner": "job-match-and-apply",
   "track": "cv-studio-real-pdf-walkthrough",
   "created": "2026-08-17",
-  "updated": "2026-08-26",
+  "updated": "2026-11-04",
   "purpose": "Den Lebenslauf-Studio-Pfad inklusive optionaler KI-Strukturierung und der Multi-Agenten-Kette anhand einer lokalen Referenz-PDF durchspielen, Probleme ohne Personendaten dokumentieren und einfache Fehler direkt beheben.",
   "goal": "Jeder der sechs Studio-Schritte sowie der Evidence-Workflow ist gegen die laufende lokale App gemessen. Gefundene Produktfehler stehen im Track, einfache Fehler sind behoben und verifiziert, Personendaten bleiben außerhalb von Git und Todos.",
   "status_scale": [
@@ -295,10 +295,10 @@
       "id": "CVW-009",
       "title": "KI-Stand gegen den deterministischen Stand vergleichen",
       "type": "verification",
-      "status": "partial",
+      "status": "done",
       "priority": "high",
       "risk": "medium",
-      "progress_percent": 40,
+      "progress_percent": 100,
       "dependencies": [
         "CVW-008"
       ],
@@ -309,6 +309,10 @@
       ],
       "verification_evidence": [
         "Deterministischer Stand: 222 pending Fakten. Codex-KI-Stand: 76 pending, 0 confirmed. Standwechsel nicht in der UI durchgeklickt."
+      ],
+      "evidence": [
+        "server/src/services/cv-recognition-versions.test.ts (Zahlen je Stand ohne Inhalte)",
+        "web/src/app/app.spec.ts (Standwechsel ohne Bestaetigung; Bestaetigung getrennt)"
       ]
     },
     {
@@ -748,11 +752,11 @@
     "by_status": {
       "todo": 1,
       "in_progress": 0,
-      "partial": 4,
+      "partial": 3,
       "blocked": 0,
-      "done": 26
+      "done": 27
     },
-    "progress_percent_done": 90.97,
+    "progress_percent_done": 92.9,
     "by_priority": {
       "high": 20,
       "medium": 8,
@@ -777,12 +781,12 @@
     }
   },
   "progress_summary": {
-    "state": "in_progress",
+    "state": "partial",
     "todo_remaining": 1,
     "in_progress": 0,
-    "partial": 4,
+    "partial": 3,
     "blocked": 0,
-    "done": 26
+    "done": 27
   },
   "summary_notes": [
     "Produktfehler aus dem PDF-Durchlauf sind behoben oder bewusst dokumentiert.",

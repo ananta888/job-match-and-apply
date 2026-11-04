@@ -21,6 +21,25 @@ if (!version || Number(version[1]) < 3 || (Number(version[1]) === 3 && Number(ve
   if (!native312.ok && process.platform === 'win32') command('wsl2-python-3.12', 'wsl.exe', ['-d', 'Ubuntu', '--', 'python3.12', '--version']);
 } else configuredPython.required = true;
 command('git-submodules', 'git', ['submodule', 'status']);
+// CV-Layout/-OCR: poppler + tesseract are local system packages; without them
+// the flat text path remains and scans fail closed with a clear message.
+const pdfText = command('pdftotext', 'pdftotext', ['-v'], {}, false);
+if (pdfText.ok) pdfText.detail = pdfText.detail.split(' | ')[0] || pdfText.detail;
+else pdfText.detail = 'poppler-utils fehlt: PDF-Textschicht/Layout-Extraktion entfallen, Importe fallen auf reinen Text zurueck.';
+const pdfRender = command('pdftoppm', 'pdftoppm', ['-v'], {}, false);
+if (pdfRender.ok) pdfRender.detail = pdfRender.detail.split(' | ')[0] || pdfRender.detail;
+else pdfRender.detail = 'poppler-utils fehlt: transienter Seitenrender fuer OCR entfaellt; Bildscans sind dann nicht importierbar.';
+const ocr = command('tesseract', 'tesseract', ['--version'], {}, false);
+if (ocr.ok) {
+  const languages = spawnSync('tesseract', ['--list-langs'], { cwd: root, encoding: 'utf8', windowsHide: true });
+  const list = String(languages.stdout || '').split(/\r?\n/).map((line) => line.trim());
+  ocr.ok = list.includes('deu') && list.includes('eng');
+  ocr.detail = ocr.ok
+    ? `${ocr.detail.split(' | ')[0] || 'tesseract'} · Sprachen deu+eng vorhanden`
+    : 'tesseract ohne die Sprachen deu und/oder eng; OCR-Erkennung fuer deutsche CVs ist dann unvollstaendig.';
+} else {
+  ocr.detail = 'tesseract fehlt: Bildscans koennen nicht per lokaler OCR eingelesen werden.';
+}
 for (const provider of ['codex', 'opencode', 'claude']) {
   const executable = process.platform === 'win32' && provider === 'codex' ? 'codex.exe' : provider;
   command(`agent-provider-${provider}`, executable, ['--version'], {}, false);

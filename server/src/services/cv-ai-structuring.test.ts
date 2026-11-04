@@ -93,7 +93,7 @@ class FakeRuns implements CvAiAgentRunPort {
 
 function fixture(options: {
   providerSupport?: AgentProviderInstallation['support']; now?: () => Date; allowSyntheticProviders?: boolean;
-  maxRunDurationMs?: number;
+  maxRunDurationMs?: number; layoutExtractionJson?: string;
 } = {}) {
   const store = new MemoryCvAiStructuringRunStore();
   const agentRuns = new FakeRuns();
@@ -118,6 +118,7 @@ function fixture(options: {
       sourceSha256: 'b'.repeat(64), extractedTextSha256: 'c'.repeat(64), baseProposalSha256: 'd'.repeat(64),
       baseProposalArtifact, lineManifestJson, lineManifestSha256: digest(lineManifestJson),
       deterministicRecognitionVersionId: 'recognition-aaaaaaaaaaaaaaaa',
+      ...(options.layoutExtractionJson ? { layoutExtractionJson: options.layoutExtractionJson } : {}),
     } : undefined),
     findAiStage: vi.fn(async () => committedStage ? structuredClone(committedStage) : undefined),
     stageAiStructure: vi.fn(async (input) => {
@@ -372,6 +373,26 @@ describe('CvAiStructuringService', () => {
     const blocked = fixture({ providerSupport: 'untested' });
     const options = await blocked.service.options({ cvImportId: importId, expectedCvImportRevision: 3, expectedCvImportSha256: 'a'.repeat(64) });
     expect(options.providers[0]!.installations[0]).toMatchObject({ ready: false, blockers: ['installation_not_supported'] });
+  });
+
+  it('reaches the actual AI task with the layout blocks of the import as inert data', async () => {
+    const blocks = JSON.stringify({
+      contract: 'cv-extraction', contractVersion: '1.0',
+      source: { kind: 'text-layer', sha256: 'b'.repeat(64) },
+      pages: [{ page: 1, width: 600, height: 800, columns: [{ id: 'p1c1', x: 0, width: 600, role: 'main' }],
+        blocks: [{ id: 'p1c1b01', column: 'p1c1', order: 0, kind: 'heading', bbox: [0, 0, 10, 10], confidence: 1, lines: ['Kenntnisse'] }] }],
+      headings: [{ block: 'p1c1b01', text: 'Kenntnisse', section: 'skill' }], warnings: [],
+    });
+    const value = fixture({ layoutExtractionJson: blocks });
+    await value.service.start({
+      cvImportId: importId, expectedCvImportRevision: 3, expectedCvImportSha256: 'a'.repeat(64),
+      provider: selection, disclosure, actor,
+    });
+    const task = value.agentRuns.requests[0]!.task;
+    expect(task).toContain('BEGIN_UNTRUSTED_CV_LAYOUT_BLOCKS');
+    expect(task).toContain(blocks);
+    expect(task).toContain('Use the blocks only to order, group and label');
+    expect(task).toContain('Do not invent content that no block contains');
   });
 
   it('starts only with literal opt-in and enqueues a locked read-only/no-tool/no-network agent run', async () => {

@@ -49,6 +49,8 @@ export interface CvAiStructuringImportSource {
   /** Exact bounded manifest JSON; it is used transiently and never copied to this service's store. */
   lineManifestJson: string;
   lineManifestSha256: string;
+  /** cv-extraction 1.0 layout blocks as canonical JSON; data for the prompt, never instructions. */
+  layoutExtractionJson?: string;
   deterministicRecognitionVersionId: string;
 }
 
@@ -780,6 +782,7 @@ export class CvAiStructuringService {
       sourceId: source.sourceId, sourceSha256: source.sourceSha256,
       extractedTextSha256: source.extractedTextSha256, baseProposalSha256: source.baseProposalSha256,
       lineManifestJson: source.lineManifestJson, lineManifestSha256: source.lineManifestSha256,
+      ...(source.layoutExtractionJson ? { layoutExtractionJson: source.layoutExtractionJson } : {}),
       outputContract: contract.outputContract, outputContractVersion: contract.outputContractVersion,
       outputSchemaJson: contract.outputSchemaJson, outputSchemaSha256: contract.outputSchemaSha256,
     });

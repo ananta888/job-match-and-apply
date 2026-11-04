@@ -665,6 +665,7 @@ export class CvImportService implements CvAiStructuringImportPort {
       baseProposalSha256: createHash('sha256').update(canonicalJson(artifact), 'utf8').digest('hex'),
       baseProposalArtifact: structuredClone(artifact), lineManifestJson,
       lineManifestSha256: createHash('sha256').update(lineManifestJson, 'utf8').digest('hex'),
+      ...(current.layoutExtraction ? { layoutExtractionJson: canonicalJson(current.layoutExtraction) } : {}),
     };
   }
 

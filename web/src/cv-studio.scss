@@ -329,33 +329,45 @@ details.cv-provenance > summary, .cv-fact-technical > summary { cursor: pointer;
 .cv-incognito-artifacts li { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 7px 10px; border: 1px solid #e4e7ed; border-radius: 8px; background: white; font-size: 9px; }
 .cv-incognito-preview .cv-html-preview { margin-top: 11px; }
 
-/* Shared recognized-CV facts editor (profile panel + CV studio) */
-.cv-facts-editor__section { margin: 18px 0; padding: 15px; border: 1px solid #dfe3e9; border-radius: 12px; background: rgba(255, 255, 255, .72); }
-.cv-facts-editor__heading { margin: 0 0 10px; color: #263c5c; font-size: 13px; }
-.cv-facts-editor__heading small { color: #657084; font-size: 8px; font-weight: 700; }
-.cv-facts-editor__value { display: inline-block; margin-top: 6px; padding: 9px 10px; border: 1px solid #eef1f6; border-radius: 8px; background: #fafbfd; color: #263149; font: 11px/1.45 inherit; overflow-wrap: anywhere; }
-.cv-facts-editor__origin { color: #8a6d1f; font-weight: 600; }
-.cv-facts-editor__details { margin: 10px 0; padding-left: 18px; }
-.cv-facts-editor__details li { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0; }
-.cv-facts-editor__chipgroup { margin: 10px 0; }
-.cv-facts-editor__chipgroup h4 { margin: 6px 0; color: #525d70; font-size: 10px; font-weight: 700; }
-.cv-facts-editor__chips { display: flex; flex-wrap: wrap; gap: 9px; margin: 0; padding: 0; list-style: none; }
-.cv-facts-editor__chips li { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 8px 10px; border: 1px solid #dfe3e9; border-radius: 999px; background: white; }
-.cv-facts-editor__chips .cv-facts-editor__value { margin-top: 0; padding: 2px 6px; border: 0; background: transparent; font-size: 10px; }
-.cv-facts-editor__level { color: #525d70; font-size: 9px; }
-.cv-facts-editor__add { margin: 10px 0; padding: 13px; border: 1px dashed #cdd7e6; border-radius: 10px; background: #fbfcfe; }
-.cv-facts-editor__add h4 { margin: 0 0 8px; color: #445269; font-size: 10px; }
-.cv-facts-editor__technical { display: grid; grid-template-columns: 1fr; gap: 6px; margin: 6px 0 0; }
-.cv-facts-editor__technical div { display: grid; grid-template-columns: minmax(120px, .5fr) 1fr; gap: 8px; }
+/* Shared recognized-CV facts editor (profile + CV studio): compact Lab-style
+   layout (dense fact rows, numbered station cards, collapsible sections)
+   recolored to this project's palette and typography. */
+.cv-facts-editor__section, .cv-raw-facts { margin: 10px 0; padding: 0; border: 1px solid #dfe3e9; border-radius: 10px; background: rgba(255, 255, 255, .82); }
+.cv-facts-editor__summary { display: flex; gap: 10px; align-items: center; cursor: pointer; min-height: 34px; padding: 8px 12px; }
+.cv-facts-editor__heading { margin: 0; color: #263c5c; font-size: 12px; font-weight: 800; }
+.cv-facts-editor__pill { padding: 2px 9px; border: 1px solid #d4d0e5; border-radius: 999px; color: #4d5367; background: #f5f3fb; font-size: 8px; font-weight: 800; }
+.cv-facts-editor__record { margin: 0 12px 10px; padding: 8px 10px; border: 1px solid #e6eaf1; border-radius: 8px; background: #fbfcfe; }
+.cv-facts-editor__record-heading { display: flex; gap: 8px; align-items: center; margin: 0 0 4px; color: #263149; font-size: 10px; font-weight: 800; }
+.cv-facts-editor__record-heading small { color: #657084; font-size: 8px; font-weight: 700; }
+.cv-facts-editor__number { display: inline-grid; place-items: center; width: 18px; height: 18px; border: 1px solid #cdd7e6; border-radius: 50%; color: #606b7d; background: white; font-size: 8px; font-weight: 800; }
+.cv-facts-editor__row { display: grid; grid-template-columns: minmax(110px, .55fr) 1.5fr auto; gap: 8px; align-items: center; padding: 3px 0; border-top: 1px dotted #e9edf3; }
+.cv-facts-editor__row--detail { margin-left: 22px; }
+.cv-facts-editor__label { color: #525d70; font-size: 9px; font-weight: 800; }
+.cv-facts-editor__label small { display: block; color: #8a6d1f; font-size: 8px; font-weight: 600; }
+.cv-facts-editor__value { min-width: 0; color: #263149; font: 10px/1.45 inherit; overflow-wrap: anywhere; }
+.cv-facts-editor__value input { width: 100%; padding: 6px 8px; border: 1px solid #dfe3e9; border-radius: 7px; color: #263149; background: white; font: 10px/1.45 inherit; }
+.cv-facts-editor__actions, .cv-facts-editor__row-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.cv-facts-editor__row-actions { margin: 8px 0 0; }
+.cv-facts-editor__row-actions .cv-fact-technical { margin-left: auto; }
+.cv-facts-editor__chipgroup { margin: 8px 12px; }
+.cv-facts-editor__chipgroup h5 { margin: 4px 0 6px; color: #525d70; font-size: 9px; font-weight: 800; }
+.cv-facts-editor__chips { display: flex; flex-wrap: wrap; gap: 7px; margin: 0; padding: 0; list-style: none; }
+.cv-facts-editor__chips li { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 5px 9px; border: 1px solid #dfe3e9; border-radius: 999px; background: white; }
+.cv-facts-editor__chips .cv-facts-editor__value { font-size: 9px; font-weight: 700; }
+.cv-facts-editor__level { color: #525d70; font-size: 8px; }
+.cv-facts-editor__add { margin: 8px 12px; padding: 11px; border: 1px dashed #cdd7e6; border-radius: 8px; background: #fbfcfe; }
+.cv-facts-editor__add h4 { margin: 0 0 7px; color: #445269; font-size: 10px; }
+.cv-facts-editor__add label, .cv-facts-editor__add input { font-size: 9px; }
+.cv-facts-editor__technical { display: grid; gap: 5px; margin: 6px 0 0; }
+.cv-facts-editor__technical div { display: grid; grid-template-columns: minmax(110px, .5fr) 1fr; gap: 8px; }
 .cv-facts-editor__technical dt { color: #657084; font-size: 8px; font-weight: 700; }
 .cv-facts-editor__technical dd { margin: 0; overflow-wrap: anywhere; }
+.cv-facts-editor__section .cv-fact-technical > summary { cursor: pointer; min-height: 24px; padding: 3px 2px; color: #445066; font-size: 9px; font-weight: 700; }
+/* Comfortable touch/keyboard targets above the 24px WCAG floor. */
+.cv-facts-editor__section button, .cv-raw-facts button { min-height: 30px; min-width: 30px; padding-block: 5px; }
+.cv-facts-editor__section :is(input, select, textarea), .cv-raw-facts :is(input, select, textarea) { min-height: 30px; }
 @media (max-width: 760px) {
-  .cv-facts-editor__chips li { border-radius: 10px; }
+  .cv-facts-editor__row { grid-template-columns: 1fr; }
+  .cv-facts-editor__row--detail { margin-left: 8px; }
   .cv-facts-editor__technical div { grid-template-columns: 1fr; }
 }
-
-/* Comfortable touch/keyboard targets (above the 24px WCAG floor): action
-   buttons get real padding, inputs keep their existing roomy field styling. */
-.cv-facts-editor__section button { min-height: 30px; min-width: 30px; padding-block: 6px; }
-.cv-facts-editor__section input, .cv-facts-editor__section select, .cv-facts-editor__section textarea { min-height: 30px; }
-.cv-facts-editor__chips li button { min-height: 28px; }

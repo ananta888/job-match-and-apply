@@ -167,6 +167,7 @@
     "Adaptiert aus REF/src/components/CvFactsEditor.jsx, ResumeFacts.jsx und src/lib/resumeFacts.js (Verhalten/Gruppierung/Beschriftung); React nicht eingebaut.",
     "Gegenueber Lab-Referenz: Niveau und alle Nebenfelder sind editierbar (kein Nur-Lesen-Chip); fehlende Stationstitel werden nummeriert; Korrekturen bleiben stets neue ungepruefte Fakten.",
     "Korrekturen am Vertrag: add ohne automatische Bestaetigung (explizite Entscheidung danach); edit ersetzt den Fakt durch einen neuen user_supplied-Fakt (Serververtrag), Test belegt die erneute Pruefung.",
-    "Grenze: fachliche CV-Abnahme/Echtdatenpruefung bleibt offen; nur synthetische Fixtures."
+    "Grenze: fachliche CV-Abnahme/Echtdatenpruefung bleibt offen; nur synthetische Fixtures.",
+    "Layout-Nachbesserung laut Nutzer: kompakte Lab-Darstellung (dichte Faktenzeilen inline, nummerierte Stationskarten, aufklappbare Kategorien) uebernommen; nur Farben/Typografie an das Projekt angepasst und technische Abweichungen (Editierbarkeit aller Felder) behalten."
   ]
 }

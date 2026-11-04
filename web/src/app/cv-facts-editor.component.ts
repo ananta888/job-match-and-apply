@@ -77,7 +77,7 @@ export class CvFactsEditorComponent {
   get sections(): Array<{ id: CvFactCategory; label: string; kind: 'card' | 'chips' | 'fields'; records: CvFactRecordView[] }> {
     const records = groupCvFactRecords(this.facts);
     return CV_FACT_VIEW_SECTIONS
-      .map((section) => ({ ...section, records: records.filter((record) => record.category === section.id) }));
+      .map((section) => ({ ...section, records: records.filter((record) => record.category === section.id && !cvFactGroupIsRaw(record)) }));
   }
 
   structuredRecords(): CvFactRecordView[] {

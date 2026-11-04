@@ -86,7 +86,7 @@ test.describe('Profil & Identität – Mein erkannter Lebenslauf', () => {
     agentApi.seedCvImport();
     await openProfile(page);
     const panel = page.getByTestId('profile-recognized-cv');
-    const technical = panel.locator('details.cv-fact-technical').first();
+    const technical = panel.locator('.cv-facts-editor__record details.cv-fact-technical').first();
     await expect(technical.locator('summary')).toHaveText('Technische Details');
     await expect(technical).not.toHaveAttribute('open', '');
     await technical.locator('summary').click();

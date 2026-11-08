@@ -940,7 +940,6 @@ export class ApplicationAgentOrchestrationService {
       }
       const output = completedText(events, this.maxResolvedInputBytes);
       const questions = allowQuestions ? parseFinalizerQuestions(output) : null;
-      if (guidedQuestions && !questions) throw new Error('finalizer_questions_required');
       if (questions) {
         const questionReferences = await this.createFinalizerQuestions(input, workflow, request, terminal, questions);
         const askedAt = nowIso(this.now);

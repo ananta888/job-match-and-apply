@@ -12,6 +12,7 @@ import {
   type BenchmarkOptions,
 } from './agents/application-benchmark.js';
 import type { OpenRouterReasoning } from './agents/openrouter-http-adapter.js';
+import { installProviderCredentialEnv, ProviderCredentialStore } from './agents/provider-credentials.js';
 
 const { values } = parseArgs({
   options: {
@@ -54,6 +55,13 @@ const options: BenchmarkOptions = {
   ...(values.case?.length ? { caseIds: values.case } : {}),
   artifactRoot: resolve(process.cwd(), '.local-data', 'benchmark-work'),
 };
+
+// Live HTTP runs read the API key from the existing encrypted vault; nothing
+// is copied, logged or printed. Offline fake runs need no credentials.
+if (options.provider === 'openrouter') {
+  const vault = new ProviderCredentialStore(resolve(process.cwd(), '..', '.local-data', 'agent-provider-secrets.json'));
+  installProviderCredentialEnv((providerId) => vault.envForSync(providerId));
+}
 
 try {
   const report = await runApplicationBenchmark(options);

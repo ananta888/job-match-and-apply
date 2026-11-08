@@ -2560,6 +2560,36 @@ describe('App', () => {
     fixture.destroy();
   });
 
+  it('retries a single failed node from the status list and tracks the forked run', async () => {
+    const failed: AgentOrchestrationRecord = {
+      ...orchestrationFixture('failed'),
+      nodes: orchestrationFixture('failed').nodes.map((node) =>
+        node.nodeId === 'finalizer'
+          ? { ...node, status: 'failed' as const, failureCategory: 'policy_blocked', reason: 'finalizer_questions_required' }
+          : node),
+    };
+    const fork: AgentOrchestrationRecord = {
+      ...orchestrationFixture('running'), id: '66666666-6666-6666-8666-666666666666',
+      retryOf: { orchestrationId: failed.id, nodeId: 'finalizer' },
+    };
+    apiMock['retryAgentOrchestrationNode'].mockReturnValue(of(fork));
+    apiMock['applicationCases'].mockReturnValue(of([applicationCaseFixture]));
+    apiMock['agentOrchestrations'].mockReturnValue(of({ orchestrations: [failed] }));
+    const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
+    const component = fixture.componentInstance;
+    component.select('applications'); fixture.detectChanges(); await fixture.whenStable();
+    component.selectApplicationCase(applicationCaseFixture); fixture.detectChanges(); await fixture.whenStable();
+    const element = fixture.nativeElement as HTMLElement;
+    const retry = element.querySelector<HTMLButtonElement>('[data-testid="node-retry-finalizer"]');
+    expect(retry).toBeTruthy();
+    retry!.click();
+    expect(apiMock['retryAgentOrchestrationNode']).toHaveBeenCalledWith(failed.id, 'finalizer');
+    expect(component.applicationAgentOrchestrationId).toBe(fork.id);
+    // Succeeded steps expose no retry button.
+    expect(element.querySelector('[data-testid="node-retry-author"]')).toBeNull();
+    fixture.destroy();
+  });
+
   it('keeps an incognito agent proposal inspectable but blocks HTML creation and download', async () => {
     const adopted = adoptedCvImportFixture();
     const incognitoCase: ApplicationCase = {

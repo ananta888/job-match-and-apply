@@ -2710,6 +2710,29 @@ export class App implements OnInit, OnDestroy {
     return orchestration.nodes.find((node) => node.status === 'failed' && node.failureCategory !== 'needs_input');
   }
 
+  /** Targeted per-node retry from the status list (failed or policy-blocked steps). */
+  retryOrchestrationNode(orchestration: AgentOrchestrationRecord, nodeId: string): void {
+    if (this.applicationRetryBusy) return;
+    const node = orchestration.nodes.find((item) => item.nodeId === nodeId);
+    if (!node || !['failed', 'policy_blocked'].includes(node.status)) return;
+    this.applicationRetryBusy = true;
+    this.agentOrchestrationError = '';
+    this.api.retryAgentOrchestrationNode(orchestration.id, nodeId).subscribe({
+      next: (created) => {
+        this.applicationRetryBusy = false;
+        this.agentOrchestrations = [created, ...this.agentOrchestrations.filter((item) => item.id !== created.id)];
+        if (this.selectedApplicationCaseId && created.scope.applicationCaseId === this.selectedApplicationCaseId) {
+          this.applicationAgentOrchestrationId = created.id;
+        } else {
+          this.selectedAgentOrchestration = created;
+        }
+        this.notice = `Schritt „${node.role}" wird mit der eingefrorenen Konfiguration wiederholt.`;
+        this.refreshView();
+      },
+      error: (error) => { this.applicationRetryBusy = false; this.agentOrchestrationError = this.message(error); this.refreshView(); }
+    });
+  }
+
   retryApplicationFailedNode(): void {
     const orchestration = this.applicationAgentOrchestration();
     const node = this.applicationRetryNode();

@@ -2309,7 +2309,7 @@ describe('App', () => {
     expect(component.applicationAgentOrchestrationId).toBeUndefined();
     expect(component.applicationAgentOrchestration()?.id).toBe(failed.id);
     const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
-    expect(text).toContain('Der Lauf ist fehlgeschlagen');
+    expect(text).toContain('Der Lauf ist nicht durchgelaufen');
     expect(text).not.toContain('Die Agenten arbeiten');
     fixture.destroy();
   });

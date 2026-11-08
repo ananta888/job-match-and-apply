@@ -371,3 +371,9 @@ details.cv-provenance > summary, .cv-fact-technical > summary { cursor: pointer;
   .cv-facts-editor__row--detail { margin-left: 8px; }
   .cv-facts-editor__technical div { grid-template-columns: 1fr; }
 }
+
+/* Warnings and user decisions directly under the agent run lists */
+.agent-run-notices { margin: 10px 0; padding: 10px 12px; border: 1px solid #e8d9a8; border-radius: 9px; background: #fffaf0; }
+.agent-run-notices h4 { margin: 0 0 6px; color: #6b551c; font-size: 10px; font-weight: 800; }
+.agent-run-notices .warning-box { margin: 8px 0 0; }
+.agent-run-notices .warning-box button { margin: 6px 6px 0 0; }

@@ -1548,7 +1548,7 @@ export class ApplicationAgentOrchestrationService {
       const source = await this.required(id);
       if (source.status !== 'failed') throw Object.assign(new Error('application_orchestration_not_failed'), { statusCode: 409 });
       const failedNode = source.nodes.find((candidate) => candidate.nodeId === nodeId);
-      if (!failedNode || failedNode.status !== 'failed') {
+      if (!failedNode || !['failed', 'policy_blocked'].includes(failedNode.status)) {
         throw Object.assign(new Error('application_orchestration_node_not_failed'), { statusCode: 409 });
       }
       if (failedNode.failureCategory === 'cancelled') {

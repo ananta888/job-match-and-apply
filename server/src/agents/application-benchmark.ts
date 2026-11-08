@@ -213,8 +213,20 @@ async function runSingleBenchmarkCase(
       verifyRevisionConfirmation: async () => ({ valid: true, bindingSha256: 'b'.repeat(64) }),
     },
     {
+      // Synthetic case content actually reaches the model so quality checks
+      // measure the document, not the harness scaffolding.
       resolve: async ({ reference }: { reference: string }) => ({
-        content: JSON.stringify({ reference, synthetic: true, documentType: caseItem.documentType }),
+        content: JSON.stringify({
+          reference, synthetic: true, documentType: caseItem.documentType,
+          ...(reference === 'job' ? { job: caseItem.job } : {}),
+          ...(reference === 'candidate_evidence' ? {
+            claims: [
+              { id: 'claim-benchmark-1', statement: `Station: ${caseItem.job.company}`, status: 'user_confirmed' },
+              ...caseItem.expected.mustContain.map((value, index) => ({ id: `claim-benchmark-${index + 2}`, statement: value, status: 'user_confirmed' })),
+            ],
+          } : {}),
+          ...(reference === 'application_case' ? { case: { company: caseItem.job.company, documentType: caseItem.documentType } } : {}),
+        }),
       }),
     },
     { runPersistenceProtection: 'ephemeral', pollIntervalMs: 5 },

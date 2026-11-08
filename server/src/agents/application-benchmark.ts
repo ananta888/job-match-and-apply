@@ -249,8 +249,10 @@ async function runSingleBenchmarkCase(
       confirmations: [],
     });
     let current = record;
-    for (let attempt = 0; attempt < 200 && !['succeeded', 'failed', 'cancelled', 'orphaned'].includes(current.status); attempt += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 25));
+    // Offline fake chains settle in seconds; live HTTP chains may need minutes.
+    const deadline = Date.now() + (options.provider === 'openrouter' ? 15 * 60_000 : 60_000);
+    while (!['succeeded', 'failed', 'cancelled', 'orphaned'].includes(current.status) && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, options.provider === 'openrouter' ? 2_000 : 25));
       current = (await service.get(record.id)) ?? current;
     }
     row.status = current.status;

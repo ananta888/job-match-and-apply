@@ -250,7 +250,44 @@ export class App implements OnInit, OnDestroy {
         regions: this.config?.searchProfile.regions ?? [],
         mustHave: this.config?.searchProfile.mustHave ?? [],
       },
+      topMatches: open.filter((entry) => entry.category === 'inbox' || entry.category === 'apply')
+        .filter((entry) => this.jobDecision(entry.job.id) !== 'hidden')
+        .sort((left, right) => (right.match?.score ?? 0) - (left.match?.score ?? 0))
+        .slice(0, 3)
+        .map((entry) => ({
+          id: entry.key,
+          title: entry.job.title,
+          company: entry.job.company,
+          location: entry.job.location,
+          workModel: entry.job.workModel,
+          source: entry.job.sourceId,
+          score: Math.round(entry.match?.score ?? 0),
+          reasons: [...(entry.match?.matchedMustHave ?? []), ...(entry.match?.matchedNiceToHave ?? [])],
+          salary: this.overviewSalary(entry.job.salaryMin, entry.job.salaryMax),
+          saved: this.jobDecision(entry.job.id) === 'saved',
+        })),
     };
+  }
+
+  private overviewSalary(min?: number, max?: number): string | undefined {
+    const k = (value: number) => `${Math.round(value / 1000)} T€`;
+    if (min && max) return `${Math.round(min / 1000)}–${k(max)}`;
+    if (min) return `ab ${k(min)}`;
+    if (max) return `bis ${k(max)}`;
+    return undefined;
+  }
+
+  /** Bewerbung für eine Stelle aus dem Treffer-Feed der Startseite starten. */
+  onOverviewStartMatch(key: string): void {
+    const entry = this.jobInventory.find((item) => item.key === key);
+    if (entry) this.startApplicationFromInventory(entry); else this.select('jobs');
+  }
+
+  /** Stelle aus dem Treffer-Feed merken bzw. Merken aufheben. */
+  onOverviewToggleSave(key: string): void {
+    const entry = this.jobInventory.find((item) => item.key === key);
+    if (!entry) return;
+    this.setJobDecision(entry.job.id, this.jobDecision(entry.job.id) === 'saved' ? 'neutral' : 'saved');
   }
 
   onOverviewAction(action: OverviewAction): void {
@@ -269,6 +306,7 @@ export class App implements OnInit, OnDestroy {
       case 'open-jobs': this.select('jobs'); break;
       case 'open-applications': this.select('applications'); break;
       case 'open-sources': this.select('sources'); break;
+      case 'open-data': this.select('operations'); break;
     }
   }
 

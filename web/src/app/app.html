@@ -58,7 +58,7 @@
       <section class="loading"><span></span><p>Lokalen Arbeitsbereich laden …</p></section>
     } @else {
       @if (section === 'overview') {
-        <app-overview-home [state]="overviewState()" (act)="onOverviewAction($event)" />
+        <app-overview-home [state]="overviewState()" (act)="onOverviewAction($event)" (startMatch)="onOverviewStartMatch($event)" (toggleSave)="onOverviewToggleSave($event)" />
       }
 
       @if (section === 'search') {

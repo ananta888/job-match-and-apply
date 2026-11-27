@@ -155,8 +155,13 @@ an agent sandbox and never as a child of an agent.
   ApplicationCase revision. The Finalizer yields normalized `final_html`.
 - `contracts/v1/*.schema.json` + `contracts/fixtures/v1/` define the cross-repository boundaries
   (`server/src/contracts.test.ts`). Changing a shape means a versioned schema and fixture update.
-- `web/src/app`: mostly one component (`app.ts`/`app.html`) plus `api.service.ts` and `models.ts`,
-  which mirrors server DTOs and must stay in sync. E2E uses the mocked API in
+- `web/src/app`: the `App` component (`app.ts`/`app.html`) renders most sections; `app.routes.ts` maps
+  each section to a URL (`/jobsuche`, `/agenten`, …). The Agent Center is split out: state and logic
+  live in the root service `AgentCenterStore` (`agent-center.store.ts`, also used by CV and
+  application sections, reached as `app.agents`), the view in `AgentCenterComponent`, loaded lazily via
+  `@defer`. The app is zoneless: after mutating store state call `host.refreshView()`, which also bumps
+  `agents.revision` so the Agent Center view redraws. Plus `api.service.ts` and `models.ts`, which
+  mirrors server DTOs and must stay in sync. E2E uses the mocked API in
   `web/e2e/support/agent-api.fixture.ts`.
 - External portals stay blocked (`ALLOW_EXTERNAL_PORTALS=0`) until the user confirms portal access in
   the UI. Agents get no shell, write, web, MCP or subagent tools; only the opt-in Codex App Server gets

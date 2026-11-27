@@ -543,22 +543,22 @@ describe('App', () => {
     const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
     const component = fixture.componentInstance;
     component.select('agents'); fixture.detectChanges(); await fixture.whenStable();
-    expect(component.agentConfigProfile?.profile.features.codexAppServerExperimental).toBe(false);
-    expect(component.agentConfigProfileDraft?.providers.find((item) => item.provider === 'opencode')?.wslDistribution).toBeUndefined();
-    component.setAgentPrompt('Synthetischen Preflight nach Profiländerung neu prüfen');
-    component.refreshAgentPreflight();
+    expect(component.agents.agentConfigProfile?.profile.features.codexAppServerExperimental).toBe(false);
+    expect(component.agents.agentConfigProfileDraft?.providers.find((item) => item.provider === 'opencode')?.wslDistribution).toBeUndefined();
+    component.agents.setAgentPrompt('Synthetischen Preflight nach Profiländerung neu prüfen');
+    component.agents.refreshAgentPreflight();
     const preflightCallsBeforeSave = apiMock['agentRunPreflight'].mock.calls.length;
 
-    component.setAgentConfigCostAmount('7,000001');
-    component.setAgentConfigCostCurrency('eur');
-    component.setCodexAppServerEnabled(true);
-    component.agentConfigProfileConfirmed = true;
-    component.saveAgentConfigProfile();
+    component.agents.setAgentConfigCostAmount('7,000001');
+    component.agents.setAgentConfigCostCurrency('eur');
+    component.agents.setCodexAppServerEnabled(true);
+    component.agents.agentConfigProfileConfirmed = true;
+    component.agents.saveAgentConfigProfile();
     expect(apiMock['saveAgentConfigProfile']).not.toHaveBeenCalled();
-    expect(component.agentConfigProfileError).toContain('zweite ausdrückliche Opt-in-Bestätigung');
+    expect(component.agents.agentConfigProfileError).toContain('zweite ausdrückliche Opt-in-Bestätigung');
 
-    component.agentCodexAppServerOptInConfirmed = true;
-    component.saveAgentConfigProfile();
+    component.agents.agentCodexAppServerOptInConfirmed = true;
+    component.agents.saveAgentConfigProfile();
     expect(apiMock['saveAgentConfigProfile']).toHaveBeenCalledTimes(1);
     const [current, submitted] = apiMock['saveAgentConfigProfile'].mock.calls[0] as [AgentConfigProfileView, AgentConfigProfileView['profile']];
     expect(current.profile.updatedAt).toBe('2026-08-14T08:00:00.000Z');
@@ -568,7 +568,7 @@ describe('App', () => {
     expect(JSON.stringify(submitted)).not.toMatch(/secret|command|executable|workspaceRoot/i);
     expect(apiMock['agentProviders']).toHaveBeenLastCalledWith(true);
     expect(apiMock['agentRunPreflight'].mock.calls.length).toBeGreaterThan(preflightCallsBeforeSave);
-    expect(component.agentConfigProfile?.profile.updatedAt).toBe('2026-08-14T08:00:01.000Z');
+    expect(component.agents.agentConfigProfile?.profile.updatedAt).toBe('2026-08-14T08:00:01.000Z');
     fixture.destroy();
   });
 
@@ -577,14 +577,14 @@ describe('App', () => {
     const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
     const component = fixture.componentInstance;
     component.select('agents'); fixture.detectChanges(); await fixture.whenStable();
-    component.agentConfigProfileDraft!.features.multiAgentExperimental = false;
-    component.agentConfigProfileConfirmed = true;
-    component.saveAgentConfigProfile();
+    component.agents.agentConfigProfileDraft!.features.multiAgentExperimental = false;
+    component.agents.agentConfigProfileConfirmed = true;
+    component.agents.saveAgentConfigProfile();
     expect(apiMock['saveAgentConfigProfile']).toHaveBeenCalledTimes(1);
-    expect(component.agentConfigProfileDraft?.features.multiAgentExperimental).toBe(false);
-    expect(component.agentConfigProfile?.profile.features.multiAgentExperimental).toBe(true);
-    expect(component.agentConfigProfileError).toContain('zwischenzeitlich geändert');
-    expect(component.agentConfigProfileConfirmed).toBe(false);
+    expect(component.agents.agentConfigProfileDraft?.features.multiAgentExperimental).toBe(false);
+    expect(component.agents.agentConfigProfile?.profile.features.multiAgentExperimental).toBe(true);
+    expect(component.agents.agentConfigProfileError).toContain('zwischenzeitlich geändert');
+    expect(component.agents.agentConfigProfileConfirmed).toBe(false);
     expect(apiMock['agentProviders']).not.toHaveBeenCalledWith(true);
     fixture.destroy();
   });
@@ -611,9 +611,9 @@ describe('App', () => {
     const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
     fixture.componentInstance.select('agents'); fixture.detectChanges(); await fixture.whenStable();
     const component = fixture.componentInstance;
-    component.setAgentWorkflow('guided-job-analysis');
-    component.setAgentPrompt('Synthetische Stellen serverseitig vorprüfen');
-    component.refreshAgentPreflight();
+    component.agents.setAgentWorkflow('guided-job-analysis');
+    component.agents.setAgentPrompt('Synthetische Stellen serverseitig vorprüfen');
+    component.agents.refreshAgentPreflight();
     fixture.detectChanges();
     const preflight = (fixture.nativeElement as HTMLElement).querySelector('.agent-preflight') as HTMLElement;
     expect(preflight.querySelectorAll('[data-preflight-field]')).toHaveLength(9);
@@ -681,11 +681,11 @@ describe('App', () => {
     const element = fixture.nativeElement as HTMLElement;
     expect(element.textContent).toContain('Eine sichere Oberfläche für alle Agenten');
     expect(element.querySelector('[name="executable"], [name="arguments"]')).toBeNull();
-    expect(fixture.componentInstance.agentRunForm.workspaceMode).toBe('read_only');
-    expect(fixture.componentInstance.agentRunForm.network).toBe(false);
-    fixture.componentInstance.setAgentPrompt('Analysiere den lokalen Teststand');
-    fixture.componentInstance.refreshAgentPreflight();
-    fixture.componentInstance.createAgentRun();
+    expect(fixture.componentInstance.agents.agentRunForm.workspaceMode).toBe('read_only');
+    expect(fixture.componentInstance.agents.agentRunForm.network).toBe(false);
+    fixture.componentInstance.agents.setAgentPrompt('Analysiere den lokalen Teststand');
+    fixture.componentInstance.agents.refreshAgentPreflight();
+    fixture.componentInstance.agents.createAgentRun();
     expect(apiMock['createAgentRun']).toHaveBeenCalledWith({
       providerId: 'codex', prompt: 'Analysiere den lokalen Teststand', runtimeTarget: 'windows',
       installation: { version: '1.0', executable: 'C:\\tools\\codex.exe' },
@@ -707,17 +707,17 @@ describe('App', () => {
     expect(element.textContent).toContain('Installation und Laufzeit');
     expect(element.textContent).toContain('Konfiguration vor dem Start');
     expect(element.textContent).toContain('Windows-Anmeldung aktiv');
-    const wslInstallation = component.agentProviderInstallations()
+    const wslInstallation = component.agents.agentProviderInstallations()
       .find((item) => item.runtimeTarget === 'wsl' && item.distribution === 'Ubuntu-24.04');
     expect(wslInstallation).toBeTruthy();
-    component.selectAgentInstallation(component.agentInstallationKey(wslInstallation!));
-    component.setAgentPrompt('Analysiere den lokalen Teststand');
-    component.refreshAgentPreflight();
+    component.agents.selectAgentInstallation(component.agents.agentInstallationKey(wslInstallation!));
+    component.agents.setAgentPrompt('Analysiere den lokalen Teststand');
+    component.agents.refreshAgentPreflight();
     fixture.detectChanges();
     expect(element.querySelector('.agent-preflight')?.textContent).toContain('WSL · Ubuntu-24.04');
     expect(element.querySelector('.agent-preflight')?.textContent).toContain('Serverseitiger Projektbereich · Nur lesen');
     expect(element.querySelector('.agent-preflight')?.textContent).toContain('30 Min · 10 MiB angefordert');
-    component.createAgentRun();
+    component.agents.createAgentRun();
     expect(apiMock['createAgentRun']).toHaveBeenLastCalledWith({
       providerId: 'codex', prompt: 'Analysiere den lokalen Teststand', runtimeTarget: 'wsl', wslDistribution: 'Ubuntu-24.04',
       installation: { version: '1.1', executable: '/usr/local/bin/codex' },
@@ -730,22 +730,22 @@ describe('App', () => {
     const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
     fixture.componentInstance.select('agents'); fixture.detectChanges(); await fixture.whenStable();
     const component = fixture.componentInstance;
-    component.setAgentPrompt('Prüfung mit bewusstem Serverblocker');
+    component.agents.setAgentPrompt('Prüfung mit bewusstem Serverblocker');
     apiMock['agentRunPreflight'].mockImplementation((request: AgentRunRequest) => of({
       ...preflightFixture(request), ready: false,
       blockers: [{ code: 'emergency_stop', message: 'Der Emergency Stop blockiert neue Agentenläufe.' }]
     }));
-    component.refreshAgentPreflight(); fixture.detectChanges();
+    component.agents.refreshAgentPreflight(); fixture.detectChanges();
     const start = (fixture.nativeElement as HTMLElement).querySelector('button[type="submit"]') as HTMLButtonElement;
     expect(start.disabled).toBe(true);
     expect((fixture.nativeElement as HTMLElement).querySelector('[aria-label="Blocker der Startprüfung"]')?.textContent).toContain('Emergency Stop');
-    component.createAgentRun();
+    component.agents.createAgentRun();
     expect(apiMock['createAgentRun']).not.toHaveBeenCalled();
     expect(component.error).toContain('Emergency Stop');
 
-    component.setAgentOutputLimit(9);
+    component.agents.setAgentOutputLimit(9);
     fixture.detectChanges();
-    expect(component.agentPreflight).toBeUndefined();
+    expect(component.agents.agentPreflight).toBeUndefined();
     expect(start.disabled).toBe(true);
     fixture.destroy();
   });
@@ -758,7 +758,7 @@ describe('App', () => {
     expect(element.textContent).toContain('Offene Entscheidungen aller Runs');
     expect(element.textContent).toContain('Ausdrücklich freigeben');
     expect(element.textContent).toContain('Ablehnen');
-    fixture.componentInstance.decideAgentApproval(agentRun.pendingApprovals![0], 'deny');
+    fixture.componentInstance.agents.decideAgentApproval(agentRun.pendingApprovals![0], 'deny');
     expect(apiMock['decideAgentApproval']).toHaveBeenCalledWith('run-1', 'approval-1', 'deny', 3);
     fixture.destroy();
   });
@@ -771,34 +771,34 @@ describe('App', () => {
       timestamp: '2026-08-13T18:00:00Z', level: index % 25 === 0 ? 'warning' as const : 'info' as const,
       message: index === 24 ? 'gesuchtes Ereignis' : `Fixture-Ereignis ${index + 1}`
     }));
-    component.section = 'agents'; component.selectedAgentRun = { ...agentRun, status: 'running', pendingApprovals: [], lastEventSequence: 450 };
+    component.section = 'agents'; component.agents.selectedAgentRun = { ...agentRun, status: 'running', pendingApprovals: [], lastEventSequence: 450 };
     apiMock['agentRunEvents'].mockReturnValue(of({ events, nextAfter: 450 }));
-    component.refreshAgentEvents();
-    expect(component.agentEvents).toHaveLength(450);
-    expect(component.renderedAgentTimelineEntries()).toHaveLength(100);
-    expect(component.hiddenAgentTimelineEntriesCount()).toBe(350);
-    component.loadOlderAgentEvents();
-    expect(component.renderedAgentTimelineEntries()).toHaveLength(200);
-    component.agentEventSearch = 'gesuchtes Ereignis';
-    expect(component.renderedAgentTimelineEntries().map((item) => item.sequence)).toEqual([25]);
-    component.agentEventSearch = ''; component.agentEventTypeFilter = 'tool_output';
-    expect(component.agentTimelineEntries().every((item) => item.type === 'tool_output')).toBe(true);
+    component.agents.refreshAgentEvents();
+    expect(component.agents.agentEvents).toHaveLength(450);
+    expect(component.agents.renderedAgentTimelineEntries()).toHaveLength(100);
+    expect(component.agents.hiddenAgentTimelineEntriesCount()).toBe(350);
+    component.agents.loadOlderAgentEvents();
+    expect(component.agents.renderedAgentTimelineEntries()).toHaveLength(200);
+    component.agents.agentEventSearch = 'gesuchtes Ereignis';
+    expect(component.agents.renderedAgentTimelineEntries().map((item) => item.sequence)).toEqual([25]);
+    component.agents.agentEventSearch = ''; component.agents.agentEventTypeFilter = 'tool_output';
+    expect(component.agents.agentTimelineEntries().every((item) => item.type === 'tool_output')).toBe(true);
 
-    component.agentEventTypeFilter = 'all'; component.toggleAgentTimelinePause();
+    component.agents.agentEventTypeFilter = 'all'; component.agents.toggleAgentTimelinePause();
     apiMock['agentRunEvents'].mockReturnValue(of({ events: [{ sequence: 451, type: 'warning', timestamp: '2026-08-13T18:02:00Z', level: 'warning', message: 'Während Pause gepuffert' }], nextAfter: 451 }));
-    component.refreshAgentEvents();
-    expect(component.agentEvents).toHaveLength(451);
-    expect(component.bufferedAgentEventsCount()).toBe(1);
-    expect(component.agentTimelineEntries().some((item) => item.sequence === 451)).toBe(false);
-    component.toggleAgentTimelinePause();
-    expect(component.agentTimelineEntries().some((item) => item.sequence === 451)).toBe(true);
+    component.agents.refreshAgentEvents();
+    expect(component.agents.agentEvents).toHaveLength(451);
+    expect(component.agents.bufferedAgentEventsCount()).toBe(1);
+    expect(component.agents.agentTimelineEntries().some((item) => item.sequence === 451)).toBe(false);
+    component.agents.toggleAgentTimelinePause();
+    expect(component.agents.agentTimelineEntries().some((item) => item.sequence === 451)).toBe(true);
     apiMock['agentRunEvents'].mockReturnValue(of({ events: [
       { sequence: 452, type: 'agent_message_delta', timestamp: '2026-08-13T18:03:00Z', level: 'info', correlationId: 'delta-group', message: 'Teil A' },
       { sequence: 453, type: 'agent_message_delta', timestamp: '2026-08-13T18:03:01Z', level: 'info', correlationId: 'delta-group', message: ' + Teil B' }
     ], nextAfter: 453 }));
-    component.refreshAgentEvents();
-    expect(component.agentEvents).toHaveLength(453);
-    expect(component.agentTimelineEntries().at(-1)).toMatchObject({ sequence: 452, sequenceEnd: 453, groupedCount: 2, text: 'Teil A + Teil B' });
+    component.agents.refreshAgentEvents();
+    expect(component.agents.agentEvents).toHaveLength(453);
+    expect(component.agents.agentTimelineEntries().at(-1)).toMatchObject({ sequence: 452, sequenceEnd: 453, groupedCount: 2, text: 'Teil A + Teil B' });
     fixture.destroy();
   });
 
@@ -808,10 +808,10 @@ describe('App', () => {
     const expired: AgentRun = { ...structuredClone(agentRun), id: 'run-expired', lastEventSequence: 3, pendingApprovals: [{ ...agentRun.pendingApprovals![0], id: 'expired', expiresAt: '2000-01-01T00:00:00Z' }] };
     const stale: AgentRun = { ...structuredClone(agentRun), id: 'run-stale', lastEventSequence: 4, pendingApprovals: [{ ...agentRun.pendingApprovals![0], id: 'stale', expectedRevision: 3 }] };
     const targetless: AgentRun = { ...structuredClone(agentRun), id: 'run-targetless', lastEventSequence: 3, pendingApprovals: [{ ...agentRun.pendingApprovals![0], id: 'targetless', risk: 'destructive', expectedRevision: 3 }] };
-    component.agentRuns = [expired, stale, targetless];
-    expect(component.globalAgentApprovals()).toHaveLength(3);
-    expect(component.globalAgentApprovals().every((item) => !item.actionable)).toBe(true);
-    component.decideAgentApproval(stale.pendingApprovals![0], 'approve', stale);
+    component.agents.agentRuns = [expired, stale, targetless];
+    expect(component.agents.globalAgentApprovals()).toHaveLength(3);
+    expect(component.agents.globalAgentApprovals().every((item) => !item.actionable)).toBe(true);
+    component.agents.decideAgentApproval(stale.pendingApprovals![0], 'approve', stale);
     expect(apiMock['decideAgentApproval']).not.toHaveBeenCalled();
     expect(component.error).toContain('fortgeschritten');
     fixture.destroy();
@@ -823,7 +823,7 @@ describe('App', () => {
     apiMock['agentRun'].mockReturnValue(of(waitingRun));
     const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
     fixture.componentInstance.select('agents'); fixture.detectChanges(); await fixture.whenStable();
-    fixture.componentInstance.agentInputSensitive = true; fixture.detectChanges();
+    fixture.componentInstance.agents.agentInputSensitive = true; fixture.detectChanges();
     const element = fixture.nativeElement as HTMLElement;
     expect(element.querySelector<HTMLInputElement>('#agent-user-input')?.type).toBe('password');
     expect(element.textContent).toContain('Nur die Anzeige ist maskiert');
@@ -833,7 +833,7 @@ describe('App', () => {
 
   it('redacts configured identity, paths, email, phone and secrets before copy', async () => {
     const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
-    const redacted = fixture.componentInstance.redactAgentText('Alex Beispiel alex@example.invalid C:\\tools\\codex.exe token=very-secret +49 170 1234567');
+    const redacted = fixture.componentInstance.agents.redactAgentText('Alex Beispiel alex@example.invalid C:\\tools\\codex.exe token=very-secret +49 170 1234567');
     expect(redacted).not.toContain('Alex Beispiel');
     expect(redacted).not.toContain('alex@example.invalid');
     expect(redacted).not.toContain('C:\\tools\\codex.exe');
@@ -848,13 +848,13 @@ describe('App', () => {
     const component = fixture.componentInstance;
     const parent: AgentRun = { ...structuredClone(agentRun), id: 'run-parent', status: 'succeeded', pendingApprovals: [], output: 'Ergebnis A', providerVersion: '1.0', workflowVersion: '1.0', policyVersion: '1.0', contextSummary: { scope: 'case-a', sourceCount: 2, redactedHash: 'abcdef0123456789' } };
     const child: AgentRun = { ...structuredClone(parent), id: 'run-child', parentRunId: parent.id, status: 'failed', output: 'Ergebnis B', request: { ...parent.request, workspaceMode: 'workspace_write' }, usage: { inputTokens: 140, outputTokens: 20, toolCalls: 2, durationMs: 4000 } };
-    component.agentRuns = [child, parent]; component.selectedAgentRun = child;
-    const sections = component.agentRunComparison(child);
+    component.agents.agentRuns = [child, parent]; component.agents.selectedAgentRun = child;
+    const sections = component.agents.agentRunComparison(child);
     expect(sections.map((section) => section.id)).toEqual(['lineage', 'versions', 'policy', 'context', 'usage', 'result']);
     expect(sections.find((section) => section.id === 'policy')?.rows.some((row) => row.changed)).toBe(true);
     expect(sections.find((section) => section.id === 'result')?.rows.some((row) => row.changed)).toBe(true);
-    component.loadAgentReplayTemplate();
-    expect(component.agentRunForm.parentRunId).toBe('run-child');
+    component.agents.loadAgentReplayTemplate();
+    expect(component.agents.agentRunForm.parentRunId).toBe('run-child');
     expect(apiMock['createAgentRun']).not.toHaveBeenCalled();
     fixture.destroy();
   });
@@ -909,28 +909,28 @@ describe('App', () => {
     apiMock['resolveAgentRecovery'].mockReturnValue(of({ resolved: { ...orphan, status: 'cancelled' } }));
     const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
     const component = fixture.componentInstance;
-    component.agentRuns = [orphan];
+    component.agents.agentRuns = [orphan];
     const foreignRecovery: AgentRecoveryRun = { ...recovery, lease: {
       runId: orphan.id, operatorId: 'other-operator', acquiredAt: lease.acquiredAt, expiresAt: lease.expiresAt
     } };
-    component.agentRecoveryRuns = [foreignRecovery];
-    component.openAgentRecoveryDialog(foreignRecovery, 'cleanup');
-    expect(component.agentRecoveryDialog).toBeUndefined();
+    component.agents.agentRecoveryRuns = [foreignRecovery];
+    component.agents.openAgentRecoveryDialog(foreignRecovery, 'cleanup');
+    expect(component.agents.agentRecoveryDialog).toBeUndefined();
     expect(component.error).toContain('keine Lease-ID');
     expect(apiMock['resolveAgentRecovery']).not.toHaveBeenCalled();
 
-    component.error = ''; component.agentRecoveryRuns = [recovery];
-    component.acquireAgentRecoveryLease(recovery);
+    component.error = ''; component.agents.agentRecoveryRuns = [recovery];
+    component.agents.acquireAgentRecoveryLease(recovery);
     expect(apiMock['acquireAgentRecoveryLease']).toHaveBeenCalledWith('run-orphan', 7);
-    expect(component.agentRecoveryLeaseFor('run-orphan')).toEqual(lease);
+    expect(component.agents.agentRecoveryLeaseFor('run-orphan')).toEqual(lease);
 
-    component.agentRecoveryRuns = [recoveryWithLease];
-    component.openAgentRecoveryDialog(recoveryWithLease, 'cleanup');
-    expect(component.agentRecoveryDialog).toMatchObject({ runId: 'run-orphan', decision: 'cleanup', expectedRevision: 7, leaseId: lease.leaseId });
-    component.confirmAgentRecovery();
+    component.agents.agentRecoveryRuns = [recoveryWithLease];
+    component.agents.openAgentRecoveryDialog(recoveryWithLease, 'cleanup');
+    expect(component.agents.agentRecoveryDialog).toMatchObject({ runId: 'run-orphan', decision: 'cleanup', expectedRevision: 7, leaseId: lease.leaseId });
+    component.agents.confirmAgentRecovery();
     expect(apiMock['resolveAgentRecovery']).not.toHaveBeenCalled();
-    component.agentRecoveryConfirmed = true;
-    component.confirmAgentRecovery();
+    component.agents.agentRecoveryConfirmed = true;
+    component.agents.confirmAgentRecovery();
     expect(apiMock['resolveAgentRecovery']).toHaveBeenCalledWith('run-orphan', {
       expectedRevision: 7, leaseId: lease.leaseId, decision: 'cleanup'
     });
@@ -1050,22 +1050,22 @@ describe('App', () => {
     const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
     const component = fixture.componentInstance;
     component.applicationCases = [structuredClone(applicationCaseFixture)];
-    component.selectedAgentRun = { ...structuredClone(agentRun), request: { ...agentRun.request, applicationCaseId: applicationCaseFixture.id } };
-    component.agentArtifacts = [packageArtifact];
-    expect(component.agentArtifactAdoptionReason({
+    component.agents.selectedAgentRun = { ...structuredClone(agentRun), request: { ...agentRun.request, applicationCaseId: applicationCaseFixture.id } };
+    component.agents.agentArtifacts = [packageArtifact];
+    expect(component.agents.agentArtifactAdoptionReason({
       ...packageArtifact, provenance: { ...packageArtifact.provenance, applicationCaseRevision: applicationCaseFixture.revision + 1 }
     })).toContain('Fallrevision');
-    expect(component.agentArtifactAdoptionReason({
+    expect(component.agents.agentArtifactAdoptionReason({
       ...packageArtifact, provenance: { ...packageArtifact.provenance, identityMode: 'incognito' }
     })).toContain('reale Identität');
-    expect(component.agentArtifactAdoptionReason(packageArtifact)).toBe('');
-    component.adoptAgentArtifact(packageArtifact);
+    expect(component.agents.agentArtifactAdoptionReason(packageArtifact)).toBe('');
+    component.agents.adoptAgentArtifact(packageArtifact);
     expect(apiMock['adoptAgentArtifact']).not.toHaveBeenCalled();
-    component.agentArtifactAdoptionConfirmed[packageArtifact.id] = true;
-    component.adoptAgentArtifact(packageArtifact);
+    component.agents.agentArtifactAdoptionConfirmed[packageArtifact.id] = true;
+    component.agents.adoptAgentArtifact(packageArtifact);
     expect(apiMock['adoptAgentArtifact']).toHaveBeenCalledWith('run-1', packageArtifact.id, 2);
     expect(apiMock['applicationArtifacts']).toHaveBeenCalledWith(applicationCaseFixture.id);
-    expect(component.adoptedDocumentRevisionId).toBe(artifactRevisionFixture.id);
+    expect(component.agents.adoptedDocumentRevisionId).toBe(artifactRevisionFixture.id);
     expect(component.notice).toContain('menschlichen Hash-Prüfung');
     fixture.destroy();
   });
@@ -1111,15 +1111,15 @@ describe('App', () => {
     const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
     const component = fixture.componentInstance;
     component.select('agents'); fixture.detectChanges(); await fixture.whenStable();
-    component.selectedAgentRun = structuredClone(agentRun);
-    component.agentArtifacts = [artifactBase, nextArtifact];
-    component.viewAgentArtifact(artifactBase); fixture.detectChanges();
-    expect(component.employerResponseTriageProposal?.proposal.confidence).toBe(0.91);
+    component.agents.selectedAgentRun = structuredClone(agentRun);
+    component.agents.agentArtifacts = [artifactBase, nextArtifact];
+    component.agents.viewAgentArtifact(artifactBase); fixture.detectChanges();
+    expect(component.agents.employerResponseTriageProposal?.proposal.confidence).toBe(0.91);
     expect((fixture.nativeElement as HTMLElement).textContent).toContain('91 %');
     expect((fixture.nativeElement as HTMLElement).textContent).toContain(`mail:${artifactBase.provenance.mailId}`);
     expect((fixture.nativeElement as HTMLElement).textContent).toContain('führt nichts aus');
-    component.viewAgentArtifact(nextArtifact); fixture.detectChanges();
-    expect(component.applicationNextActionsProposal?.proposal.suggestions[0].confidence).toBe(0.78);
+    component.agents.viewAgentArtifact(nextArtifact); fixture.detectChanges();
+    expect(component.agents.applicationNextActionsProposal?.proposal.suggestions[0].confidence).toBe(0.78);
     expect((fixture.nativeElement as HTMLElement).textContent).toContain('78 %');
     expect((fixture.nativeElement as HTMLElement).textContent).toContain('tracking:event-1');
     expect(apiMock['reviewAgentArtifact']).not.toHaveBeenCalled();
@@ -1130,21 +1130,21 @@ describe('App', () => {
   it('opens case-bound mail triage and company-wide next-actions as agent workflow drafts', async () => {
     const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
     const component = fixture.componentInstance;
-    component.agentRunForm = {
+    component.agents.agentRunForm = {
       providerId: 'codex', prompt: 'stale replay', runtimeTarget: 'windows', workspaceMode: 'workspace_write', network: false,
       parentRunId: 'foreign-parent', workflowId: 'guided-job-analysis', budget: { wallTimeMinutes: 99, maxOutputMiB: 99 }
     };
     component.openCaseAgentWorkflow(applicationCaseFixture, 'employer-response-triage');
     expect(component.section).toBe('agents');
-    expect(component.agentRunForm).toMatchObject({
+    expect(component.agents.agentRunForm).toMatchObject({
       workflowId: 'employer-response-triage', applicationCaseId: applicationCaseFixture.id,
       workspaceMode: 'read_only', network: false, budget: { wallTimeMinutes: 30, maxOutputMiB: 10 }
     });
-    expect(component.agentRunForm.parentRunId).toBeUndefined();
-    expect(component.agentRunForm.prompt).toContain('Unternehmensantworten');
+    expect(component.agents.agentRunForm.parentRunId).toBeUndefined();
+    expect(component.agents.agentRunForm.prompt).toContain('Unternehmensantworten');
     component.openCaseAgentWorkflow(applicationCaseFixture, 'application-next-actions');
-    expect(component.agentRunForm).toMatchObject({ workflowId: 'application-next-actions', applicationCaseId: applicationCaseFixture.id });
-    expect(component.agentRunForm.prompt).toContain('firmenweit');
+    expect(component.agents.agentRunForm).toMatchObject({ workflowId: 'application-next-actions', applicationCaseId: applicationCaseFixture.id });
+    expect(component.agents.agentRunForm.prompt).toContain('firmenweit');
     expect(apiMock['createAgentRun']).not.toHaveBeenCalled();
     fixture.destroy();
   });
@@ -1172,9 +1172,9 @@ describe('App', () => {
     component.applicationCases = [structuredClone(applicationCaseFixture)];
     component.mailCorrelationTarget[message.id] = applicationCaseFixture.id;
     component.openInboxMailAgentOrchestration(message);
-    expect(component.agentOrchestrationForm.mailId).toBe(message.id);
-    expect(component.agentOrchestrationForm.prompt).not.toContain(message.text);
-    component.createAgentOrchestration();
+    expect(component.agents.agentOrchestrationForm.mailId).toBe(message.id);
+    expect(component.agents.agentOrchestrationForm.prompt).not.toContain(message.text);
+    component.agents.createAgentOrchestration();
     const request = apiMock['createAgentOrchestration'].mock.calls[0][0] as Record<string, unknown>;
     expect(request).toMatchObject({
       workflowId: 'employer-response-triage', applicationCaseId: applicationCaseFixture.id, mailId: message.id,
@@ -1193,14 +1193,14 @@ describe('App', () => {
     const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
     const component = fixture.componentInstance;
     component.select('agents'); fixture.detectChanges(); await fixture.whenStable();
-    component.agentWorkflows = [workflow];
-    component.agentOrchestrationForm = {
+    component.agents.agentWorkflows = [workflow];
+    component.agents.agentOrchestrationForm = {
       workflowId: workflow.id, providerId: 'codex', prompt: 'Antwort als Vorschlag einordnen', runtimeTarget: 'windows',
       applicationCaseId: applicationCaseFixture.id, userInputConfirmed: false
     };
-    component.createAgentOrchestration();
+    component.agents.createAgentOrchestration();
     expect(apiMock['createAgentOrchestration']).not.toHaveBeenCalled();
-    expect(component.agentOrchestrationError).toContain('explizit gewählte Inbox-Mail');
+    expect(component.agents.agentOrchestrationError).toContain('explizit gewählte Inbox-Mail');
     fixture.destroy();
   });
 
@@ -1230,16 +1230,16 @@ describe('App', () => {
   it('invalidates user-input confirmation when prompt or server revision changes', async () => {
     const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
     const component = fixture.componentInstance;
-    component.agentOrchestrationForm.userInputConfirmed = true;
-    component.setAgentOrchestrationPrompt('Neuer Auftrag');
-    expect(component.agentOrchestrationForm.userInputConfirmed).toBe(false);
-    component.selectedAgentOrchestration = orchestrationFixture();
-    component.agentOrchestrationUserInputConfirmed = true;
-    component.agentOrchestrationCancelConfirmed = true;
+    component.agents.agentOrchestrationForm.userInputConfirmed = true;
+    component.agents.setAgentOrchestrationPrompt('Neuer Auftrag');
+    expect(component.agents.agentOrchestrationForm.userInputConfirmed).toBe(false);
+    component.agents.selectedAgentOrchestration = orchestrationFixture();
+    component.agents.agentOrchestrationUserInputConfirmed = true;
+    component.agents.agentOrchestrationCancelConfirmed = true;
     apiMock['agentOrchestrations'].mockReturnValue(of({ orchestrations: [{ ...orchestrationFixture(), revision: 2 }] }));
-    component.refreshAgentOrchestrations();
-    expect(component.agentOrchestrationUserInputConfirmed).toBe(false);
-    expect(component.agentOrchestrationCancelConfirmed).toBe(false);
+    component.agents.refreshAgentOrchestrations();
+    expect(component.agents.agentOrchestrationUserInputConfirmed).toBe(false);
+    expect(component.agents.agentOrchestrationCancelConfirmed).toBe(false);
     fixture.destroy();
   });
 
@@ -1255,20 +1255,20 @@ describe('App', () => {
     const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
     const component = fixture.componentInstance;
     component.select('agents'); fixture.detectChanges(); await fixture.whenStable();
-    component.setAgentOrchestrationWorkflow('evidence-application-package');
-    component.setAgentOrchestrationApplicationCase(applicationCaseFixture.id);
-    component.agentOrchestrationForm.prompt = 'Getrennte Evidence- und Finalizer-Rollen ausführen';
-    component.createAgentOrchestration();
+    component.agents.setAgentOrchestrationWorkflow('evidence-application-package');
+    component.agents.setAgentOrchestrationApplicationCase(applicationCaseFixture.id);
+    component.agents.agentOrchestrationForm.prompt = 'Getrennte Evidence- und Finalizer-Rollen ausführen';
+    component.agents.createAgentOrchestration();
     expect(apiMock['createAgentOrchestration']).toHaveBeenCalledWith({
       workflowId: 'evidence-application-package', providerId: 'codex', prompt: 'Getrennte Evidence- und Finalizer-Rollen ausführen',
       runtimeTarget: 'windows', installation: { version: '1.0', executable: 'C:\\tools\\codex.exe' },
       clarifications: true,
       applicationCaseId: applicationCaseFixture.id
     });
-    expect(component.selectedAgentOrchestration?.nodes[0].artifacts[0].lifecycle).toBe('proposed');
+    expect(component.agents.selectedAgentOrchestration?.nodes[0].artifacts[0].lifecycle).toBe('proposed');
     expect(apiMock['continueAgentOrchestration']).not.toHaveBeenCalled();
-    expect(component.selectedAgentOrchestration?.status).toBe('succeeded');
-    expect(component.selectedAgentOrchestration?.artifactRefs).toContainEqual(expect.objectContaining({ outputRef: 'final_html', lifecycle: 'proposed' }));
+    expect(component.agents.selectedAgentOrchestration?.status).toBe('succeeded');
+    expect(component.agents.selectedAgentOrchestration?.artifactRefs).toContainEqual(expect.objectContaining({ outputRef: 'final_html', lifecycle: 'proposed' }));
     expect(component.notice).toContain('finale HTML-Seite erscheint');
     fixture.detectChanges();
     const htmlResult = (fixture.nativeElement as HTMLElement)
@@ -1301,21 +1301,21 @@ describe('App', () => {
     const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
     const component = fixture.componentInstance;
     component.section = 'agents';
-    component.selectAgentOrchestration(waiting, false); fixture.detectChanges();
+    component.agents.selectAgentOrchestration(waiting, false); fixture.detectChanges();
     expect((fixture.nativeElement as HTMLElement).textContent).toContain(conflict.variantsSha256);
     expect((fixture.nativeElement as HTMLElement).textContent).toContain(conflict.variants[1].sha256);
 
-    component.setAgentOrchestrationConflictStrategy(conflict, 'select_variant');
-    component.setAgentOrchestrationConflictArtifact(conflict, conflict.variants[1].artifactId);
-    expect(component.canResolveAgentOrchestrationConflict(conflict)).toBe(false);
-    component.setAgentOrchestrationConflictConfirmation(conflict, true);
-    component.resolveAgentOrchestrationConflict(conflict);
+    component.agents.setAgentOrchestrationConflictStrategy(conflict, 'select_variant');
+    component.agents.setAgentOrchestrationConflictArtifact(conflict, conflict.variants[1].artifactId);
+    expect(component.agents.canResolveAgentOrchestrationConflict(conflict)).toBe(false);
+    component.agents.setAgentOrchestrationConflictConfirmation(conflict, true);
+    component.agents.resolveAgentOrchestrationConflict(conflict);
 
     expect(apiMock['resolveAgentOrchestrationConflict']).toHaveBeenCalledTimes(1);
     expect(apiMock['resolveAgentOrchestrationConflict']).toHaveBeenCalledWith(
       waiting.id, conflict, 7, 'select_variant', conflict.variants[1].artifactId
     );
-    expect(component.selectedAgentOrchestration?.conflicts?.[0]).toMatchObject({
+    expect(component.agents.selectedAgentOrchestration?.conflicts?.[0]).toMatchObject({
       status: 'resolved', resolution: { strategy: 'select_variant', resolvedAgainstRevision: 7 }
     });
     expect(component.notice).toContain('bleibt ein Vorschlag');
@@ -1332,16 +1332,16 @@ describe('App', () => {
     })));
     const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
     const component = fixture.componentInstance;
-    component.selectAgentOrchestration(waiting, false);
-    component.setAgentOrchestrationConflictStrategy(conflict, 'accept_complementary');
-    component.setAgentOrchestrationConflictConfirmation(conflict, true);
-    component.resolveAgentOrchestrationConflict(conflict);
+    component.agents.selectAgentOrchestration(waiting, false);
+    component.agents.setAgentOrchestrationConflictStrategy(conflict, 'accept_complementary');
+    component.agents.setAgentOrchestrationConflictConfirmation(conflict, true);
+    component.agents.resolveAgentOrchestrationConflict(conflict);
 
     expect(apiMock['resolveAgentOrchestrationConflict']).toHaveBeenCalledTimes(1);
-    expect(component.agentOrchestrationConflictStrategy(conflict)).toBe('accept_complementary');
-    expect(component.agentOrchestrationConflictConfirmed[component.agentOrchestrationConflictKey(conflict)]).not.toBe(true);
-    expect(component.agentOrchestrationError).toContain('stale');
-    expect(component.selectedAgentOrchestration?.revision).toBe(7);
+    expect(component.agents.agentOrchestrationConflictStrategy(conflict)).toBe('accept_complementary');
+    expect(component.agents.agentOrchestrationConflictConfirmed[component.agents.agentOrchestrationConflictKey(conflict)]).not.toBe(true);
+    expect(component.agents.agentOrchestrationError).toContain('stale');
+    expect(component.agents.selectedAgentOrchestration?.revision).toBe(7);
     fixture.destroy();
   });
 
@@ -1351,13 +1351,13 @@ describe('App', () => {
     apiMock['cancelAgentOrchestration'].mockReturnValue(of(cancelled));
     const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
     const component = fixture.componentInstance;
-    component.selectedAgentOrchestration = running;
-    component.cancelAgentOrchestration();
+    component.agents.selectedAgentOrchestration = running;
+    component.agents.cancelAgentOrchestration();
     expect(apiMock['cancelAgentOrchestration']).not.toHaveBeenCalled();
-    component.agentOrchestrationCancelConfirmed = true;
-    component.cancelAgentOrchestration();
+    component.agents.agentOrchestrationCancelConfirmed = true;
+    component.agents.cancelAgentOrchestration();
     expect(apiMock['cancelAgentOrchestration']).toHaveBeenCalledWith(running.id, 1);
-    expect(component.selectedAgentOrchestration?.status).toBe('cancelled');
+    expect(component.agents.selectedAgentOrchestration?.status).toBe('cancelled');
     fixture.destroy();
   });
 
@@ -1399,17 +1399,17 @@ describe('App', () => {
     const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
     const component = fixture.componentInstance;
     component.section = 'cv'; component.cvStep = 5; component.cvImport = cvImportFixture();
-    component.selectedAgentRun = { id: 'run-1' } as never;
+    component.agents.selectedAgentRun = { id: 'run-1' } as never;
     component.cvSelectedApplicationCaseId = '55555555-5555-4555-8555-555555555555';
     component.applicationCases = [{
       id: '55555555-5555-4555-8555-555555555555', documentType: 'cv', identityMode: 'incognito', state: 'selected'
     }] as never;
-    component.agentArtifacts = [
+    component.agents.agentArtifacts = [
       { id: '33333333-3333-4333-8333-333333333333', lifecycle: 'proposed', kind: 'annotated_draft' },
       { id: '44444444-4444-4444-8444-444444444444', lifecycle: 'used', kind: 'other' }
     ] as never;
     // Only renderable states are offered; a used artifact is not a preview source.
-    expect(component.selectedAgentRunArtifacts().map((item) => item.id))
+    expect(component.agents.selectedAgentRunArtifacts().map((item) => item.id))
       .toEqual(['33333333-3333-4333-8333-333333333333']);
 
     const anchors: Array<{ download?: string; click: () => void }> = [];
@@ -1420,7 +1420,7 @@ describe('App', () => {
       return anchor as unknown as HTMLElement;
     }) as never);
     try {
-      component.renderIncognitoCvPreview(component.agentArtifacts[0]!);
+      component.renderIncognitoCvPreview(component.agents.agentArtifacts[0]!);
       await vi.waitFor(() => expect(component.cvIncognitoPreview).toBeDefined());
       component.downloadIncognitoCvPreview();
     } finally {
@@ -2022,7 +2022,7 @@ describe('App', () => {
     expect(apiMock['createAgentOrchestration'].mock.calls[0]?.[0].prompt).toContain('ausschließlich bestätigte CandidateProfile-Claims');
     expect(component.cvAgentOrchestrationId).toBe('33333333-3333-4333-8333-333333333333');
 
-    component.agentOrchestrations = [orchestrationFixture('succeeded')];
+    component.agents.agentOrchestrations = [orchestrationFixture('succeeded')];
     component.cvStep = 6;
     fixture.detectChanges();
     const directResult = (fixture.nativeElement as HTMLElement)
@@ -2090,7 +2090,7 @@ describe('App', () => {
     };
     component.applicationCases = [boundCase];
     component.selectedApplicationCaseId = boundCase.id;
-    component.agentOrchestrationForm = { ...component.agentOrchestrationForm, providerId: 'codex', runtimeTarget: 'windows' };
+    component.agents.agentOrchestrationForm = { ...component.agents.agentOrchestrationForm, providerId: 'codex', runtimeTarget: 'windows' };
     component.startApplicationAgentOrchestration();
     const request = apiMock['createAgentOrchestration'].mock.calls[0]?.[0];
     expect(request).toEqual(expect.objectContaining({
@@ -2113,8 +2113,8 @@ describe('App', () => {
     }));
     const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
     const component = fixture.componentInstance; component.select('agents');
-    const rule = component.agentConfigProfileDraft!.providers.find(p => p.provider === 'openrouter')!;
-    component.loadProviderModels(rule); fixture.detectChanges(); await fixture.whenStable();
+    const rule = component.agents.agentConfigProfileDraft!.providers.find(p => p.provider === 'openrouter')!;
+    component.agents.loadProviderModels(rule); fixture.detectChanges(); await fixture.whenStable();
     const panel = (fixture.nativeElement as HTMLElement).querySelector('[data-provider-config="openrouter"]')!;
     const select = panel.querySelector<HTMLSelectElement>('[data-testid="provider-model-select"]')!;
     expect(select).toBeTruthy();
@@ -2130,7 +2130,7 @@ describe('App', () => {
     const component = fixture.componentInstance; component.select('agents'); fixture.detectChanges();
     const select = (fixture.nativeElement as HTMLElement).querySelector<HTMLSelectElement>('[data-testid="credential-provider"]')!;
     select.value = 'openrouter'; select.dispatchEvent(new Event('change')); fixture.detectChanges();
-    expect(component.agentCredentialDraft.envKey).toBe('OPENROUTER_API_KEY');
+    expect(component.agents.agentCredentialDraft.envKey).toBe('OPENROUTER_API_KEY');
     const name = (fixture.nativeElement as HTMLElement).querySelector<HTMLInputElement>('[data-testid="credential-key"]')!;
     expect(name.readOnly).toBe(true);
     fixture.destroy();
@@ -2144,15 +2144,15 @@ describe('App', () => {
     const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
     const component = fixture.componentInstance;
     component.select('agents'); fixture.detectChanges(); await fixture.whenStable();
-    expect(component.agentProviders.find(p => p.id === 'openrouter')?.available).toBe(false);
+    expect(component.agents.agentProviders.find(p => p.id === 'openrouter')?.available).toBe(false);
     apiMock['agentProviders'].mockReturnValue(of([provider(true)]));
-    component.agentCredentialDraft = { providerId: 'openrouter', envKey: 'OPENROUTER_API_KEY', envSecret: 'synthetic-openrouter-key', endpointUrl: '', confirmed: true };
-    component.saveProviderCredentials();
-    expect(component.agentProviders.find(p => p.id === 'openrouter')?.available).toBe(true);
-    expect(component.agentCredentialDraft.envSecret).toBe('');
+    component.agents.agentCredentialDraft = { providerId: 'openrouter', envKey: 'OPENROUTER_API_KEY', envSecret: 'synthetic-openrouter-key', endpointUrl: '', confirmed: true };
+    component.agents.saveProviderCredentials();
+    expect(component.agents.agentProviders.find(p => p.id === 'openrouter')?.available).toBe(true);
+    expect(component.agents.agentCredentialDraft.envSecret).toBe('');
     apiMock['agentProviders'].mockReturnValue(of([provider(false)]));
-    component.deleteProviderCredentials('openrouter');
-    expect(component.agentProviders.find(p => p.id === 'openrouter')?.available).toBe(false);
+    component.agents.deleteProviderCredentials('openrouter');
+    expect(component.agents.agentProviders.find(p => p.id === 'openrouter')?.available).toBe(false);
     fixture.destroy();
   });
 
@@ -2178,19 +2178,19 @@ describe('App', () => {
     const element = fixture.nativeElement as HTMLElement;
     expect(element.querySelector('[data-testid="agent-provider-setup"]')).toBeTruthy();
 
-    component.approveProviderInstallation('opencode', untestedInstallation);
+    component.agents.approveProviderInstallation('opencode', untestedInstallation);
     expect(apiMock['saveVersionApproval']).toHaveBeenCalledWith(null, {
       provider: 'opencode', executable: '/usr/local/bin/synthetic-agent', runtimeTarget: 'linux', version: '2.0.0'
     });
-    expect(component.agentVersionApprovals.approvals).toHaveLength(1);
+    expect(component.agents.agentVersionApprovals.approvals).toHaveLength(1);
     fixture.detectChanges(); await fixture.whenStable();
     expect(element.querySelector('[data-testid="agent-version-approved"]')).toBeTruthy();
 
-    component.agentCredentialDraft = { providerId: 'opencode', envKey: 'OPENAI_API_KEY', envSecret: secret, endpointUrl: '', confirmed: true };
-    expect(component.credentialSaveUnavailableReason()).toBe('');
-    component.saveProviderCredentials();
+    component.agents.agentCredentialDraft = { providerId: 'opencode', envKey: 'OPENAI_API_KEY', envSecret: secret, endpointUrl: '', confirmed: true };
+    expect(component.agents.credentialSaveUnavailableReason()).toBe('');
+    component.agents.saveProviderCredentials();
     expect(apiMock['saveProviderCredentials']).toHaveBeenCalledWith('opencode', { OPENAI_API_KEY: secret });
-    expect(component.agentCredentialDraft.envSecret).toBe('');
+    expect(component.agents.agentCredentialDraft.envSecret).toBe('');
     fixture.detectChanges(); await fixture.whenStable();
     const panelText = element.querySelector('[data-testid="agent-provider-setup"]')?.textContent ?? '';
     expect(panelText).not.toContain(secret);
@@ -2210,18 +2210,18 @@ describe('App', () => {
     const component = fixture.componentInstance;
     component.select('agents'); fixture.detectChanges(); await fixture.whenStable();
 
-    const installations = component.agentOrchestrationInstallations();
-    expect(component.agentInstallationKey(installations[0])).not.toBe(component.agentInstallationKey(installations[1]));
-    component.agentOrchestrationForm.providerId = 'opencode';
-    component.selectAgentOrchestrationProvider('opencode');
-    expect(component.selectedAgentOrchestrationInstallation()?.version).toBe('1.14.41');
+    const installations = component.agents.agentOrchestrationInstallations();
+    expect(component.agents.agentInstallationKey(installations[0])).not.toBe(component.agents.agentInstallationKey(installations[1]));
+    component.agents.agentOrchestrationForm.providerId = 'opencode';
+    component.agents.selectAgentOrchestrationProvider('opencode');
+    expect(component.agents.selectedAgentOrchestrationInstallation()?.version).toBe('1.14.41');
 
-    component.selectAgentOrchestrationInstallation(component.agentInstallationKey(installations[0]));
-    expect(component.selectedAgentOrchestrationInstallation()?.version).toBe('1.18.34');
-    expect(component.selectedAgentOrchestrationInstallation()?.support).toBe('untested');
+    component.agents.selectAgentOrchestrationInstallation(component.agents.agentInstallationKey(installations[0]));
+    expect(component.agents.selectedAgentOrchestrationInstallation()?.version).toBe('1.18.34');
+    expect(component.agents.selectedAgentOrchestrationInstallation()?.support).toBe('untested');
 
-    component.selectAgentOrchestrationInstallation(component.agentInstallationKey(installations[1]));
-    expect(component.selectedAgentOrchestrationInstallation()?.version).toBe('1.14.41');
+    component.agents.selectAgentOrchestrationInstallation(component.agents.agentInstallationKey(installations[1]));
+    expect(component.agents.selectedAgentOrchestrationInstallation()?.version).toBe('1.14.41');
     fixture.destroy();
   });
 
@@ -2241,21 +2241,21 @@ describe('App', () => {
     const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
     const component = fixture.componentInstance;
     component.select('agents'); fixture.detectChanges(); await fixture.whenStable();
-    component.agentOrchestrationForm = {
+    component.agents.agentOrchestrationForm = {
       workflowId: 'evidence-application-package', providerId: 'opencode', prompt: 'Zwei Versionen binden',
       runtimeTarget: 'linux', applicationCaseId: applicationCaseFixture.id, userInputConfirmed: false
     };
-    component.selectAgentOrchestrationProvider('opencode');
-    const installations = component.agentOrchestrationInstallations();
-    component.selectAgentOrchestrationInstallation(component.agentInstallationKey(installations[1]));
+    component.agents.selectAgentOrchestrationProvider('opencode');
+    const installations = component.agents.agentOrchestrationInstallations();
+    component.agents.selectAgentOrchestrationInstallation(component.agents.agentInstallationKey(installations[1]));
 
     // Saved profile (opencode=wsl) blocks the linux selection before the start.
-    component.createAgentOrchestration();
+    component.agents.createAgentOrchestration();
     expect(apiMock['createAgentOrchestration']).not.toHaveBeenCalled();
-    expect(component.agentOrchestrationError).toContain('erlaubt fuer opencode nur wsl');
+    expect(component.agents.agentOrchestrationError).toContain('erlaubt fuer opencode nur wsl');
 
     // The fix action saves only the confirmed runtime/distribution change from the SAVED revision.
-    component.agentProfileRuntimeFixConfirmed = true;
+    component.agents.agentProfileRuntimeFixConfirmed = true;
     component.alignAgentProfileRuntimeTo();
     const savedProfile = apiMock['saveAgentConfigProfile'].mock.calls[0]?.[1];
     const expected = structuredClone(agentConfigProfileFixture.profile);
@@ -2264,7 +2264,7 @@ describe('App', () => {
     expect(savedProfile).toEqual(expected);
 
     fixture.detectChanges(); await fixture.whenStable();
-    component.createAgentOrchestration();
+    component.agents.createAgentOrchestration();
     expect(apiMock['createAgentOrchestration']).toHaveBeenCalledWith(expect.objectContaining({
       providerId: 'opencode',
       installation: { version: '1.14.41', executable: '/usr/local/lib/node_modules/opencode-ai/bin/opencode' }
@@ -2275,21 +2275,21 @@ describe('App', () => {
   it('blocks starts while the profile is not loaded and loads it on direct workshop entry', async () => {
     const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
     const component = fixture.componentInstance;
-    component.agentOrchestrationForm = {
+    component.agents.agentOrchestrationForm = {
       workflowId: 'evidence-application-package', providerId: 'codex', prompt: 'Ohne Profil starten',
       runtimeTarget: 'windows', applicationCaseId: applicationCaseFixture.id, userInputConfirmed: false
     };
-    component.agentWorkflows = [{
+    component.agents.agentWorkflows = [{
       id: 'evidence-application-package', version: '1.2.0', title: 'Evidence-Bewerbungspaket', description: 'Fixture',
       requiredScope: 'application_case', producesSuggestionsOnly: true, prohibitedActions: ['submit_application']
     }];
-    component.agentProviders = [{
+    component.agents.agentProviders = [{
       id: 'codex', name: 'Codex CLI', available: true,
       installations: [{ runtimeTarget: 'windows', version: '1.0', support: 'supported', executable: 'C:\\tools\\codex.exe' }]
     }];
-    component.createAgentOrchestration();
+    component.agents.createAgentOrchestration();
     expect(apiMock['createAgentOrchestration']).not.toHaveBeenCalled();
-    expect(component.agentOrchestrationError).toContain('Sicherheitsprofil');
+    expect(component.agents.agentOrchestrationError).toContain('Sicherheitsprofil');
 
     component.select('applications'); fixture.detectChanges(); await fixture.whenStable();
     expect(apiMock['agentConfigProfile']).toHaveBeenCalled();
@@ -2384,12 +2384,12 @@ describe('App', () => {
     apiMock['applicationCases'].mockReturnValue(of([boundCase]));
     component.select('applications'); fixture.detectChanges(); await fixture.whenStable();
     component.selectApplicationCase(boundCase); fixture.detectChanges(); await fixture.whenStable();
-    component.agentOrchestrationForm = {
+    component.agents.agentOrchestrationForm = {
       workflowId: 'evidence-application-package', providerId: 'codex', prompt: 'Gebundenes Anschreiben erzeugen',
       runtimeTarget: 'windows', applicationCaseId: boundCase.id, userInputConfirmed: false
     };
-    component.selectAgentOrchestrationProvider('codex');
-    component.createAgentOrchestration();
+    component.agents.selectAgentOrchestrationProvider('codex');
+    component.agents.createAgentOrchestration();
     expect(apiMock['createAgentOrchestration']).toHaveBeenCalledWith(expect.objectContaining({
       applicationCaseId: boundCase.id, prompt: 'Gebundenes Anschreiben erzeugen'
     }));
@@ -2724,11 +2724,11 @@ describe('App', () => {
     const component = fixture.componentInstance;
     const provider = {provider: 'openrouter', enabled: true, runtimeTarget: 'linux', sandbox: 'read-only', network: 'disabled', approvalMode: 'deny'} as const;
     const draft = {...provider};
-    component.agentConfigProfileConfirmed = true;
-    component.setCareerRoleSetting(draft, 'finalizer', 'reasoning', 'high');
-    component.setCareerRoleSetting(draft, 'author', 'model', 'synthetic/model');
+    component.agents.agentConfigProfileConfirmed = true;
+    component.agents.setCareerRoleSetting(draft, 'finalizer', 'reasoning', 'high');
+    component.agents.setCareerRoleSetting(draft, 'author', 'model', 'synthetic/model');
     expect((draft as import('./models').AgentProviderConfigProfile).roleSettings).toEqual({finalizer: {reasoning: 'high'}, author: {model: 'synthetic/model'}});
-    expect(component.agentConfigProfileConfirmed).toBe(false);
+    expect(component.agents.agentConfigProfileConfirmed).toBe(false);
     fixture.destroy();
   });
 
@@ -2737,8 +2737,8 @@ describe('App', () => {
     const component = fixture.componentInstance;
     const run = orchestrationFixture('failed');
     run.failureReason = 'openrouter_output_truncated';
-    expect(component.agentOrchestrationFailureLabel(run)).toContain('Antwortbudget');
-    expect(component.agentOrchestrationFailureLabel(run)).not.toContain('orchestration_failed');
+    expect(component.agents.agentOrchestrationFailureLabel(run)).toContain('Antwortbudget');
+    expect(component.agents.agentOrchestrationFailureLabel(run)).not.toContain('orchestration_failed');
     fixture.destroy();
   });
 
@@ -2752,6 +2752,19 @@ describe('App', () => {
     component.retryFinalizerQuickly(failed);
     expect(apiMock['retryAgentOrchestrationNode']).toHaveBeenCalledWith(failed.id, 'finalizer', undefined, 'off');
     expect(component.notice).toContain('Reasoning Aus');
+    fixture.destroy();
+  });
+
+  it('keeps Agent Center drafts when the user switches sections and back', async () => {
+    const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
+    const component = fixture.componentInstance;
+    component.select('agents'); fixture.detectChanges(); await fixture.whenStable();
+    component.agents.agentRunForm.prompt = 'Entwurf bleibt erhalten';
+    component.select('overview'); fixture.detectChanges(); await fixture.whenStable();
+    expect((fixture.nativeElement as HTMLElement).querySelector('app-agent-center')).toBeNull();
+    component.select('agents'); fixture.detectChanges(); await fixture.whenStable();
+    expect((fixture.nativeElement as HTMLElement).querySelector('app-agent-center')).not.toBeNull();
+    expect(component.agents.agentRunForm.prompt).toBe('Entwurf bleibt erhalten');
     fixture.destroy();
   });
 

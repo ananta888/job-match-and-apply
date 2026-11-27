@@ -14,7 +14,8 @@ if (hosts.length === 0 || hosts.some((host) => !HOSTNAME.test(host))) {
 }
 
 const args = ['ng', 'serve', '--port', '4201', '--host', '0.0.0.0', '--proxy-config', 'proxy.conf.json'];
-for (const host of hosts) args.push('--allowed-hosts', host);
+// The "=" form keeps each host as one value; a separate argument would be read as the project name.
+for (const host of hosts) args.push(`--allowed-hosts=${host}`);
 
 const child = spawn('npx', args, { stdio: 'inherit', shell: process.platform === 'win32' });
 child.on('exit', (code) => process.exit(code ?? 0));

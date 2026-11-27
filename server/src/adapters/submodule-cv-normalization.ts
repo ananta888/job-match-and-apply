@@ -611,7 +611,9 @@ export class SubmoduleCvNormalizationAdapter implements CvNormalizationPort {
     }
     try {
       const result = await new Promise<{ stdout: string; exitCode: number | null }>((resolveOutput, rejectOutput) => {
-        const child = spawn(process.env.PYTHON_EXECUTABLE || 'python', [script, ...args], {
+        // macOS und viele Linux-Systeme kennen nur `python3`; Windows installiert `python`.
+        const python = process.env.PYTHON_EXECUTABLE || (process.platform === 'win32' ? 'python' : 'python3');
+        const child = spawn(python, [script, ...args], {
           cwd: this.root, env: cvContractChildEnvironment(), windowsHide: true, shell: false,
           stdio: ['pipe', 'pipe', 'pipe'],
         });

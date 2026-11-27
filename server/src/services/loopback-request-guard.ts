@@ -1,4 +1,5 @@
 import type { NextFunction, Request, Response } from 'express';
+import { configuredLanHostnames } from './lan-access.js';
 
 /**
  * The API listens on 127.0.0.1 only, but binding alone does not stop DNS rebinding: a page on
@@ -6,7 +7,12 @@ import type { NextFunction, Request, Response } from 'express';
  * same-origin client. The browser still sends the attacker's name in `Host` and `Origin`, so only
  * loopback names are accepted there. This mirrors the realtime gateway's origin policy.
  */
-const LOOPBACK_HOSTNAMES = new Set(['localhost', '127.0.0.1', '[::1]']);
+const LOOPBACK_HOSTNAMES = ['localhost', '127.0.0.1', '[::1]'];
+
+/** Loopback names plus the explicitly configured LAN hosts (see lan-access.ts). */
+function allowedHostnames(): Set<string> {
+  return new Set([...LOOPBACK_HOSTNAMES, ...configuredLanHostnames()]);
+}
 
 export type LoopbackRejection = 'host_missing' | 'host_not_loopback' | 'origin_not_loopback';
 
@@ -14,7 +20,7 @@ export function isLoopbackHostHeader(host: string | undefined): boolean {
   if (!host) return false;
   try {
     const parsed = new URL(`http://${host}`);
-    return LOOPBACK_HOSTNAMES.has(parsed.hostname.toLowerCase());
+    return allowedHostnames().has(parsed.hostname.toLowerCase());
   } catch {
     return false;
   }
@@ -24,7 +30,7 @@ export function isLoopbackOrigin(origin: string): boolean {
   try {
     const parsed = new URL(origin);
     return (parsed.protocol === 'http:' || parsed.protocol === 'https:')
-      && LOOPBACK_HOSTNAMES.has(parsed.hostname.toLowerCase());
+      && allowedHostnames().has(parsed.hostname.toLowerCase());
   } catch {
     return false;
   }

@@ -247,8 +247,8 @@ export class App implements OnInit, OnDestroy {
   agentOrchestrationInstallationKey = '';
   agentProviderSetupBusy = false;
   agentProviderSetupError = '';
-  agentCredentialDraft: { providerId: string; envKey: string; envSecret: string; confirmed: boolean } =
-    { providerId: '', envKey: 'OPENAI_API_KEY', envSecret: '', confirmed: false };
+  agentCredentialDraft: { providerId: string; envKey: string; envSecret: string; endpointUrl: string; confirmed: boolean } =
+    { providerId: '', envKey: 'OPENAI_API_KEY', envSecret: '', endpointUrl: '', confirmed: false };
   readonly credentialKeyPresets = [
     'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GEMINI_API_KEY', 'OPENROUTER_API_KEY',
     'DEEPSEEK_API_KEY', 'MISTRAL_API_KEY', 'GROQ_API_KEY', 'TOGETHER_API_KEY'
@@ -462,7 +462,8 @@ export class App implements OnInit, OnDestroy {
     if (!this.agentConfigProfile) this.loadAgentConfigProfile();
     this.loadCvImportInventory();
     this.loadApplicationCases();
-    this.loadApplicationStyleProfile();
+    // Lädt das Stilprofil nur, wenn der Setup-Status es als vorhanden meldet (vermeidet einen 404).
+    this.loadProfileSetup();
     this.refreshAgentOrchestrations();
     if (!this.agentProviders.length) this.loadAgentProviders();
     if (!this.agentWorkflows.length) this.api.agentWorkflows().subscribe({
@@ -594,8 +595,13 @@ export class App implements OnInit, OnDestroy {
   selectCredentialProvider(providerId: string): void {
     this.agentCredentialDraft = {
       providerId, envKey: providerId === 'openrouter' ? 'OPENROUTER_API_KEY' : 'OPENAI_API_KEY',
-      envSecret: '', confirmed: false
+      envSecret: '', endpointUrl: '', confirmed: false
     };
+  }
+
+  /** OpenRouter endpoint is optional; empty means the official default. */
+  openRouterEndpointFromDraft(): string {
+    return this.agentCredentialDraft.endpointUrl.trim();
   }
 
   credentialSaveUnavailableReason(): string {
@@ -605,6 +611,12 @@ export class App implements OnInit, OnDestroy {
       return 'Der Schlüsselname erlaubt nur Großbuchstaben, Ziffern und Unterstriche, zum Beispiel OPENAI_API_KEY.';
     }
     if (!this.agentCredentialDraft.envSecret) return 'Gib den Wert des API-Keys ein.';
+    if (this.agentCredentialDraft.providerId === 'openrouter') {
+      const endpoint = this.openRouterEndpointFromDraft();
+      if (endpoint && !/^https:\/\/[A-Za-z0-9.-]+(?::\d+)?\/[A-Za-z0-9./_-]*$/.test(endpoint)) {
+        return 'Die OpenRouter-URL muss mit https:// beginnen und darf keine Leerzeichen oder Parameter enthalten.';
+      }
+    }
     if (!this.agentCredentialDraft.confirmed) return 'Die Speicherung des Schlüssels muss bestätigt werden.';
     return '';
   }
@@ -614,9 +626,12 @@ export class App implements OnInit, OnDestroy {
     if (reason) { this.agentProviderSetupError = reason; this.refreshView(); return; }
     if (this.agentProviderSetupBusy) return;
     const { providerId, envKey, envSecret } = this.agentCredentialDraft;
+    const endpoint = providerId === 'openrouter' ? this.openRouterEndpointFromDraft() : '';
+    const env: Record<string, string> = { [envKey]: envSecret };
+    if (endpoint) env['OPENROUTER_ENDPOINT'] = endpoint;
     this.agentProviderSetupBusy = true;
     this.agentProviderSetupError = '';
-    this.api.saveProviderCredentials(providerId, { [envKey]: envSecret }).subscribe({
+    this.api.saveProviderCredentials(providerId, env).subscribe({
       next: (summary) => {
         this.agentProviderCredentials = [
           ...this.agentProviderCredentials.filter((item) => item.providerId !== providerId), summary
@@ -2179,6 +2194,8 @@ export class App implements OnInit, OnDestroy {
   private startAgentPolling(): void {
     this.stopAgentPolling();
     this.agentPollHandle = setInterval(() => {
+      // Im Hintergrund-Tab nicht pollen; beim nächsten Tick im Vordergrund wird nachgeladen.
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
       if (this.section === 'agents') this.refreshAgentRuns();
       if (this.section === 'agents' || this.section === 'cv' || this.section === 'applications') {
         this.refreshAgentOrchestrations();
@@ -2478,7 +2495,7 @@ export class App implements OnInit, OnDestroy {
       .sort((left, right) => right.lastSeenAt.localeCompare(left.lastSeenAt));
   }
   jobCategoryCount(category: JobInventoryCategory): number { return this.jobInventory.filter((entry) => entry.category === category).length; }
-  jobCategoryLabel(category: JobInventoryCategory): string { return { inbox: 'Neu', apply: 'Bewerben', watchlist: 'Merken', archive: 'Archiv' }[category]; }
+  jobCategoryLabel(category: JobInventoryCategory): string { return { inbox: 'Neu', apply: 'Zu bewerben', watchlist: 'Merken', archive: 'Archiv' }[category]; }
   appliedJobCount(): number { return this.jobInventory.filter((entry) => entry.status.applied).length; }
   jobDocumentLabel(type: 'cv' | 'cover_letter' | 'application_email'): string {
     return { cv: 'Lebenslauf', cover_letter: 'Anschreiben', application_email: 'E-Mail' }[type];

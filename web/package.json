@@ -11,7 +11,8 @@
     "e2e": "playwright test",
     "e2e:update": "playwright test --update-snapshots",
     "e2e:install": "playwright install chromium",
-    "e2e:report": "playwright show-report"
+    "e2e:report": "playwright show-report",
+    "start:lan": "node scripts/start-lan.mjs"
   },
   "private": true,
   "packageManager": "npm@10.9.8",

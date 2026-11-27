@@ -56,9 +56,9 @@
           <div class="match-orbit" aria-hidden="true">
             <div class="orbit orbit-a"></div><div class="orbit orbit-b"></div>
             <div class="score-core"><strong>{{ matches[0]?.searchPreferenceScore ?? '—' }}</strong><span>Suchscore</span></div>
-            <span class="float-chip chip-a">TypeScript <b>✓</b></span>
-            <span class="float-chip chip-b">Remote <b>✓</b></span>
-            <span class="float-chip chip-c">Berlin <b>✓</b></span>
+            @if (config.searchProfile.mustHave[0]; as tag) { <span class="float-chip chip-a">{{ tag }}</span> }
+            @if (config.searchProfile.workModels[0]; as model) { <span class="float-chip chip-b">{{ model }}</span> }
+            @if (config.searchProfile.regions[0]; as region) { <span class="float-chip chip-c">{{ region }}</span> }
           </div>
         </section>
 
@@ -138,7 +138,7 @@
           <div class="jobs-metrics">
             <div class="metric"><strong>{{ jobInventory.length }}</strong><small>Jobs gesamt</small></div>
             <div class="metric"><strong>{{ jobCategoryCount('inbox') }}</strong><small>Neu</small></div>
-            <div class="metric"><strong>{{ jobCategoryCount('apply') }}</strong><small>Bewerben</small></div>
+            <div class="metric"><strong>{{ jobCategoryCount('apply') }}</strong><small>Zu bewerben</small></div>
             <div class="metric"><strong>{{ appliedJobCount() }}</strong><small>Beworben</small></div>
           </div>
           <div class="jobs-filter" role="tablist" aria-label="Filter">
@@ -1170,6 +1170,9 @@
               <label>Provider<select data-testid="credential-provider" [ngModel]="agentCredentialDraft.providerId" (ngModelChange)="selectCredentialProvider($event)">@for (provider of agentProviders; track provider.id) { <option [value]="provider.id">{{ provider.name }}</option> }</select></label>
               <label>Schlüsselname<input data-testid="credential-key" type="text" [readOnly]="agentCredentialDraft.providerId === 'openrouter'" [ngModel]="agentCredentialDraft.envKey" (ngModelChange)="agentCredentialDraft.envKey = $event" list="credential-key-presets" maxlength="64" autocomplete="off" spellcheck="false" placeholder="OPENAI_API_KEY"></label>
               <label>Wert<input data-testid="credential-secret" type="password" [ngModel]="agentCredentialDraft.envSecret" (ngModelChange)="agentCredentialDraft.envSecret = $event" maxlength="4096" autocomplete="new-password" placeholder="Wert wird nie angezeigt"></label>
+              @if (agentCredentialDraft.providerId === 'openrouter') {
+                <label>OpenRouter-URL (optional)<input data-testid="credential-endpoint" type="url" [ngModel]="agentCredentialDraft.endpointUrl" (ngModelChange)="agentCredentialDraft.endpointUrl = $event" maxlength="512" autocomplete="off" spellcheck="false" placeholder="https://openrouter.ai/api/v1/chat/completions"></label>
+              }
             </div>
             <datalist id="credential-key-presets">@for (preset of credentialKeyPresets; track preset) { <option [value]="preset"></option> }</datalist>
             <label class="explicit-confirmation"><input data-testid="credential-confirmation" type="checkbox" [(ngModel)]="agentCredentialDraft.confirmed"><span>Der Schlüssel wird verschlüsselt lokal gespeichert und nie in der Oberfläche oder in Protokollen angezeigt.</span></label>
@@ -1468,13 +1471,13 @@
 
             <article class="panel agent-queue"><div class="panel-head"><div><span class="kicker">RUN-QUEUE</span><h3>Verlauf und Warteschlange</h3></div><span class="status">{{ filteredAgentRuns().length }}</span></div>
               <div class="agent-filters"><label>Status<select [(ngModel)]="agentStatusFilter"><option value="all">Alle</option><option value="queued">Warteschlange</option><option value="running">Läuft</option><option value="waiting_for_input">Eingabe nötig</option><option value="waiting_for_approval">Freigabe nötig</option><option value="succeeded">Erfolgreich</option><option value="failed">Fehlgeschlagen</option><option value="cancelled">Abgebrochen</option></select></label><label>Provider<select [(ngModel)]="agentProviderFilter"><option value="all">Alle</option>@for (provider of agentProviders; track provider.id) { <option [value]="provider.id">{{ provider.name }}</option> }</select></label></div>
-              <div class="run-list" role="list">
+              <ul class="run-list">
                 @for (run of filteredAgentRuns(); track run.id) {
-                  <button type="button" role="listitem" class="run-card" [class.selected]="selectedAgentRun?.id === run.id" (click)="selectAgentRun(run)">
+                  <li><button type="button" class="run-card" [class.selected]="selectedAgentRun?.id === run.id" (click)="selectAgentRun(run)">
                     <span class="run-state" [attr.data-state]="run.status"></span><span><strong>{{ agentProviderName(run.providerId) }}</strong><small>{{ run.request.prompt | slice:0:95 }}{{ run.request.prompt.length > 95 ? '…' : '' }}</small><em>{{ run.createdAt | date:'short' }} @if (run.request.applicationCaseId) { · mit Bewerbungsfall }</em></span><span class="status" [class.ok]="run.status === 'succeeded'">{{ agentStatusLabel(run.status) }}</span>
-                  </button>
-                } @empty { <div class="empty run-empty"><span>⌘</span><h3>Keine passenden Runs</h3><p>Starte oben einen neuen Lauf oder ändere die Filter.</p></div> }
-              </div>
+                  </button></li>
+                } @empty { <li class="run-empty-item"><div class="empty run-empty"><span>⌘</span><h3>Keine passenden Runs</h3><p>Starte oben einen neuen Lauf oder ändere die Filter.</p></div></li> }
+              </ul>
             </article>
           </div>
 

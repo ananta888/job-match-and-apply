@@ -9,6 +9,10 @@ const ENV_NAME = /^[A-Z][A-Z0-9_]{0,63}$/;
 const ENV_VALUE = /^[^\0]{1,4096}$/;
 const MAX_ENV_KEYS_PER_PROVIDER = 8;
 
+/** Optional OpenRouter endpoint override; allowed only for provider 'openrouter' and only as HTTPS. */
+export const OPENROUTER_ENDPOINT_ENV = 'OPENROUTER_ENDPOINT';
+export const OPENROUTER_ENDPOINT_PATTERN = /^https:\/\/[A-Za-z0-9.-]+(?::\d+)?\/[A-Za-z0-9./_-]*$/;
+
 /**
  * Environment names that would rewrite process execution itself. Users may store
  * API keys, never process-control variables.
@@ -22,7 +26,7 @@ const ENV_NAME_BLOCKLIST = new Set([
   // provider config content/paths, data homes and network redirections stay fixed.
   'OPENCODE_CONFIG_CONTENT', 'OPENCODE_CONFIG', 'OPENCODE_DISABLE_PROJECT_CONFIG',
   'CODEX_HOME', 'CLAUDE_CONFIG_DIR', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_CACHE_HOME',
-  'ANTHROPIC_BASE_URL', 'OPENAI_BASE_URL', 'OPENAI_API_BASE', 'OPENROUTER_ENDPOINT',
+  'ANTHROPIC_BASE_URL', 'OPENAI_BASE_URL', 'OPENAI_API_BASE',
   'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY', 'http_proxy', 'https_proxy', 'all_proxy', 'no_proxy',
 ]);
 
@@ -55,7 +59,7 @@ export class ProviderCredentialValidationError extends Error {
   }
 }
 
-export function validateCredentialEnv(input: unknown): Record<string, string> {
+export function validateCredentialEnv(input: unknown, providerId?: string): Record<string, string> {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     throw new ProviderCredentialValidationError('provider_credentials_invalid_env', 'Umweltobjekt erwartet.');
   }
@@ -71,11 +75,14 @@ export function validateCredentialEnv(input: unknown): Record<string, string> {
     if (!ENV_NAME.test(name)) {
       throw new ProviderCredentialValidationError('provider_credentials_invalid_name', `Ungültiger Variablenname: ${name}`);
     }
-    if (ENV_NAME_BLOCKLIST.has(name)) {
+    if (ENV_NAME_BLOCKLIST.has(name) || (name === OPENROUTER_ENDPOINT_ENV && providerId !== 'openrouter')) {
       throw new ProviderCredentialValidationError('provider_credentials_forbidden_name', `Diese Variable darf hier nicht gesetzt werden: ${name}`);
     }
     if (typeof value !== 'string' || !ENV_VALUE.test(value) || !value.trim() || /[\r\n]/.test(value)) {
       throw new ProviderCredentialValidationError('provider_credentials_invalid_value', `Ungültiger Wert für ${name}.`);
+    }
+    if (name === OPENROUTER_ENDPOINT_ENV && !OPENROUTER_ENDPOINT_PATTERN.test(value)) {
+      throw new ProviderCredentialValidationError('provider_credentials_invalid_value', 'Die OpenRouter-URL muss eine HTTPS-URL ohne Leerzeichen sein.');
     }
     validated[name] = value;
   }
@@ -136,7 +143,7 @@ export class ProviderCredentialStore implements ProviderCredentialStorePort {
 
   async put(providerId: string, env: Record<string, string>): Promise<ProviderCredentialSummary> {
     assertProviderId(providerId);
-    const validated = validateCredentialEnv(env);
+    const validated = validateCredentialEnv(env, providerId);
     return this.serialize(async () => {
       const records = await this.records();
       records.set(providerId, { env: validated, updatedAt: new Date().toISOString() });
@@ -259,7 +266,7 @@ export class ProviderCredentialStore implements ProviderCredentialStorePort {
     }
     const records = new Map<string, CredentialRecord>();
     for (const [providerId, record] of Object.entries(parsed.records)) {
-      records.set(providerId, { env: validateCredentialEnv(record.env), updatedAt: record.updatedAt });
+      records.set(providerId, { env: validateCredentialEnv(record.env, providerId), updatedAt: record.updatedAt });
     }
     return records;
   }
@@ -279,7 +286,7 @@ export class MemoryProviderCredentialStore implements ProviderCredentialStorePor
 
   async put(providerId: string, env: Record<string, string>): Promise<ProviderCredentialSummary> {
     assertProviderId(providerId);
-    const validated = validateCredentialEnv(env);
+    const validated = validateCredentialEnv(env, providerId);
     return this.serialize(async () => {
       this.records.set(providerId, { env: validated, updatedAt: new Date().toISOString() });
       return summarize(providerId, this.records.get(providerId));

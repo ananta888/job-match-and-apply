@@ -1,6 +1,7 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { IncomingMessage, Server as HttpServer } from 'node:http';
 import type { Socket } from 'node:net';
+import { configuredLanHostnames } from '../services/lan-access.js';
 import { WebSocket, WebSocketServer } from 'ws';
 import type { AgentControlCenter } from './agent-control-center.js';
 
@@ -45,13 +46,13 @@ export function assertAllowedRealtimeOrigin(origin: string | undefined, host: st
   let parsed: URL;
   try { parsed = new URL(origin); }
   catch { throw new Error('Der Realtime-Origin ist ungueltig.'); }
-  if (!['http:', 'https:'].includes(parsed.protocol) || !['127.0.0.1', 'localhost', '[::1]'].includes(parsed.hostname)) {
+  const localNames = ['127.0.0.1', 'localhost', '[::1]', ...configuredLanHostnames()];
+  if (!['http:', 'https:'].includes(parsed.protocol) || !localNames.includes(parsed.hostname)) {
     throw new Error('Nur lokale Browser-Origins duerfen Realtime-Tickets anfordern.');
   }
   const normalizedHost = host?.toLowerCase();
   const sameHost = normalizedHost === parsed.host.toLowerCase();
-  const developmentOrigin = (parsed.hostname === '127.0.0.1' || parsed.hostname === 'localhost' || parsed.hostname === '[::1]')
-    && parsed.port === '4201';
+  const developmentOrigin = localNames.includes(parsed.hostname) && parsed.port === '4201';
   if (!sameHost && !developmentOrigin) throw new Error('Der Realtime-Origin stimmt nicht mit diesem lokalen Dienst ueberein.');
   return parsed.origin;
 }

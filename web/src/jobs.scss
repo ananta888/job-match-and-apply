@@ -71,3 +71,8 @@
   .jobs-filter button { flex: 1; }
   .jobs-runs li { grid-template-columns: 1fr; gap: 2px; }
 }
+
+/* Leerzustände mit klaren nächsten Schritten (Meine Jobs, Bewerbungswerkstatt). */
+.empty-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 14px; }
+.empty-steps { margin: 12px auto 0; padding: 0 0 0 20px; max-width: 460px; text-align: left; display: grid; gap: 6px; color: var(--color-text-secondary); font-size: var(--fs-3); line-height: 1.5; }
+.empty-steps strong { color: var(--color-text); }

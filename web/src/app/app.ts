@@ -1486,6 +1486,7 @@ export class App implements OnInit, OnDestroy {
     this.config.searchProfile.sourceIds = [...selected];
   }
 
+  selectedSourceCount(): number { return this.sources.filter((source) => this.sourceSelected(source.id)).length; }
   sourceSelected(sourceId: string): boolean { return this.config?.searchProfile.sourceIds.includes(sourceId) ?? false; }
   unsupportedActiveFilters(): string[] {
     if (!this.config || !this.capabilities) return [];

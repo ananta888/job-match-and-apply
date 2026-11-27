@@ -144,3 +144,5 @@ code { font-family: 'SFMono-Regular', Consolas, monospace; }
 
 /* Tablet: Bereiche in der horizontalen Leiste durch Trenner gruppieren. */
 @media (min-width: 761px) and (max-width: 1024px) { .sidebar nav .nav-group { display: flex; gap: 4px; }.sidebar nav .nav-group + .nav-group { margin: 0 0 0 4px; padding-left: 8px; border-left: 1px solid #293148; } }
+/* Jobsuche: Quellen einklappbar, Leerzustand mit direkter Aktion. */
+.source-picker { border: 1px solid var(--color-border); border-radius: 10px; padding: 0 12px; }.source-picker summary { display: flex; justify-content: space-between; gap: 8px; min-height: 44px; align-items: center; cursor: pointer; font-weight: 700; font-size: var(--fs-3); }.source-picker summary span { color: var(--color-text-secondary); font-weight: 500; font-size: var(--fs-2); }.source-picker[open] { padding-bottom: 12px; }.source-picker summary:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; border-radius: 6px; }.empty .primary { margin-top: 14px; }.empty small { margin-top: 8px; color: var(--color-text-secondary); }

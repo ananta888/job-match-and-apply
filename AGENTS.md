@@ -133,8 +133,13 @@ and published CLI/MCP contracts. `job-search-mcp` is spawned over stdio as a tru
 an agent sandbox and never as a child of an agent.
 
 - `server/src/app.ts`: `createApp(store, audit, workspace, mailVault, agentApi, applicationPipeline)`
-  holds all HTTP routes. `index.ts` wires real dependencies, recovers agent runs and attaches the
-  WebSocket realtime gateway. Tests inject `MemoryConfigStore` and use `supertest`.
+  builds the context, global middleware and registers the route modules in matching order.
+  `http/app-context.ts` creates services, stores and shared helpers (`AppContext`); `http/routes/*.ts`
+  hold the routes per area (agent setup, orchestrations, runs, run detail, search, applications,
+  profile/CV); `http/middleware.ts` has request logging and the problem+json error handler;
+  `http/app-support.ts` has schemas and view helpers. `index.ts` wires real dependencies, recovers
+  agent runs and attaches the WebSocket realtime gateway. Tests inject `MemoryConfigStore` and use
+  `supertest`.
 - `server/src/adapters`: demo vs. MCP job source, local application assistant (submodule CLI),
   submodule CV normalization.
 - `server/src/services`: matching, encrypted config/identity store, CRM and application tracking,

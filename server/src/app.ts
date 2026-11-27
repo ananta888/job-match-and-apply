@@ -117,6 +117,7 @@ import { AgentLocalObservability } from './agents/local-observability.js';
 import { JsonAgentIdempotencyStore } from './agents/idempotency-store.js';
 import { JsonlApprovalLifecycleJournal } from './agents/approval-lifecycle-journal.js';
 import { SafeHttpError } from './services/safe-http-error.js';
+import { loopbackRequestGuard } from './services/loopback-request-guard.js';
 import {
   CvAiStructuringError, CvAiStructuringService, type CvAiStructuringValidationPort,
 } from './services/cv-ai-structuring.js';
@@ -1033,6 +1034,8 @@ export function createApp(
     return createProviderDomainToolBridge(session);
   });
   const app = express();
+  // Reject DNS-rebinding requests (foreign Host/Origin) before CORS, parsing or routing.
+  app.use(loopbackRequestGuard());
   app.use(cors({ origin: [
     'http://localhost:4201', 'http://127.0.0.1:4201',
   ] }));

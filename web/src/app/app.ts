@@ -2,6 +2,8 @@ import { ChangeDetectorRef, Component, ElementRef, OnDestroy, OnInit, ViewChild,
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { DomSanitizer, type SafeResourceUrl } from '@angular/platform-browser';
+import { NavigationEnd, Router } from '@angular/router';
+import { sectionFromUrl, sectionUrl } from './app.routes';
 import { ApiService } from './api.service';
 import { CvFactsEditorComponent } from './cv-facts-editor.component.js';
 import { cvFactGroupIsRaw, groupCvFactRecords, type CvFactRecordView } from './cv-facts-view.js';
@@ -83,6 +85,9 @@ export class App implements OnInit, OnDestroy {
   private readonly api = inject(ApiService);
   private readonly changeDetector = inject(ChangeDetectorRef);
   private readonly sanitizer = inject(DomSanitizer);
+  // Optional, damit Unit-Tests ohne Router-Provider weiterlaufen.
+  private readonly router = inject(Router, { optional: true });
+  private routerSubscription?: Subscription;
   section: Section = 'overview';
   config?: AppConfig;
   sources: SourceStatus[] = [];
@@ -353,10 +358,12 @@ export class App implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     this.configureAgentMotionPreference();
+    this.bindSectionToRouter();
     this.load();
   }
 
   ngOnDestroy(): void {
+    this.routerSubscription?.unsubscribe();
     this.stopAgentPolling(); this.stopAgentStream(); this.stopCvAiPolling();
     if (this.agentPreflightTimer) clearTimeout(this.agentPreflightTimer);
     this.agentMotionMedia?.removeEventListener?.('change', this.agentMotionListener);
@@ -422,6 +429,23 @@ export class App implements OnInit, OnDestroy {
   mcpRuntimeLabelFor(target: 'windows' | 'wsl'): string { return target === 'windows' ? 'Nativ (Windows)' : 'WSL (Ubuntu)'; }
 
   select(section: Section): void {
+    this.applySection(section);
+    const target = sectionUrl(section);
+    // Ohne konfigurierte Routen (z. B. Unit-Tests ohne provideRouter) bleibt die Auswahl rein lokal.
+    if (this.router?.config.length && sectionFromUrl(this.router.url) !== section) void this.router.navigateByUrl(target);
+  }
+
+  /** Synchronisiert den Bereich mit der URL: F5, Lesezeichen und Zurück-Button landen im richtigen Bereich. */
+  private bindSectionToRouter(): void {
+    if (!this.router) return;
+    this.routerSubscription = this.router.events.subscribe((event) => {
+      if (!(event instanceof NavigationEnd)) return;
+      const section = sectionFromUrl(event.urlAfterRedirects);
+      if (section !== this.section) { this.applySection(section); this.refreshView(); }
+    });
+  }
+
+  private applySection(section: Section): void {
     this.section = section; this.notice = ''; this.error = '';
     if (section !== 'agents' && section !== 'cv' && section !== 'applications') this.stopAgentPolling();
     if (section !== 'agents') { this.stopAgentStream(); this.closeAgentRecoveryDialog(); }

@@ -462,7 +462,8 @@ export class App implements OnInit, OnDestroy {
     if (!this.agentConfigProfile) this.loadAgentConfigProfile();
     this.loadCvImportInventory();
     this.loadApplicationCases();
-    this.loadApplicationStyleProfile();
+    // Lädt das Stilprofil nur, wenn der Setup-Status es als vorhanden meldet (vermeidet einen 404).
+    this.loadProfileSetup();
     this.refreshAgentOrchestrations();
     if (!this.agentProviders.length) this.loadAgentProviders();
     if (!this.agentWorkflows.length) this.api.agentWorkflows().subscribe({
@@ -2193,6 +2194,8 @@ export class App implements OnInit, OnDestroy {
   private startAgentPolling(): void {
     this.stopAgentPolling();
     this.agentPollHandle = setInterval(() => {
+      // Im Hintergrund-Tab nicht pollen; beim nächsten Tick im Vordergrund wird nachgeladen.
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
       if (this.section === 'agents') this.refreshAgentRuns();
       if (this.section === 'agents' || this.section === 'cv' || this.section === 'applications') {
         this.refreshAgentOrchestrations();
@@ -2492,7 +2495,7 @@ export class App implements OnInit, OnDestroy {
       .sort((left, right) => right.lastSeenAt.localeCompare(left.lastSeenAt));
   }
   jobCategoryCount(category: JobInventoryCategory): number { return this.jobInventory.filter((entry) => entry.category === category).length; }
-  jobCategoryLabel(category: JobInventoryCategory): string { return { inbox: 'Neu', apply: 'Bewerben', watchlist: 'Merken', archive: 'Archiv' }[category]; }
+  jobCategoryLabel(category: JobInventoryCategory): string { return { inbox: 'Neu', apply: 'Zu bewerben', watchlist: 'Merken', archive: 'Archiv' }[category]; }
   appliedJobCount(): number { return this.jobInventory.filter((entry) => entry.status.applied).length; }
   jobDocumentLabel(type: 'cv' | 'cover_letter' | 'application_email'): string {
     return { cv: 'Lebenslauf', cover_letter: 'Anschreiben', application_email: 'E-Mail' }[type];

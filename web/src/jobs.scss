@@ -76,3 +76,10 @@
 .empty-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 14px; }
 .empty-steps { margin: 12px auto 0; padding: 0 0 0 20px; max-width: 460px; text-align: left; display: grid; gap: 6px; color: var(--color-text-secondary); font-size: var(--fs-3); line-height: 1.5; }
 .empty-steps strong { color: var(--color-text); }
+
+/* Firmen & Antworten: IMAP-Einrichtung einklappbar unter den verbundenen Postfächern. */
+.mail-setup { margin-top: 14px; border-top: 1px solid var(--color-border); padding-top: 4px; }
+.mail-setup summary { display: flex; align-items: center; min-height: 44px; cursor: pointer; font-weight: 700; font-size: var(--fs-3); color: var(--color-primary); }
+.mail-setup summary:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; border-radius: 6px; }
+.mail-setup .form-grid { margin: 12px 0 16px; }
+.company-grid + .crm-top { margin-top: 24px; }

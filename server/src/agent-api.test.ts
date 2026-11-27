@@ -98,7 +98,8 @@ describe('agent control API', () => {
     const printed = printedLines.join('\n');
     expect(printed).toContain('class=typeerror');
     expect(printed).toContain('STACK-CANARY');
-    expect(printed).toMatch(/at .*app\.(ts|js)/);
+    // The frame of the throwing route handler proves the full stack, not just the message, was printed.
+    expect(printed).toMatch(/at .*(?:app|http[\\/]routes[\\/][\w-]+)\.(ts|js)/);
   });
 
   it('keeps a streaming response truthful when it fails after its headers were sent', async () => {

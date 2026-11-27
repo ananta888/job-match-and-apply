@@ -16,7 +16,7 @@
               <span class="cv-facts-editor__label">{{ label(fact) }}@if (fact.provenance?.origin === 'user_supplied') { <small>(Korrektur)</small> }@if (fact.provenance.recognition?.method === 'ai_assisted') { <small>AI-erkannt, nicht AI-bestätigt</small> }</span>
               <span class="cv-facts-editor__value">
                 @if (masked(fact)) {
-                  <input data-testid="cv-fact-masked" [value]="'••••••••'" readonly aria-readonly="true">
+                  <input data-testid="cv-fact-masked" [value]="'••••••••'" readonly aria-readonly="true" [attr.aria-label]="label(fact) + ' (verborgen)'">
                 } @else if (editing(fact)) {
                   <input [ngModel]="draftOf(fact).value" (ngModelChange)="draftChange.emit({ fact, field: 'value', value: $event })" maxlength="5000" [attr.data-testid]="'cv-fact-input-' + fact.id">
                 } @else {
@@ -172,7 +172,7 @@
             <span class="cv-facts-editor__label">{{ label(fact) }}@if (fact.provenance?.origin === 'user_supplied') { <small>(Korrektur)</small> }@if (fact.provenance.recognition?.method === 'ai_assisted') { <small>AI-erkannt, nicht AI-bestätigt</small> }</span>
             <span class="cv-facts-editor__value">
               @if (masked(fact)) {
-                <input data-testid="cv-fact-masked" [value]="'••••••••'" readonly aria-readonly="true">
+                <input data-testid="cv-fact-masked" [value]="'••••••••'" readonly aria-readonly="true" [attr.aria-label]="label(fact) + ' (verborgen)'">
               } @else if (editing(fact)) {
                 <input [ngModel]="draftOf(fact).value" (ngModelChange)="draftChange.emit({ fact, field: 'value', value: $event })" maxlength="5000" [attr.data-testid]="'cv-fact-input-' + fact.id">
               } @else {

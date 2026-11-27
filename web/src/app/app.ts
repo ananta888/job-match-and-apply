@@ -8,6 +8,7 @@ import { AgentCenterComponent } from './agent-center.component';
 import { AgentCenterStore } from './agent-center.store';
 import { CvStudioComponent } from './cv-studio.component';
 import { CvStudioStore } from './cv-studio.store';
+import { OverviewHomeComponent, type OverviewAction, type OverviewState } from './overview-home.component';
 import { APP_HOST } from './app-host';
 import { CvFactsEditorComponent } from './cv-facts-editor.component.js';
 import { type Subscription } from 'rxjs';
@@ -15,7 +16,7 @@ import type { AgentOrchestrationRecord, AgentRunRequest, AppConfig, ApplicationC
 
 @Component({
   selector: 'app-root',
-  imports: [CommonModule, FormsModule, CvFactsEditorComponent, AgentCenterComponent, CvStudioComponent],
+  imports: [CommonModule, FormsModule, CvFactsEditorComponent, AgentCenterComponent, CvStudioComponent, OverviewHomeComponent],
   templateUrl: './app.html',
   styleUrl: './app.scss',
   providers: [{ provide: APP_HOST, useExisting: forwardRef(() => App) }]
@@ -82,6 +83,8 @@ export class App implements OnInit, OnDestroy {
   companies: CompanyCrm[] = [];
   mailAccounts: MailAccount[] = [];
   mailInbox: CorrelatedMail[] = [];
+  /** Zugeordnete Antworten von Firmen, für die Pipeline der Startseite. */
+  overviewReplies = 0;
   mailCorrelationTarget: Record<string, string> = {};
   mailAccountForm = { label: '', email: '', host: '', port: 993, secure: true, username: '', secret: '', authType: 'password' as const, enabled: false, mailbox: 'INBOX' };
   importPreview?: ProfileImportPreview;
@@ -107,16 +110,44 @@ export class App implements OnInit, OnDestroy {
 
   readonly nav: { id: Section; label: string; icon: string }[] = [
     { id: 'overview', label: 'Übersicht', icon: 'grid' },
-    { id: 'search', label: 'Jobsuche', icon: 'search' },
+    { id: 'search', label: 'Suche', icon: 'search' },
     { id: 'jobs', label: 'Meine Jobs', icon: 'grid' },
+    { id: 'applications', label: 'Bewerbungsfälle', icon: 'file' },
+    { id: 'crm', label: 'Firmen & Antworten', icon: 'nodes' },
     { id: 'identity', label: 'Profil & Identität', icon: 'user' },
     { id: 'cv', label: 'Lebenslauf', icon: 'file' },
-    { id: 'sources', label: 'Quellen & MCP', icon: 'nodes' },
-    { id: 'applications', label: 'Bewerbung', icon: 'file' },
-    { id: 'crm', label: 'Firmen & Antworten', icon: 'nodes' },
     { id: 'agents', label: 'Agent Center', icon: 'terminal' },
+    { id: 'sources', label: 'Quellen & MCP', icon: 'nodes' },
     { id: 'operations', label: 'Daten & Betrieb', icon: 'nodes' }
   ];
+
+  /** Sechs Hauptbereiche; Gruppen mit mehreren Einträgen zeigen eine Überschrift. */
+  readonly navGroups: { label?: string; items: { id: Section; label: string; icon: string }[] }[] = [
+    { items: this.navItems(['overview']) },
+    { label: 'Jobs', items: this.navItems(['search', 'jobs']) },
+    { label: 'Bewerbungen', items: this.navItems(['applications', 'crm']) },
+    { label: 'Profil', items: this.navItems(['identity', 'cv']) },
+    { items: this.navItems(['agents']) },
+    { label: 'Einstellungen', items: this.navItems(['sources', 'operations']) }
+  ];
+
+  /** Mobile Leiste unten: die drei häufigsten Ziele plus „Mehr“. */
+  readonly mobileNav: { id: Section; label: string; group: Section[] }[] = [
+    { id: 'overview', label: 'Übersicht', group: ['overview'] },
+    { id: 'search', label: 'Jobs', group: ['search', 'jobs'] },
+    { id: 'applications', label: 'Bewerbung', group: ['applications', 'crm'] }
+  ];
+  mobileMenuOpen = false;
+  /** Filterleiste der Jobsuche als Blatt auf Tablet und Handy. */
+  filtersOpen = false;
+  lastHiddenMatch?: { jobId: string; title: string };
+  private lastHiddenTimer?: ReturnType<typeof setTimeout>;
+
+  private navItems(ids: Section[]): { id: Section; label: string; icon: string }[] {
+    return ids.map((id) => this.nav.find((item) => item.id === id)!);
+  }
+
+  toggleMobileMenu(open = !this.mobileMenuOpen): void { this.mobileMenuOpen = open; }
 
   ngOnInit(): void {
     this.agents.configureAgentMotionPreference();
@@ -125,6 +156,7 @@ export class App implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    if (this.lastHiddenTimer) clearTimeout(this.lastHiddenTimer);
     this.routerSubscription?.unsubscribe();
     this.agents.stopAgentPolling(); this.agents.stopAgentStream(); this.cv.stopCvAiPolling();
     if (this.agents.agentPreflightTimer) clearTimeout(this.agents.agentPreflightTimer);
@@ -139,6 +171,7 @@ export class App implements OnInit, OnDestroy {
     });
     this.refreshSources();
     this.api.jobDecisions().subscribe({ next: (items) => { this.jobDecisions = items; this.refreshView(); } });
+    if (this.section === 'overview') this.loadOverview();
     this.api.assistantStatus().subscribe({ next: (status) => { this.assistant = status; this.refreshView(); } });
     this.loadProfileSetup();
   }
@@ -183,6 +216,114 @@ export class App implements OnInit, OnDestroy {
     return ({ windows: 'Nativ (Windows)', wsl: 'WSL (Ubuntu)', darwin: 'Nativ (macOS)' } as const)[target];
   }
 
+  /** Daten der Startseite: nächster Schritt, Pipeline, Suchprofil und Systemstatus. */
+  overviewState(): OverviewState {
+    const identity = this.activeIdentity();
+    const firstName = identity && identity.mode === 'real' && this.revealSensitiveIdentity ? identity.fullName.split(' ')[0] : undefined;
+    const open = this.jobInventory.filter((entry) => !entry.status.applied);
+    const candidate = open.filter((entry) => entry.category === 'apply')
+      .sort((left, right) => (right.match?.score ?? 0) - (left.match?.score ?? 0))[0];
+    const lastSearch = this.searchRunSummaries.map((run) => Date.parse(run.createdAt)).filter(Number.isFinite).sort((a, b) => b - a)[0];
+    const working: ApplicationCase['state'][] = ['selected', 'analysis', 'questions', 'draft', 'review'];
+    const approved: ApplicationCase['state'][] = ['approved', 'exported', 'dry_run', 'submitted'];
+    return {
+      greetingName: firstName,
+      cvConfirmed: this.cv.cvImportInventory.length > 0 || Boolean(this.candidateProfile?.claims?.length),
+      pendingDecisions: this.agents.globalAgentApprovals().filter((item) => item.actionable).length,
+      topCandidate: candidate ? { title: candidate.job.title, company: candidate.job.company, score: Math.round(candidate.match?.score ?? 0) } : undefined,
+      hoursSinceLastSearch: lastSearch ? (Date.now() - lastSearch) / 3_600_000 : undefined,
+      pipeline: {
+        neu: open.filter((entry) => entry.category === 'inbox').length,
+        zuBewerben: open.filter((entry) => entry.category === 'apply').length,
+        inArbeit: this.applicationCases.filter((item) => working.includes(item.state)).length,
+        freigegeben: this.applicationCases.filter((item) => approved.includes(item.state)).length,
+        antworten: this.overviewReplies,
+      },
+      status: {
+        mcpConnected: this.mcpRuntime?.connected === true || this.sources.some((source) => source.kind === 'mcp' && source.connected),
+        portalsOpen: this.config?.mcp.env['ALLOW_EXTERNAL_PORTALS'] === '1',
+        aiProviderReady: this.agents.agentProviders.some((provider) => provider.available),
+      },
+      profile: {
+        name: this.config?.searchProfile.name ?? '',
+        query: this.config?.searchProfile.query ?? '',
+        regions: this.config?.searchProfile.regions ?? [],
+        mustHave: this.config?.searchProfile.mustHave ?? [],
+      },
+      topMatches: open.filter((entry) => entry.category === 'inbox' || entry.category === 'apply')
+        .filter((entry) => this.jobDecision(entry.job.id) !== 'hidden')
+        .sort((left, right) => (right.match?.score ?? 0) - (left.match?.score ?? 0))
+        .slice(0, 3)
+        .map((entry) => ({
+          id: entry.key,
+          title: entry.job.title,
+          company: entry.job.company,
+          location: entry.job.location,
+          workModel: entry.job.workModel,
+          source: entry.job.sourceId,
+          score: Math.round(entry.match?.score ?? 0),
+          reasons: [...(entry.match?.matchedMustHave ?? []), ...(entry.match?.matchedNiceToHave ?? [])],
+          salary: this.overviewSalary(entry.job.salaryMin, entry.job.salaryMax),
+          saved: this.jobDecision(entry.job.id) === 'saved',
+        })),
+    };
+  }
+
+  private overviewSalary(min?: number, max?: number): string | undefined {
+    const k = (value: number) => `${Math.round(value / 1000)} T€`;
+    if (min && max) return `${Math.round(min / 1000)}–${k(max)}`;
+    if (min) return `ab ${k(min)}`;
+    if (max) return `bis ${k(max)}`;
+    return undefined;
+  }
+
+  /** Bewerbung für eine Stelle aus dem Treffer-Feed der Startseite starten. */
+  onOverviewStartMatch(key: string): void {
+    const entry = this.jobInventory.find((item) => item.key === key);
+    if (entry) this.startApplicationFromInventory(entry); else this.select('jobs');
+  }
+
+  /** Stelle aus dem Treffer-Feed merken bzw. Merken aufheben. */
+  onOverviewToggleSave(key: string): void {
+    const entry = this.jobInventory.find((item) => item.key === key);
+    if (!entry) return;
+    this.setJobDecision(entry.job.id, this.jobDecision(entry.job.id) === 'saved' ? 'neutral' : 'saved');
+  }
+
+  onOverviewAction(action: OverviewAction): void {
+    switch (action) {
+      case 'import-cv': this.select('cv'); break;
+      case 'review-decisions': this.select('agents'); break;
+      case 'start-application': {
+        const candidate = this.jobInventory.filter((entry) => entry.category === 'apply' && !entry.status.applied)
+          .sort((left, right) => (right.match?.score ?? 0) - (left.match?.score ?? 0))[0];
+        if (candidate) this.startApplicationFromInventory(candidate); else this.select('jobs');
+        break;
+      }
+      case 'search': this.select('search'); this.runSearch(); break;
+      case 'open-crm': this.select('crm'); break;
+      case 'edit-profile': this.select('search'); break;
+      case 'open-jobs': this.select('jobs'); break;
+      case 'open-applications': this.select('applications'); break;
+      case 'open-sources': this.select('sources'); break;
+      case 'open-data': this.select('operations'); break;
+    }
+  }
+
+  /** Lädt, was die Startseite zeigt; jede Quelle ist optional und blockiert die anderen nicht. */
+  private loadOverview(): void {
+    this.loadJobs();
+    this.cv.loadCvImportInventory();
+    this.loadCandidateProfile();
+    this.api.applicationCases().subscribe({ next: (items) => { this.applicationCases = items; this.refreshView(); }, error: () => undefined });
+    this.api.agentRuns().subscribe({ next: (runs) => { this.agents.agentRuns = runs; this.refreshView(); }, error: () => undefined });
+    if (!this.agents.agentProviders.length) this.agents.loadAgentProviders();
+    this.api.mailMessages().subscribe({
+      next: (items) => { this.overviewReplies = items.filter((item) => Boolean(item.correlation.applicationCaseId)).length; this.refreshView(); },
+      error: () => undefined
+    });
+  }
+
   select(section: Section): void {
     this.applySection(section);
     const target = sectionUrl(section);
@@ -210,10 +351,11 @@ export class App implements OnInit, OnDestroy {
   }
 
   private applySection(section: Section): void {
-    this.section = section; this.notice = ''; this.error = '';
+    this.section = section; this.notice = ''; this.error = ''; this.mobileMenuOpen = false;
     if (section !== 'agents' && section !== 'cv' && section !== 'applications') this.agents.stopAgentPolling();
     if (section !== 'agents') { this.agents.stopAgentStream(); this.agents.closeAgentRecoveryDialog(); }
     if (section !== 'cv') this.cv.stopCvAiPolling();
+    if (section === 'overview') this.loadOverview();
     if (section === 'jobs') this.loadJobs();
     if (section === 'identity') { this.loadProfileSetup(); this.loadCandidateProfile(); this.cv.loadProfileCvOverview(); }
     if (section === 'cv') this.cv.loadCvStudio();
@@ -553,13 +695,48 @@ export class App implements OnInit, OnDestroy {
       : this.resultSort === 'title' ? left.job.title.localeCompare(right.job.title, 'de') : left.job.company.localeCompare(right.job.company, 'de'));
   }
   hiddenMatches(): JobMatch[] { return this.matches.filter((item) => this.jobDecision(item.job.id) === 'hidden'); }
-  setJobDecision(jobId: string, state: JobDecision['state']): void {
+  setJobDecision(jobId: string, state: JobDecision['state'], announce = true): void {
     this.api.setJobDecision(jobId, state).subscribe({ next: (decision) => {
       this.jobDecisions = [decision, ...this.jobDecisions.filter((item) => item.jobId !== jobId)];
-      this.notice = state === 'neutral' ? 'Entscheidung rückgängig gemacht.' : state === 'saved' ? 'Stelle gemerkt.' : 'Stelle ausgeblendet.';
+      if (announce) this.notice = state === 'neutral' ? 'Entscheidung rückgängig gemacht.' : state === 'saved' ? 'Stelle gemerkt.' : 'Stelle ausgeblendet.';
       this.refreshView();
     }, error: (error) => this.fail(error) });
   }
+  /** Score-Band nach Spezifikation: ab 80 passend, ab 60 prüfen, darunter neutral (ein niedriger Score ist kein Fehler). */
+  scoreBand(score: number): 'high' | 'mid' | 'low' { return score >= 80 ? 'high' : score >= 60 ? 'mid' : 'low'; }
+  scoreBandLabel(score: number): string { return ({ high: 'passt gut', mid: 'teilweise passend', low: 'wenig passend' } as const)[this.scoreBand(score)]; }
+
+  /** Anzahl gesetzter Filter für den Filter-Button auf Tablet und Handy. */
+  activeFilterCount(): number {
+    const profile = this.config?.searchProfile;
+    if (!profile) return 0;
+    return [profile.query.trim(), profile.regions.length, profile.mustHave.length, profile.niceToHave.length, profile.exclude.length, profile.minSalary]
+      .filter((value) => Boolean(value)).length;
+  }
+
+  /** Öffnet die Filter als Blatt (Tablet, Handy) und setzt den Fokus hinein; beim Schließen zurück auf den Auslöser. */
+  toggleFilters(open = !this.filtersOpen): void {
+    this.filtersOpen = open;
+    this.refreshView();
+    if (typeof document === 'undefined') return;
+    setTimeout(() => (document.querySelector<HTMLElement>(open ? '#filters-title' : '.filters-toggle'))?.focus(), 0);
+  }
+
+  /** Blendet eine Stelle aus und bietet 6 Sekunden lang „Rückgängig“ an. */
+  hideMatch(match: JobMatch): void {
+    this.setJobDecision(match.job.id, 'hidden', false);
+    if (this.lastHiddenTimer) clearTimeout(this.lastHiddenTimer);
+    this.lastHiddenMatch = { jobId: match.job.id, title: match.job.title };
+    this.lastHiddenTimer = setTimeout(() => { this.lastHiddenMatch = undefined; this.lastHiddenTimer = undefined; this.refreshView(); }, 6_000);
+  }
+
+  undoHide(): void {
+    const hidden = this.lastHiddenMatch; if (!hidden) return;
+    if (this.lastHiddenTimer) clearTimeout(this.lastHiddenTimer);
+    this.lastHiddenMatch = undefined; this.lastHiddenTimer = undefined;
+    this.setJobDecision(hidden.jobId, 'neutral');
+  }
+
   toggleComparison(jobId: string, selected: boolean): void {
     const ids = new Set(this.comparisonJobIds); selected ? ids.add(jobId) : ids.delete(jobId);
     this.comparisonJobIds = [...ids].slice(0, 10);

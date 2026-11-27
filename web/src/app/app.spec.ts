@@ -414,6 +414,7 @@ describe('App', () => {
       createSubmissionDryRun: vi.fn(),
       jobDecisions: vi.fn().mockReturnValue(of([])),
       jobInventory: vi.fn().mockReturnValue(of([])),
+      mailMessages: vi.fn().mockReturnValue(of([])),
       setJobInventoryCategory: vi.fn(),
       markJobInventoryApplied: vi.fn(),
       searchRunsSummary: vi.fn().mockReturnValue(of([])),
@@ -519,7 +520,11 @@ describe('App', () => {
 
     fixture.componentInstance.select('search'); fixture.detectChanges(); await fixture.whenStable();
     expect(currentNavigation()).toHaveLength(1);
-    expect(currentNavigation()[0]?.textContent).toContain('Jobsuche');
+    expect(currentNavigation()[0]?.textContent?.trim()).toBe('Suche');
+    // Die Suche liegt in der Gruppe „Jobs“; Gruppen sind beschriftet, nicht klickbar.
+    const group = currentNavigation()[0]?.closest('[role="group"]');
+    expect(group?.getAttribute('aria-labelledby') && element.querySelector(`#${group.getAttribute('aria-labelledby')}`)?.textContent).toBe('Jobs');
+    expect(element.querySelectorAll('nav[aria-label="Hauptnavigation"] .nav-group')).toHaveLength(6);
   });
 
   it('uses runtime diagnostics instead of mode and exposes no free MCP launch or environment inputs', async () => {
@@ -2791,6 +2796,38 @@ describe('App', () => {
     component.comparisonJobIds = ['job-a', 'job-b', 'job-c']; component.refreshView(); fixture.detectChanges();
     expect(button().textContent?.trim()).toBe('3 vergleichen');
     expect(button().disabled).toBe(false);
+    fixture.destroy();
+  });
+
+  it('shows one next step on the start page and routes its main action', async () => {
+    const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
+    const component = fixture.componentInstance;
+    const element = fixture.nativeElement as HTMLElement;
+    expect(element.querySelectorAll('h1')).toHaveLength(1);
+    expect(element.querySelector('.next h2')?.textContent).toContain('Lebenslauf importieren');
+    expect(element.querySelectorAll('.next .btn-primary')).toHaveLength(1);
+    const select = vi.spyOn(component, 'select');
+    (element.querySelector('.next .btn-primary') as HTMLButtonElement).click();
+    expect(select).toHaveBeenCalledWith('cv');
+    fixture.destroy();
+  });
+
+  it('bands the search score without alarm colours and offers undo after hiding a job', async () => {
+    const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
+    const component = fixture.componentInstance;
+    expect([component.scoreBand(93), component.scoreBand(65), component.scoreBand(20)]).toEqual(['high', 'mid', 'low']);
+    apiMock['setJobDecision'] = vi.fn((jobId: string, state: string) => of({ jobId, state, updatedAt: '2026-11-27T12:00:00Z' }));
+    vi.useFakeTimers();
+    try {
+      component.hideMatch({ job: { id: 'job-x', title: 'Synthetische Stelle' } } as never);
+      expect(component.lastHiddenMatch).toEqual({ jobId: 'job-x', title: 'Synthetische Stelle' });
+      component.undoHide();
+      expect(apiMock['setJobDecision']).toHaveBeenLastCalledWith('job-x', 'neutral');
+      expect(component.lastHiddenMatch).toBeUndefined();
+      component.hideMatch({ job: { id: 'job-y', title: 'Zweite Stelle' } } as never);
+      vi.advanceTimersByTime(6_000);
+      expect(component.lastHiddenMatch).toBeUndefined();
+    } finally { vi.useRealTimers(); }
     fixture.destroy();
   });
 

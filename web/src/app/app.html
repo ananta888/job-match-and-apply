@@ -5,11 +5,16 @@
       <div class="brand-mark">JM</div>
       <div><strong>JobMatch</strong><span>& Apply</span></div>
     </div>
-    <nav aria-label="Hauptnavigation">
-      @for (item of nav; track item.id) {
-        <button type="button" [class.active]="section === item.id" [attr.aria-current]="section === item.id ? 'page' : null" (click)="select(item.id)">
-          <span class="nav-icon" [attr.data-icon]="item.icon"></span>{{ item.label }}
-        </button>
+    <nav aria-label="Hauptnavigation" id="main-navigation" [class.open]="mobileMenuOpen">
+      @for (group of navGroups; track $index) {
+        <div class="nav-group" [attr.role]="group.label ? 'group' : null" [attr.aria-labelledby]="group.label ? 'nav-group-' + $index : null">
+          @if (group.label) { <p class="nav-group-label" [id]="'nav-group-' + $index">{{ group.label }}</p> }
+          @for (item of group.items; track item.id) {
+            <button type="button" [class.active]="section === item.id" [class.nested]="!!group.label" [attr.aria-current]="section === item.id ? 'page' : null" (click)="select(item.id)">
+              <span class="nav-icon" [attr.data-icon]="item.icon"></span>{{ item.label }}
+            </button>
+          }
+        </div>
       }
     </nav>
     <div class="privacy-card">
@@ -22,12 +27,20 @@
       <span class="dot online"></span>
     </div>
   </aside>
+  <nav class="bottom-bar" aria-label="Schnellnavigation">
+    @for (item of mobileNav; track item.id) {
+      <button type="button" [class.active]="item.group.includes(section) && !mobileMenuOpen" [attr.aria-current]="item.group.includes(section) ? 'page' : null" (click)="select(item.id)">{{ item.label }}</button>
+    }
+    <button type="button" [class.active]="mobileMenuOpen" aria-controls="main-navigation" [attr.aria-expanded]="mobileMenuOpen" (click)="toggleMobileMenu()">Mehr</button>
+  </nav>
 
   <main id="main-content" tabindex="-1">
     <header class="topbar">
       <div>
         <p class="eyebrow">Arbeitsbereich</p>
-        <h1>{{ section === 'overview' ? 'Guten Tag' : section === 'search' ? 'Jobsuche' : section === 'jobs' ? 'Meine Jobs' : section === 'identity' ? 'Profil & Identität' : section === 'cv' ? 'Lebenslauf-Studio' : section === 'sources' ? 'Quellen & MCP' : section === 'crm' ? 'Firmen & Antworten' : section === 'agents' ? 'Agent Center' : section === 'operations' ? 'Daten & Betrieb' : 'Bewerbungswerkstatt' }}</h1>
+        @if (section === 'overview') { <p class="topbar-title">Übersicht</p> } @else {
+          <h1>{{ section === 'search' ? 'Jobsuche' : section === 'jobs' ? 'Meine Jobs' : section === 'identity' ? 'Profil & Identität' : section === 'cv' ? 'Lebenslauf-Studio' : section === 'sources' ? 'Quellen & MCP' : section === 'crm' ? 'Firmen & Antworten' : section === 'agents' ? 'Agent Center' : section === 'operations' ? 'Daten & Betrieb' : 'Bewerbungswerkstatt' }}</h1>
+        }
       </div>
       <div class="top-actions">
         <span class="mode-pill" [attr.data-runtime-state]="mcpRuntimeState()"><i></i>{{ mcpRuntimeLabel() }}</span>
@@ -45,54 +58,36 @@
       <section class="loading"><span></span><p>Lokalen Arbeitsbereich laden …</p></section>
     } @else {
       @if (section === 'overview') {
-        <section class="hero">
-          <div>
-            <span class="kicker">DEIN JOB-AGENT</span>
-            <h2>Finden. Prüfen.<br><em>Gezielt bewerben.</em></h2>
-            <p>Mehrere Jobquellen, nachvollziehbares Matching und faktenbasierte Bewerbungsentwürfe in einem privaten Arbeitsbereich.</p>
-            <div class="hero-actions">
-              <button class="primary" type="button" (click)="runSearch()" [disabled]="busy">{{ busy ? 'Suche läuft …' : 'Jobs jetzt suchen' }} <span>→</span></button>
-              <button class="secondary" type="button" (click)="select('identity')">Suchprofil anpassen</button>
-            </div>
-          </div>
-          <div class="match-orbit" aria-hidden="true">
-            <div class="orbit orbit-a"></div><div class="orbit orbit-b"></div>
-            <div class="score-core"><strong>{{ matches[0]?.searchPreferenceScore ?? '—' }}</strong><span>Suchscore</span></div>
-            @if (config.searchProfile.mustHave[0]; as tag) { <span class="float-chip chip-a">{{ tag }}</span> }
-            @if (config.searchProfile.workModels[0]; as model) { <span class="float-chip chip-b">{{ model }}</span> }
-            @if (config.searchProfile.regions[0]; as region) { <span class="float-chip chip-c">{{ region }}</span> }
-          </div>
-        </section>
-
-        <section class="stats-grid">
-          <article><span class="stat-icon purple">⌕</span><div><small>Gefundene Jobs</small><strong>{{ matches.length || '—' }}</strong><p>letzter Suchlauf</p></div></article>
-          <article><span class="stat-icon green">✓</span><div><small>Gute Matches</small><strong>{{ acceptedCount() || '—' }}</strong><p>Muss-Kriterien erfüllt</p></div></article>
-          <article><span class="stat-icon amber">◇</span><div><small>Aktive Quellen</small><strong>{{ sources.length }}</strong><p>MCP & Profile</p></div></article>
-          <article><span class="stat-icon blue">◎</span><div><small>Identität</small><strong class="stat-text">{{ activeIdentity()?.mode === 'incognito' ? 'Inkognito' : 'Real' }}</strong><p>{{ displayIdentityName(activeIdentity()) }}</p></div></article>
-        </section>
-
-        <section class="two-column">
-          <article class="panel profile-summary">
-            <div class="panel-head"><div><span class="kicker">SUCHPROFIL</span><h3>{{ config.searchProfile.name }}</h3></div><button class="text-button" (click)="select('identity')">Bearbeiten →</button></div>
-            <div class="summary-row"><span>⌖</span><div><small>Regionen</small><p>{{ config.searchProfile.regions.join(' · ') }}</p></div></div>
-            <div class="summary-row"><span>⌂</span><div><small>Arbeitsmodell</small><p>{{ config.searchProfile.workModels.join(' · ') }}</p></div></div>
-            <div class="summary-row"><span>★</span><div><small>Muss enthalten</small><p class="tag-line">@for (tag of config.searchProfile.mustHave; track tag) { <b>{{ tag }}</b> }</p></div></div>
-            <div class="summary-row danger"><span>×</span><div><small>Ausschließen</small><p>{{ config.searchProfile.exclude.join(' · ') || 'Keine Ausschlüsse' }}</p></div></div>
-          </article>
-          <article class="panel source-summary">
-            <div class="panel-head"><div><span class="kicker">SYSTEMSTATUS</span><h3>Quellen & Assistent</h3></div><button class="text-button" (click)="select('sources')">Verwalten →</button></div>
-            @for (source of sources.slice(0, 4); track source.id) {
-              <div class="source-row"><span class="source-logo">{{ source.name.slice(0, 2) }}</span><div><strong>{{ source.name }}</strong><small>{{ source.kind === 'demo' ? 'Demo-Adapter' : source.kind }}</small></div><span class="status" [class.ok]="source.connected">{{ source.connected ? 'Bereit' : 'Konfigurieren' }}</span></div>
-            }
-            <div class="source-row"><span class="source-logo assistant-logo">AI</span><div><strong>Bewerbungsassistent</strong><small>{{ assistant.note }}</small></div><span class="status" [class.ok]="assistant.available">{{ assistant.available ? 'Bereit' : 'Setup' }}</span></div>
-          </article>
-        </section>
+        <app-overview-home [state]="overviewState()" (act)="onOverviewAction($event)" (startMatch)="onOverviewStartMatch($event)" (toggleSave)="onOverviewToggleSave($event)" />
       }
 
       @if (section === 'search') {
         <section class="page-grid search-layout">
-          <article class="panel filters">
-            <div class="panel-head"><div><span class="kicker">FILTER</span><h3>Wonach suchst du?</h3></div></div>
+          <section class="results">
+            <div class="results-head"><div><span class="kicker">ERGEBNISSE</span><h2>{{ busy ? 'Quellen werden abgefragt …' : matches.length ? matches.length + ' Stellen bewertet' : 'Bereit für die erste Suche' }}</h2></div><div class="results-tools"><button class="secondary compact filters-toggle" type="button" aria-controls="search-filters" [attr.aria-expanded]="filtersOpen" (click)="toggleFilters()">Filter & Suche ({{ activeFilterCount() }})</button><label>Sortierung<select [(ngModel)]="resultSort"><option value="score">Suchscore</option><option value="title">Stellentitel</option><option value="company">Unternehmen</option></select></label>@if (matches.length) { <button class="secondary compact" data-testid="adopt-search-results" type="button" (click)="adoptSearchResults()" [disabled]="busy || lastSearchAdopted">{{ lastSearchAdopted ? '✓ In „Meine Jobs" übernommen' : 'In „Meine Jobs" übernehmen (' + matches.length + ')' }}</button> }</div></div>
+            @if (comparison; as result) { <div class="panel comparison-panel"><strong>Erklärbarer Stellenvergleich</strong><p>{{ result.disclaimer }}</p>@for (item of result.comparison; track item.jobId) { <div class="summary-row comparison-row"><span>{{ item.total }}</span><div><strong>{{ item.title }} · {{ item.company }}</strong><small>Suchpräferenz {{ item.factors['searchPreference'] }} · Evidence {{ item.factors['evidenceCoverage'] }} · Gaps {{ item.factors['gaps'] }} · Gehalt {{ item.factors['salary'] }}</small></div></div> }</div> }
+            @for (failure of searchFailures; track failure.sourceId) { <div class="info-box source-note" role="status"><strong>{{ failure.sourceId }}: {{ failure.category }}</strong><p>{{ failure.detail }} {{ failure.retryable ? 'Die Quelle kann bewusst erneut versucht werden.' : 'Eingabe oder Policy prüfen.' }}</p></div> }
+            @if (hiddenMatches().length) { <div class="info-box"><strong>{{ hiddenMatches().length }} ausgeblendet</strong><p>@for (match of hiddenMatches(); track match.job.id) { <button class="text-button" type="button" (click)="setJobDecision(match.job.id, 'neutral')">{{ match.job.title }} wieder anzeigen</button> }</p></div> }
+            @if (busy) {
+              <p class="sr-only" role="status">Quellen werden abgefragt …</p>
+              @for (placeholder of [1, 2, 3]; track placeholder) { <div class="job-card skeleton" aria-hidden="true"><span class="sk sk-ring"></span><span class="sk-lines"><span class="sk sk-title"></span><span class="sk sk-line"></span><span class="sk sk-line short"></span></span></div> }
+            }
+            @if (!matches.length && !busy) {
+              <div class="empty"><span>⌕</span><h3>Noch keine Ergebnisse</h3><p>Starte über „Suche starten“ eine Suche. Im Demo-Modus funktioniert der komplette Ablauf ohne externe Zugriffe.</p></div>
+            }
+            @for (match of visibleMatches(); track match.job.id) {
+              <article class="job-card" [class.selected]="selectedMatch?.job?.id === match.job.id" (click)="chooseMatch(match)">
+                <div class="score-ring" [attr.data-band]="scoreBand(match.searchPreferenceScore)" role="img" [attr.aria-label]="'Suchscore ' + match.searchPreferenceScore + ' Prozent, ' + scoreBandLabel(match.searchPreferenceScore)"><strong aria-hidden="true">{{ match.searchPreferenceScore }}</strong><small aria-hidden="true">%</small></div>
+                <div class="job-main"><div class="job-title"><span class="source-logo">{{ match.job.sourceId.slice(0, 2) }}</span><div><h3>{{ match.job.title }}</h3><p>{{ match.job.company }} · {{ match.job.location }}</p></div></div>
+                  <p class="description">{{ match.job.description }}</p>
+                  <div class="chips">@for (skill of match.matchedMustHave; track skill) { <span class="chip match">✓ {{ skill }}</span> } @for (skill of match.matchedNiceToHave; track skill) { <span class="chip">{{ skill }}</span> } @for (gap of match.missingMustHave; track gap) { <span class="chip gap">Fehlt: {{ gap }}</span> }</div>
+                </div>
+                <div class="job-actions"><label class="check compare-check"><input type="checkbox" [checked]="comparisonJobIds.includes(match.job.id)" (click)="$event.stopPropagation()" (change)="toggleComparison(match.job.id, $any($event.target).checked)"><span>Vergleichen</span></label><span class="status" [class.ok]="match.accepted">{{ match.accepted ? 'Passend' : 'Prüfen' }}</span><div class="job-buttons"><button class="secondary compact" type="button" [attr.aria-pressed]="jobDecision(match.job.id) === 'saved'" (click)="$event.stopPropagation(); setJobDecision(match.job.id, jobDecision(match.job.id) === 'saved' ? 'neutral' : 'saved')">{{ jobDecision(match.job.id) === 'saved' ? 'Gemerkt' : 'Merken' }}</button><button class="secondary compact" type="button" [attr.aria-label]="'„' + match.job.title + '“ ausblenden'" (click)="$event.stopPropagation(); hideMatch(match)">Ausblenden</button><button class="primary compact" type="button" [attr.aria-label]="'Bewerbung für „' + match.job.title + '“ bei ' + match.job.company + ' starten'" (click)="$event.stopPropagation(); prepareApplication(match)">Bewerbung starten</button></div></div>
+              </article>
+            }
+          </section>
+          <article class="panel filters" id="search-filters" [class.open]="filtersOpen" aria-labelledby="filters-title">
+            <div class="panel-head"><div><span class="kicker">FILTER</span><h3 id="filters-title" tabindex="-1">Wonach suchst du?</h3></div><button class="secondary compact filters-close" type="button" (click)="toggleFilters(false)">Schließen</button></div>
             <label>Suchbegriff<input [(ngModel)]="config.searchProfile.query" placeholder="z. B. Angular Developer"></label>
             <label>Regionen <span>kommagetrennt</span><input [ngModel]="list('regions')" (ngModelChange)="updateList('regions', $event)"></label>
             <div class="field-pair"><label>Umkreis<input type="number" [(ngModel)]="config.searchProfile.radiusKm"><small>km</small></label><label>Mindestgehalt<input type="number" [(ngModel)]="config.searchProfile.minSalary"><small>€</small></label></div>
@@ -103,28 +98,19 @@
               @for (source of sources; track source.id) { <label class="check"><input type="checkbox" [checked]="sourceSelected(source.id)" [disabled]="sourceCapability(source.id)?.compatible === false" (change)="toggleSource(source.id, $any($event.target).checked)"><span>{{ source.name }}</span></label> }
             </div>
             @if (unsupportedActiveFilters().length) { <div class="info-box"><strong>Quellenfilter transparent</strong><p>Diese Regeln werden nicht an alle Quellen übertragen, sondern lokal angewandt oder sind dort nicht verfügbar: {{ unsupportedActiveFilters().join(', ') }}.</p></div> }
-            <button class="primary wide" type="button" (click)="runSearch()" [disabled]="busy">{{ busy ? 'Quellen werden abgefragt …' : 'Suche starten' }}</button>
+            <button class="primary wide" type="button" (click)="filtersOpen = false; runSearch()" [disabled]="busy">{{ busy ? 'Quellen werden abgefragt …' : 'Suche starten' }}</button>
           </article>
-          <section class="results">
-            <div class="results-head"><div><span class="kicker">ERGEBNISSE</span><h2>{{ matches.length ? matches.length + ' Stellen bewertet' : 'Bereit für die erste Suche' }}</h2></div><label>Sortierung<select [(ngModel)]="resultSort"><option value="score">Suchscore</option><option value="title">Stellentitel</option><option value="company">Unternehmen</option></select></label><button class="secondary compact" type="button" (click)="compareSelectedJobs()" [disabled]="comparisonJobIds.length < 3" [title]="comparisonJobIds.length < 3 ? 'Mindestens drei Stellen über „Vergleich“ markieren' : ''">{{ comparisonJobIds.length < 3 ? comparisonJobIds.length + '/3 zum Vergleich' : comparisonJobIds.length + ' vergleichen' }}</button>@if (matches.length) { <button class="primary compact" data-testid="adopt-search-results" type="button" (click)="adoptSearchResults()" [disabled]="busy || lastSearchAdopted">{{ lastSearchAdopted ? '✓ In „Meine Jobs" übernommen' : 'In „Meine Jobs" übernehmen (' + matches.length + ')' }}</button> }<span class="legend"><i></i> Alle Regeln nachvollziehbar</span></div>
-            @if (comparison; as result) { <div class="panel comparison-panel"><strong>Erklärbarer Stellenvergleich</strong><p>{{ result.disclaimer }}</p>@for (item of result.comparison; track item.jobId) { <div class="summary-row comparison-row"><span>{{ item.total }}</span><div><strong>{{ item.title }} · {{ item.company }}</strong><small>Suchpräferenz {{ item.factors['searchPreference'] }} · Evidence {{ item.factors['evidenceCoverage'] }} · Gaps {{ item.factors['gaps'] }} · Gehalt {{ item.factors['salary'] }}</small></div></div> }</div> }
-            @for (failure of searchFailures; track failure.sourceId) { <div class="warning-box" role="status"><strong>{{ failure.sourceId }}: {{ failure.category }}</strong><p>{{ failure.detail }} {{ failure.retryable ? 'Die Quelle kann bewusst erneut versucht werden.' : 'Eingabe oder Policy prüfen.' }}</p></div> }
-            @if (hiddenMatches().length) { <div class="info-box"><strong>{{ hiddenMatches().length }} ausgeblendet</strong><p>@for (match of hiddenMatches(); track match.job.id) { <button class="text-button" type="button" (click)="setJobDecision(match.job.id, 'neutral')">{{ match.job.title }} wieder anzeigen</button> }</p></div> }
-            @if (!matches.length) {
-              <div class="empty"><span>⌕</span><h3>Noch keine Ergebnisse</h3><p>Starte links eine Suche. Im Demo-Modus funktioniert der komplette Ablauf ohne externe Zugriffe.</p></div>
-            }
-            @for (match of visibleMatches(); track match.job.id) {
-              <article class="job-card" [class.selected]="selectedMatch?.job?.id === match.job.id" (click)="chooseMatch(match)">
-                <div class="score-ring" [class.good]="match.accepted"><strong>{{ match.searchPreferenceScore }}</strong><small>%</small></div>
-                <div class="job-main"><div class="job-title"><span class="source-logo">{{ match.job.sourceId.slice(0, 2) }}</span><div><h3>{{ match.job.title }}</h3><p>{{ match.job.company }} · {{ match.job.location }}</p></div></div>
-                  <p class="description">{{ match.job.description }}</p>
-                  <div class="chips">@for (skill of match.matchedMustHave; track skill) { <span class="chip match">✓ {{ skill }}</span> } @for (skill of match.matchedNiceToHave; track skill) { <span class="chip">{{ skill }}</span> } @for (gap of match.missingMustHave; track gap) { <span class="chip gap">Fehlt: {{ gap }}</span> }</div>
-                </div>
-                <div class="job-actions"><label class="check"><input type="checkbox" [checked]="comparisonJobIds.includes(match.job.id)" (click)="$event.stopPropagation()" (change)="toggleComparison(match.job.id, $any($event.target).checked)"><span>Vergleich</span></label><span class="status" [class.ok]="match.accepted">{{ match.accepted ? 'Passend' : 'Prüfen' }}</span><button class="secondary compact" type="button" (click)="$event.stopPropagation(); setJobDecision(match.job.id, jobDecision(match.job.id) === 'saved' ? 'neutral' : 'saved')">{{ jobDecision(match.job.id) === 'saved' ? 'Nicht mehr merken' : 'Merken' }}</button><button class="secondary compact" type="button" (click)="$event.stopPropagation(); setJobDecision(match.job.id, 'hidden')">Ausblenden</button><button class="secondary compact" type="button" (click)="$event.stopPropagation(); prepareApplication(match)">Bewerbung →</button></div>
-              </article>
-            }
-          </section>
         </section>
+        @if (comparisonJobIds.length) {
+          <div class="compare-bar" role="region" aria-label="Stellenvergleich">
+            <span role="status">{{ comparisonJobIds.length }} von mindestens 3 ausgewählt</span>
+            <button class="text-button" type="button" (click)="comparisonJobIds = []">Auswahl aufheben</button>
+            <button class="primary compact" type="button" (click)="compareSelectedJobs()" [disabled]="comparisonJobIds.length < 3" [title]="comparisonJobIds.length < 3 ? 'Mindestens drei Stellen über „Vergleichen“ markieren' : ''">{{ comparisonJobIds.length < 3 ? comparisonJobIds.length + '/3 zum Vergleich' : comparisonJobIds.length + ' vergleichen' }}</button>
+          </div>
+        }
+        @if (lastHiddenMatch; as hidden) {
+          <div class="undo-bar" role="status"><span>„{{ hidden.title }}“ ausgeblendet.</span><button class="text-button" type="button" (click)="undoHide()">Rückgängig</button></div>
+        }
       }
 
       @if (section === 'jobs') {

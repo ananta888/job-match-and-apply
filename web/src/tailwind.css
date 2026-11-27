@@ -1,0 +1,47 @@
+/*
+ * Tailwind CSS v4 – bewusst isoliert eingebunden:
+ *  - kein Preflight (Reset), damit bestehende Seiten unverändert bleiben;
+ *  - Utilities nur für explizit gelistete Dateien (source(none) + @source),
+ *    damit Klassennamen in app.html (z. B. „hidden“, „panel“) nicht kollidieren.
+ * Neue Tailwind-Komponenten hier per @source ergänzen.
+ */
+@layer theme, base, components, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities) source(none);
+
+@source "./app/overview-home.component.html";
+@source "./app/overview-home.component.ts";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
+
+  /* Markenfarbe = --color-primary (#6855E7) als Skala */
+  --color-brand-50: #f3f1fe;
+  --color-brand-100: #e7e3fd;
+  --color-brand-200: #cfc8fb;
+  --color-brand-500: #6855e7; /* 5.2:1 auf Weiß – große Flächen/Icons */
+  --color-brand-600: #5843d6; /* 6.6:1 – Buttons, Links */
+  --color-brand-700: #4a36b8; /* 8.4:1 – Hero-Fläche */
+
+  /* An bestehende Tokens aus styles.scss angelehnt */
+  --color-ink: #1f2a42;
+  --color-muted: #525d70;
+  --color-canvas: #f3f5f9;
+  --color-line: #e1e5eb;
+  --color-ok: #176947;
+  --color-ok-soft: #e5f8ef;
+  --color-warn: #9a5b00;
+  --color-warn-soft: #fdf4e3;
+}
+
+/* Mini-Reset nur innerhalb von Tailwind-Komponenten (Ersatz für Preflight) */
+@layer base {
+  .tw, .tw *, .tw ::before, .tw ::after { box-sizing: border-box; border: 0 solid; }
+  .tw :where(h1, h2, h3, h4, p, ul, ol, dl, dd, figure) { margin: 0; padding: 0; }
+  .tw :where(h1, h2, h3, h4) { font-size: inherit; font-weight: inherit; }
+  .tw :where(ul, ol) { list-style: none; }
+  .tw :where(a) { color: inherit; text-decoration: inherit; }
+  .tw :where(button) { font: inherit; color: inherit; background: transparent; padding: 0; cursor: pointer; }
+  .tw :where(svg) { display: block; flex-shrink: 0; }
+  .tw :where(a, button):focus-visible { outline: 2px solid var(--color-brand-600); outline-offset: 2px; }
+}

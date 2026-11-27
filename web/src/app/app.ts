@@ -138,6 +138,10 @@ export class App implements OnInit, OnDestroy {
     { id: 'applications', label: 'Bewerbung', group: ['applications', 'crm'] }
   ];
   mobileMenuOpen = false;
+  /** Filterleiste der Jobsuche als Blatt auf Tablet und Handy. */
+  filtersOpen = false;
+  lastHiddenMatch?: { jobId: string; title: string };
+  private lastHiddenTimer?: ReturnType<typeof setTimeout>;
 
   private navItems(ids: Section[]): { id: Section; label: string; icon: string }[] {
     return ids.map((id) => this.nav.find((item) => item.id === id)!);
@@ -152,6 +156,7 @@ export class App implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    if (this.lastHiddenTimer) clearTimeout(this.lastHiddenTimer);
     this.routerSubscription?.unsubscribe();
     this.agents.stopAgentPolling(); this.agents.stopAgentStream(); this.cv.stopCvAiPolling();
     if (this.agents.agentPreflightTimer) clearTimeout(this.agents.agentPreflightTimer);
@@ -652,13 +657,48 @@ export class App implements OnInit, OnDestroy {
       : this.resultSort === 'title' ? left.job.title.localeCompare(right.job.title, 'de') : left.job.company.localeCompare(right.job.company, 'de'));
   }
   hiddenMatches(): JobMatch[] { return this.matches.filter((item) => this.jobDecision(item.job.id) === 'hidden'); }
-  setJobDecision(jobId: string, state: JobDecision['state']): void {
+  setJobDecision(jobId: string, state: JobDecision['state'], announce = true): void {
     this.api.setJobDecision(jobId, state).subscribe({ next: (decision) => {
       this.jobDecisions = [decision, ...this.jobDecisions.filter((item) => item.jobId !== jobId)];
-      this.notice = state === 'neutral' ? 'Entscheidung rückgängig gemacht.' : state === 'saved' ? 'Stelle gemerkt.' : 'Stelle ausgeblendet.';
+      if (announce) this.notice = state === 'neutral' ? 'Entscheidung rückgängig gemacht.' : state === 'saved' ? 'Stelle gemerkt.' : 'Stelle ausgeblendet.';
       this.refreshView();
     }, error: (error) => this.fail(error) });
   }
+  /** Score-Band nach Spezifikation: ab 80 passend, ab 60 prüfen, darunter neutral (ein niedriger Score ist kein Fehler). */
+  scoreBand(score: number): 'high' | 'mid' | 'low' { return score >= 80 ? 'high' : score >= 60 ? 'mid' : 'low'; }
+  scoreBandLabel(score: number): string { return ({ high: 'passt gut', mid: 'teilweise passend', low: 'wenig passend' } as const)[this.scoreBand(score)]; }
+
+  /** Anzahl gesetzter Filter für den Filter-Button auf Tablet und Handy. */
+  activeFilterCount(): number {
+    const profile = this.config?.searchProfile;
+    if (!profile) return 0;
+    return [profile.query.trim(), profile.regions.length, profile.mustHave.length, profile.niceToHave.length, profile.exclude.length, profile.minSalary]
+      .filter((value) => Boolean(value)).length;
+  }
+
+  /** Öffnet die Filter als Blatt (Tablet, Handy) und setzt den Fokus hinein; beim Schließen zurück auf den Auslöser. */
+  toggleFilters(open = !this.filtersOpen): void {
+    this.filtersOpen = open;
+    this.refreshView();
+    if (typeof document === 'undefined') return;
+    setTimeout(() => (document.querySelector<HTMLElement>(open ? '#filters-title' : '.filters-toggle'))?.focus(), 0);
+  }
+
+  /** Blendet eine Stelle aus und bietet 6 Sekunden lang „Rückgängig“ an. */
+  hideMatch(match: JobMatch): void {
+    this.setJobDecision(match.job.id, 'hidden', false);
+    if (this.lastHiddenTimer) clearTimeout(this.lastHiddenTimer);
+    this.lastHiddenMatch = { jobId: match.job.id, title: match.job.title };
+    this.lastHiddenTimer = setTimeout(() => { this.lastHiddenMatch = undefined; this.lastHiddenTimer = undefined; this.refreshView(); }, 6_000);
+  }
+
+  undoHide(): void {
+    const hidden = this.lastHiddenMatch; if (!hidden) return;
+    if (this.lastHiddenTimer) clearTimeout(this.lastHiddenTimer);
+    this.lastHiddenMatch = undefined; this.lastHiddenTimer = undefined;
+    this.setJobDecision(hidden.jobId, 'neutral');
+  }
+
   toggleComparison(jobId: string, selected: boolean): void {
     const ids = new Set(this.comparisonJobIds); selected ? ids.add(jobId) : ids.delete(jobId);
     this.comparisonJobIds = [...ids].slice(0, 10);

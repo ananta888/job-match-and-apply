@@ -103,3 +103,41 @@ code { font-family: 'SFMono-Regular', Consolas, monospace; }
   .bottom-bar button:focus-visible { outline: 2px solid #b9adff; outline-offset: -2px; }
   main { padding-bottom: 88px; }
 }
+/* Jobsuche: Ergebnisse links und breit, Filter rechts; ab Tablet als Blatt. */
+.search-layout { grid-template-columns: minmax(0, 1fr) 330px; }
+.results-tools { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; }
+.filters-toggle, .filters-close { display: none; }
+.score-ring[data-band="high"] { border-color: #75deb0; color: var(--color-success); }
+.score-ring[data-band="mid"] { border-color: #f1d27a; color: #7a5f12; }
+.score-ring[data-band="low"] { border-color: var(--color-border); color: var(--color-text-secondary); }
+.job-actions { gap: 8px; }
+.job-buttons { display: flex; flex-wrap: wrap; justify-content: end; gap: 6px; }
+.compare-check { min-height: 24px; }
+.source-note { margin-bottom: 8px; }
+.compare-bar, .undo-bar { position: fixed; left: 50%; transform: translateX(-50%); z-index: 15; display: flex; align-items: center; gap: 12px; padding: 10px 12px 10px 16px; border-radius: 12px; background: #11182b; color: white; box-shadow: 0 12px 30px #1b244040; font-size: var(--fs-3); max-width: calc(100vw - 32px); }
+.compare-bar { bottom: 24px; }
+.undo-bar { bottom: 84px; }
+.compare-bar .text-button, .undo-bar .text-button { color: #c9beff; font-size: var(--fs-2); }
+.skeleton { cursor: default; }
+.sk { display: block; border-radius: 8px; background: linear-gradient(90deg, #eef0f4 25%, #f6f7f9 50%, #eef0f4 75%); background-size: 200% 100%; animation: sk-shimmer 1.2s linear infinite; }
+.sk-ring { width: 53px; height: 53px; border-radius: 50%; }
+.sk-lines { display: grid; gap: 10px; align-content: start; }
+.sk-title { height: 16px; width: 55%; }.sk-line { height: 12px; width: 85%; }.sk-line.short { width: 40%; }
+@keyframes sk-shimmer { to { background-position: -200% 0; } }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+@media (prefers-reduced-motion: reduce) { .sk { animation: none; } }
+@media (max-width: 1024px) {
+  .search-layout { grid-template-columns: minmax(0, 1fr); }
+  .filters-toggle, .filters-close { display: inline-flex; }
+  .filters { display: none; }
+  .filters.open { display: block; position: fixed; inset: auto 0 0 0; z-index: 25; max-height: 85vh; overflow-y: auto; border-radius: 16px 16px 0 0; box-shadow: 0 -16px 40px #1b244040; }
+}
+@media (max-width: 760px) {
+  .compare-bar { bottom: 76px; }
+  .undo-bar { bottom: 136px; }
+  .filters.open { bottom: 64px; max-height: calc(100vh - 140px); }
+}
+/* Erfolgsmeldungen blenden sich nach 6 s aus, damit sie keine Bedienelemente verdecken; Fehler bleiben stehen. */
+.toast.success { animation: toast-fade 300ms ease 6s forwards; }
+@keyframes toast-fade { to { opacity: 0; visibility: hidden; } }
+@media (prefers-reduced-motion: reduce) { .toast.success { animation-duration: 1ms; } }

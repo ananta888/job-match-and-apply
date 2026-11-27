@@ -63,8 +63,31 @@
 
       @if (section === 'search') {
         <section class="page-grid search-layout">
-          <article class="panel filters">
-            <div class="panel-head"><div><span class="kicker">FILTER</span><h3>Wonach suchst du?</h3></div></div>
+          <section class="results">
+            <div class="results-head"><div><span class="kicker">ERGEBNISSE</span><h2>{{ busy ? 'Quellen werden abgefragt …' : matches.length ? matches.length + ' Stellen bewertet' : 'Bereit für die erste Suche' }}</h2></div><div class="results-tools"><button class="secondary compact filters-toggle" type="button" aria-controls="search-filters" [attr.aria-expanded]="filtersOpen" (click)="toggleFilters()">Filter & Suche ({{ activeFilterCount() }})</button><label>Sortierung<select [(ngModel)]="resultSort"><option value="score">Suchscore</option><option value="title">Stellentitel</option><option value="company">Unternehmen</option></select></label>@if (matches.length) { <button class="secondary compact" data-testid="adopt-search-results" type="button" (click)="adoptSearchResults()" [disabled]="busy || lastSearchAdopted">{{ lastSearchAdopted ? '✓ In „Meine Jobs" übernommen' : 'In „Meine Jobs" übernehmen (' + matches.length + ')' }}</button> }</div></div>
+            @if (comparison; as result) { <div class="panel comparison-panel"><strong>Erklärbarer Stellenvergleich</strong><p>{{ result.disclaimer }}</p>@for (item of result.comparison; track item.jobId) { <div class="summary-row comparison-row"><span>{{ item.total }}</span><div><strong>{{ item.title }} · {{ item.company }}</strong><small>Suchpräferenz {{ item.factors['searchPreference'] }} · Evidence {{ item.factors['evidenceCoverage'] }} · Gaps {{ item.factors['gaps'] }} · Gehalt {{ item.factors['salary'] }}</small></div></div> }</div> }
+            @for (failure of searchFailures; track failure.sourceId) { <div class="info-box source-note" role="status"><strong>{{ failure.sourceId }}: {{ failure.category }}</strong><p>{{ failure.detail }} {{ failure.retryable ? 'Die Quelle kann bewusst erneut versucht werden.' : 'Eingabe oder Policy prüfen.' }}</p></div> }
+            @if (hiddenMatches().length) { <div class="info-box"><strong>{{ hiddenMatches().length }} ausgeblendet</strong><p>@for (match of hiddenMatches(); track match.job.id) { <button class="text-button" type="button" (click)="setJobDecision(match.job.id, 'neutral')">{{ match.job.title }} wieder anzeigen</button> }</p></div> }
+            @if (busy) {
+              <p class="sr-only" role="status">Quellen werden abgefragt …</p>
+              @for (placeholder of [1, 2, 3]; track placeholder) { <div class="job-card skeleton" aria-hidden="true"><span class="sk sk-ring"></span><span class="sk-lines"><span class="sk sk-title"></span><span class="sk sk-line"></span><span class="sk sk-line short"></span></span></div> }
+            }
+            @if (!matches.length && !busy) {
+              <div class="empty"><span>⌕</span><h3>Noch keine Ergebnisse</h3><p>Starte über „Suche starten“ eine Suche. Im Demo-Modus funktioniert der komplette Ablauf ohne externe Zugriffe.</p></div>
+            }
+            @for (match of visibleMatches(); track match.job.id) {
+              <article class="job-card" [class.selected]="selectedMatch?.job?.id === match.job.id" (click)="chooseMatch(match)">
+                <div class="score-ring" [attr.data-band]="scoreBand(match.searchPreferenceScore)" role="img" [attr.aria-label]="'Suchscore ' + match.searchPreferenceScore + ' Prozent, ' + scoreBandLabel(match.searchPreferenceScore)"><strong aria-hidden="true">{{ match.searchPreferenceScore }}</strong><small aria-hidden="true">%</small></div>
+                <div class="job-main"><div class="job-title"><span class="source-logo">{{ match.job.sourceId.slice(0, 2) }}</span><div><h3>{{ match.job.title }}</h3><p>{{ match.job.company }} · {{ match.job.location }}</p></div></div>
+                  <p class="description">{{ match.job.description }}</p>
+                  <div class="chips">@for (skill of match.matchedMustHave; track skill) { <span class="chip match">✓ {{ skill }}</span> } @for (skill of match.matchedNiceToHave; track skill) { <span class="chip">{{ skill }}</span> } @for (gap of match.missingMustHave; track gap) { <span class="chip gap">Fehlt: {{ gap }}</span> }</div>
+                </div>
+                <div class="job-actions"><label class="check compare-check"><input type="checkbox" [checked]="comparisonJobIds.includes(match.job.id)" (click)="$event.stopPropagation()" (change)="toggleComparison(match.job.id, $any($event.target).checked)"><span>Vergleichen</span></label><span class="status" [class.ok]="match.accepted">{{ match.accepted ? 'Passend' : 'Prüfen' }}</span><div class="job-buttons"><button class="secondary compact" type="button" [attr.aria-pressed]="jobDecision(match.job.id) === 'saved'" (click)="$event.stopPropagation(); setJobDecision(match.job.id, jobDecision(match.job.id) === 'saved' ? 'neutral' : 'saved')">{{ jobDecision(match.job.id) === 'saved' ? 'Gemerkt' : 'Merken' }}</button><button class="secondary compact" type="button" [attr.aria-label]="'„' + match.job.title + '“ ausblenden'" (click)="$event.stopPropagation(); hideMatch(match)">Ausblenden</button><button class="primary compact" type="button" [attr.aria-label]="'Bewerbung für „' + match.job.title + '“ bei ' + match.job.company + ' starten'" (click)="$event.stopPropagation(); prepareApplication(match)">Bewerbung starten</button></div></div>
+              </article>
+            }
+          </section>
+          <article class="panel filters" id="search-filters" [class.open]="filtersOpen" aria-labelledby="filters-title">
+            <div class="panel-head"><div><span class="kicker">FILTER</span><h3 id="filters-title" tabindex="-1">Wonach suchst du?</h3></div><button class="secondary compact filters-close" type="button" (click)="toggleFilters(false)">Schließen</button></div>
             <label>Suchbegriff<input [(ngModel)]="config.searchProfile.query" placeholder="z. B. Angular Developer"></label>
             <label>Regionen <span>kommagetrennt</span><input [ngModel]="list('regions')" (ngModelChange)="updateList('regions', $event)"></label>
             <div class="field-pair"><label>Umkreis<input type="number" [(ngModel)]="config.searchProfile.radiusKm"><small>km</small></label><label>Mindestgehalt<input type="number" [(ngModel)]="config.searchProfile.minSalary"><small>€</small></label></div>
@@ -75,28 +98,19 @@
               @for (source of sources; track source.id) { <label class="check"><input type="checkbox" [checked]="sourceSelected(source.id)" [disabled]="sourceCapability(source.id)?.compatible === false" (change)="toggleSource(source.id, $any($event.target).checked)"><span>{{ source.name }}</span></label> }
             </div>
             @if (unsupportedActiveFilters().length) { <div class="info-box"><strong>Quellenfilter transparent</strong><p>Diese Regeln werden nicht an alle Quellen übertragen, sondern lokal angewandt oder sind dort nicht verfügbar: {{ unsupportedActiveFilters().join(', ') }}.</p></div> }
-            <button class="primary wide" type="button" (click)="runSearch()" [disabled]="busy">{{ busy ? 'Quellen werden abgefragt …' : 'Suche starten' }}</button>
+            <button class="primary wide" type="button" (click)="filtersOpen = false; runSearch()" [disabled]="busy">{{ busy ? 'Quellen werden abgefragt …' : 'Suche starten' }}</button>
           </article>
-          <section class="results">
-            <div class="results-head"><div><span class="kicker">ERGEBNISSE</span><h2>{{ matches.length ? matches.length + ' Stellen bewertet' : 'Bereit für die erste Suche' }}</h2></div><label>Sortierung<select [(ngModel)]="resultSort"><option value="score">Suchscore</option><option value="title">Stellentitel</option><option value="company">Unternehmen</option></select></label><button class="secondary compact" type="button" (click)="compareSelectedJobs()" [disabled]="comparisonJobIds.length < 3" [title]="comparisonJobIds.length < 3 ? 'Mindestens drei Stellen über „Vergleich“ markieren' : ''">{{ comparisonJobIds.length < 3 ? comparisonJobIds.length + '/3 zum Vergleich' : comparisonJobIds.length + ' vergleichen' }}</button>@if (matches.length) { <button class="primary compact" data-testid="adopt-search-results" type="button" (click)="adoptSearchResults()" [disabled]="busy || lastSearchAdopted">{{ lastSearchAdopted ? '✓ In „Meine Jobs" übernommen' : 'In „Meine Jobs" übernehmen (' + matches.length + ')' }}</button> }<span class="legend"><i></i> Alle Regeln nachvollziehbar</span></div>
-            @if (comparison; as result) { <div class="panel comparison-panel"><strong>Erklärbarer Stellenvergleich</strong><p>{{ result.disclaimer }}</p>@for (item of result.comparison; track item.jobId) { <div class="summary-row comparison-row"><span>{{ item.total }}</span><div><strong>{{ item.title }} · {{ item.company }}</strong><small>Suchpräferenz {{ item.factors['searchPreference'] }} · Evidence {{ item.factors['evidenceCoverage'] }} · Gaps {{ item.factors['gaps'] }} · Gehalt {{ item.factors['salary'] }}</small></div></div> }</div> }
-            @for (failure of searchFailures; track failure.sourceId) { <div class="warning-box" role="status"><strong>{{ failure.sourceId }}: {{ failure.category }}</strong><p>{{ failure.detail }} {{ failure.retryable ? 'Die Quelle kann bewusst erneut versucht werden.' : 'Eingabe oder Policy prüfen.' }}</p></div> }
-            @if (hiddenMatches().length) { <div class="info-box"><strong>{{ hiddenMatches().length }} ausgeblendet</strong><p>@for (match of hiddenMatches(); track match.job.id) { <button class="text-button" type="button" (click)="setJobDecision(match.job.id, 'neutral')">{{ match.job.title }} wieder anzeigen</button> }</p></div> }
-            @if (!matches.length) {
-              <div class="empty"><span>⌕</span><h3>Noch keine Ergebnisse</h3><p>Starte links eine Suche. Im Demo-Modus funktioniert der komplette Ablauf ohne externe Zugriffe.</p></div>
-            }
-            @for (match of visibleMatches(); track match.job.id) {
-              <article class="job-card" [class.selected]="selectedMatch?.job?.id === match.job.id" (click)="chooseMatch(match)">
-                <div class="score-ring" [class.good]="match.accepted"><strong>{{ match.searchPreferenceScore }}</strong><small>%</small></div>
-                <div class="job-main"><div class="job-title"><span class="source-logo">{{ match.job.sourceId.slice(0, 2) }}</span><div><h3>{{ match.job.title }}</h3><p>{{ match.job.company }} · {{ match.job.location }}</p></div></div>
-                  <p class="description">{{ match.job.description }}</p>
-                  <div class="chips">@for (skill of match.matchedMustHave; track skill) { <span class="chip match">✓ {{ skill }}</span> } @for (skill of match.matchedNiceToHave; track skill) { <span class="chip">{{ skill }}</span> } @for (gap of match.missingMustHave; track gap) { <span class="chip gap">Fehlt: {{ gap }}</span> }</div>
-                </div>
-                <div class="job-actions"><label class="check"><input type="checkbox" [checked]="comparisonJobIds.includes(match.job.id)" (click)="$event.stopPropagation()" (change)="toggleComparison(match.job.id, $any($event.target).checked)"><span>Vergleich</span></label><span class="status" [class.ok]="match.accepted">{{ match.accepted ? 'Passend' : 'Prüfen' }}</span><button class="secondary compact" type="button" (click)="$event.stopPropagation(); setJobDecision(match.job.id, jobDecision(match.job.id) === 'saved' ? 'neutral' : 'saved')">{{ jobDecision(match.job.id) === 'saved' ? 'Nicht mehr merken' : 'Merken' }}</button><button class="secondary compact" type="button" (click)="$event.stopPropagation(); setJobDecision(match.job.id, 'hidden')">Ausblenden</button><button class="secondary compact" type="button" (click)="$event.stopPropagation(); prepareApplication(match)">Bewerbung →</button></div>
-              </article>
-            }
-          </section>
         </section>
+        @if (comparisonJobIds.length) {
+          <div class="compare-bar" role="region" aria-label="Stellenvergleich">
+            <span role="status">{{ comparisonJobIds.length }} von mindestens 3 ausgewählt</span>
+            <button class="text-button" type="button" (click)="comparisonJobIds = []">Auswahl aufheben</button>
+            <button class="primary compact" type="button" (click)="compareSelectedJobs()" [disabled]="comparisonJobIds.length < 3" [title]="comparisonJobIds.length < 3 ? 'Mindestens drei Stellen über „Vergleichen“ markieren' : ''">{{ comparisonJobIds.length < 3 ? comparisonJobIds.length + '/3 zum Vergleich' : comparisonJobIds.length + ' vergleichen' }}</button>
+          </div>
+        }
+        @if (lastHiddenMatch; as hidden) {
+          <div class="undo-bar" role="status"><span>„{{ hidden.title }}“ ausgeblendet.</span><button class="text-button" type="button" (click)="undoHide()">Rückgängig</button></div>
+        }
       }
 
       @if (section === 'jobs') {

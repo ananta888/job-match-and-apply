@@ -2812,4 +2812,23 @@ describe('App', () => {
     fixture.destroy();
   });
 
+  it('bands the search score without alarm colours and offers undo after hiding a job', async () => {
+    const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
+    const component = fixture.componentInstance;
+    expect([component.scoreBand(93), component.scoreBand(65), component.scoreBand(20)]).toEqual(['high', 'mid', 'low']);
+    apiMock['setJobDecision'] = vi.fn((jobId: string, state: string) => of({ jobId, state, updatedAt: '2026-11-27T12:00:00Z' }));
+    vi.useFakeTimers();
+    try {
+      component.hideMatch({ job: { id: 'job-x', title: 'Synthetische Stelle' } } as never);
+      expect(component.lastHiddenMatch).toEqual({ jobId: 'job-x', title: 'Synthetische Stelle' });
+      component.undoHide();
+      expect(apiMock['setJobDecision']).toHaveBeenLastCalledWith('job-x', 'neutral');
+      expect(component.lastHiddenMatch).toBeUndefined();
+      component.hideMatch({ job: { id: 'job-y', title: 'Zweite Stelle' } } as never);
+      vi.advanceTimersByTime(6_000);
+      expect(component.lastHiddenMatch).toBeUndefined();
+    } finally { vi.useRealTimers(); }
+    fixture.destroy();
+  });
+
 });

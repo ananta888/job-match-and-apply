@@ -520,7 +520,11 @@ describe('App', () => {
 
     fixture.componentInstance.select('search'); fixture.detectChanges(); await fixture.whenStable();
     expect(currentNavigation()).toHaveLength(1);
-    expect(currentNavigation()[0]?.textContent).toContain('Jobsuche');
+    expect(currentNavigation()[0]?.textContent?.trim()).toBe('Suche');
+    // Die Suche liegt in der Gruppe „Jobs“; Gruppen sind beschriftet, nicht klickbar.
+    const group = currentNavigation()[0]?.closest('[role="group"]');
+    expect(group?.getAttribute('aria-labelledby') && element.querySelector(`#${group.getAttribute('aria-labelledby')}`)?.textContent).toBe('Jobs');
+    expect(element.querySelectorAll('nav[aria-label="Hauptnavigation"] .nav-group')).toHaveLength(6);
   });
 
   it('uses runtime diagnostics instead of mode and exposes no free MCP launch or environment inputs', async () => {

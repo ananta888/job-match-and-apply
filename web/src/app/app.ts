@@ -110,16 +110,40 @@ export class App implements OnInit, OnDestroy {
 
   readonly nav: { id: Section; label: string; icon: string }[] = [
     { id: 'overview', label: 'Übersicht', icon: 'grid' },
-    { id: 'search', label: 'Jobsuche', icon: 'search' },
+    { id: 'search', label: 'Suche', icon: 'search' },
     { id: 'jobs', label: 'Meine Jobs', icon: 'grid' },
+    { id: 'applications', label: 'Bewerbungsfälle', icon: 'file' },
+    { id: 'crm', label: 'Firmen & Antworten', icon: 'nodes' },
     { id: 'identity', label: 'Profil & Identität', icon: 'user' },
     { id: 'cv', label: 'Lebenslauf', icon: 'file' },
-    { id: 'sources', label: 'Quellen & MCP', icon: 'nodes' },
-    { id: 'applications', label: 'Bewerbung', icon: 'file' },
-    { id: 'crm', label: 'Firmen & Antworten', icon: 'nodes' },
     { id: 'agents', label: 'Agent Center', icon: 'terminal' },
+    { id: 'sources', label: 'Quellen & MCP', icon: 'nodes' },
     { id: 'operations', label: 'Daten & Betrieb', icon: 'nodes' }
   ];
+
+  /** Sechs Hauptbereiche; Gruppen mit mehreren Einträgen zeigen eine Überschrift. */
+  readonly navGroups: { label?: string; items: { id: Section; label: string; icon: string }[] }[] = [
+    { items: this.navItems(['overview']) },
+    { label: 'Jobs', items: this.navItems(['search', 'jobs']) },
+    { label: 'Bewerbungen', items: this.navItems(['applications', 'crm']) },
+    { label: 'Profil', items: this.navItems(['identity', 'cv']) },
+    { items: this.navItems(['agents']) },
+    { label: 'Einstellungen', items: this.navItems(['sources', 'operations']) }
+  ];
+
+  /** Mobile Leiste unten: die drei häufigsten Ziele plus „Mehr“. */
+  readonly mobileNav: { id: Section; label: string; group: Section[] }[] = [
+    { id: 'overview', label: 'Übersicht', group: ['overview'] },
+    { id: 'search', label: 'Jobs', group: ['search', 'jobs'] },
+    { id: 'applications', label: 'Bewerbung', group: ['applications', 'crm'] }
+  ];
+  mobileMenuOpen = false;
+
+  private navItems(ids: Section[]): { id: Section; label: string; icon: string }[] {
+    return ids.map((id) => this.nav.find((item) => item.id === id)!);
+  }
+
+  toggleMobileMenu(open = !this.mobileMenuOpen): void { this.mobileMenuOpen = open; }
 
   ngOnInit(): void {
     this.agents.configureAgentMotionPreference();
@@ -284,7 +308,7 @@ export class App implements OnInit, OnDestroy {
   }
 
   private applySection(section: Section): void {
-    this.section = section; this.notice = ''; this.error = '';
+    this.section = section; this.notice = ''; this.error = ''; this.mobileMenuOpen = false;
     if (section !== 'agents' && section !== 'cv' && section !== 'applications') this.agents.stopAgentPolling();
     if (section !== 'agents') { this.agents.stopAgentStream(); this.agents.closeAgentRecoveryDialog(); }
     if (section !== 'cv') this.cv.stopCvAiPolling();

@@ -4,15 +4,27 @@ import type { Section } from './models';
 /** URL-Pfad je Arbeitsbereich. Reihenfolge und Namen bleiben deutsch, wie die Oberfläche. */
 export const SECTION_PATHS: Record<Section, string> = {
   overview: '',
-  search: 'jobsuche',
-  jobs: 'meine-jobs',
+  search: 'jobs/suche',
+  jobs: 'jobs/liste',
   identity: 'profil',
-  cv: 'lebenslauf',
-  sources: 'quellen',
+  cv: 'profil/lebenslauf',
+  sources: 'einstellungen/quellen',
   applications: 'bewerbung',
-  crm: 'firmen',
+  crm: 'bewerbung/firmen',
   agents: 'agenten',
-  operations: 'betrieb'
+  operations: 'einstellungen/daten'
+};
+
+/** Frühere Adressen leiten weiter, damit Lesezeichen gültig bleiben. */
+export const LEGACY_REDIRECTS: Record<string, string> = {
+  jobsuche: 'jobs/suche',
+  'meine-jobs': 'jobs/liste',
+  jobs: 'jobs/suche',
+  lebenslauf: 'profil/lebenslauf',
+  quellen: 'einstellungen/quellen',
+  betrieb: 'einstellungen/daten',
+  einstellungen: 'einstellungen/quellen',
+  firmen: 'bewerbung/firmen'
 };
 
 const SECTION_TITLES: Record<Section, string> = {
@@ -30,7 +42,8 @@ const SECTION_TITLES: Record<Section, string> = {
 
 /** Liefert den Bereich zu einer URL (ohne Query und Fragment); unbekannte Pfade fallen auf die Übersicht zurück. */
 export function sectionFromUrl(url: string): Section {
-  const path = url.split(/[?#]/)[0].replace(/^\/+|\/+$/g, '');
+  const raw = url.split(/[?#]/)[0].replace(/^\/+|\/+$/g, '');
+  const path = LEGACY_REDIRECTS[raw] ?? raw;
   const match = (Object.entries(SECTION_PATHS) as Array<[Section, string]>).find(([, value]) => value === path);
   return match ? match[0] : 'overview';
 }
@@ -50,5 +63,6 @@ export const routes: Routes = [
     data: { section },
     children: []
   })),
+  ...Object.entries(LEGACY_REDIRECTS).map(([path, redirectTo]) => ({ path, pathMatch: 'full' as const, redirectTo })),
   { path: '**', redirectTo: '' }
 ];

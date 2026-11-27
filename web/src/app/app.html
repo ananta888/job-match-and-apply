@@ -5,11 +5,16 @@
       <div class="brand-mark">JM</div>
       <div><strong>JobMatch</strong><span>& Apply</span></div>
     </div>
-    <nav aria-label="Hauptnavigation">
-      @for (item of nav; track item.id) {
-        <button type="button" [class.active]="section === item.id" [attr.aria-current]="section === item.id ? 'page' : null" (click)="select(item.id)">
-          <span class="nav-icon" [attr.data-icon]="item.icon"></span>{{ item.label }}
-        </button>
+    <nav aria-label="Hauptnavigation" id="main-navigation" [class.open]="mobileMenuOpen">
+      @for (group of navGroups; track $index) {
+        <div class="nav-group" [attr.role]="group.label ? 'group' : null" [attr.aria-labelledby]="group.label ? 'nav-group-' + $index : null">
+          @if (group.label) { <p class="nav-group-label" [id]="'nav-group-' + $index">{{ group.label }}</p> }
+          @for (item of group.items; track item.id) {
+            <button type="button" [class.active]="section === item.id" [class.nested]="!!group.label" [attr.aria-current]="section === item.id ? 'page' : null" (click)="select(item.id)">
+              <span class="nav-icon" [attr.data-icon]="item.icon"></span>{{ item.label }}
+            </button>
+          }
+        </div>
       }
     </nav>
     <div class="privacy-card">
@@ -22,6 +27,12 @@
       <span class="dot online"></span>
     </div>
   </aside>
+  <nav class="bottom-bar" aria-label="Schnellnavigation">
+    @for (item of mobileNav; track item.id) {
+      <button type="button" [class.active]="item.group.includes(section) && !mobileMenuOpen" [attr.aria-current]="item.group.includes(section) ? 'page' : null" (click)="select(item.id)">{{ item.label }}</button>
+    }
+    <button type="button" [class.active]="mobileMenuOpen" aria-controls="main-navigation" [attr.aria-expanded]="mobileMenuOpen" (click)="toggleMobileMenu()">Mehr</button>
+  </nav>
 
   <main id="main-content" tabindex="-1">
     <header class="topbar">

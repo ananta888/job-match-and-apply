@@ -6,6 +6,7 @@ import germanDictionary from 'dictionary-de';
 import englishDictionary from 'dictionary-en';
 import nspell from 'nspell';
 import { buildMinimalLocalChildEnvironment } from './process-environment.js';
+import { pythonExecutable } from '../adapters/python-executable.js';
 
 const execute = promisify(execFile);
 const MAX_LOCAL_ISSUES = 200;
@@ -113,7 +114,7 @@ export class LocalLanguageChecker {
     const args = [resolve(this.skillRoot, 'scripts', 'language_check.py'), '--backend', backend, '--document', documentPath, '--language', language, '--format', 'json'];
     if (backend === 'languagetool') args.push('--server', this.environment.LANGUAGETOOL_URL || 'http://localhost:8010/v2/check');
     try {
-      const { stdout } = await execute(this.environment.PYTHON_EXECUTABLE || 'python', args, {
+      const { stdout } = await execute(pythonExecutable(this.environment), args, {
         cwd: this.skillRoot,
         windowsHide: true,
         env: buildMinimalLocalChildEnvironment(this.environment)

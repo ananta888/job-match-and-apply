@@ -19,6 +19,7 @@ import type {
 } from '../services/cv-ai-structuring-store.js';
 import { buildMinimalLocalChildEnvironment } from '../services/process-environment.js';
 import { SafeHttpError, type SafeErrorStage } from '../services/safe-http-error.js';
+import { pythonExecutable } from './python-executable.js';
 
 const sha256 = (value: Buffer | string) => createHash('sha256').update(value).digest('hex');
 
@@ -612,7 +613,7 @@ export class SubmoduleCvNormalizationAdapter implements CvNormalizationPort {
     try {
       const result = await new Promise<{ stdout: string; exitCode: number | null }>((resolveOutput, rejectOutput) => {
         // macOS und viele Linux-Systeme kennen nur `python3`; Windows installiert `python`.
-        const python = process.env.PYTHON_EXECUTABLE || (process.platform === 'win32' ? 'python' : 'python3');
+        const python = pythonExecutable();
         const child = spawn(python, [script, ...args], {
           cwd: this.root, env: cvContractChildEnvironment(), windowsHide: true, shell: false,
           stdio: ['pipe', 'pipe', 'pipe'],

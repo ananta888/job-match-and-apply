@@ -12,6 +12,7 @@ import {
   type ClaimPatchOperation,
 } from '../ports/candidate-profile.js';
 import { buildMinimalLocalChildEnvironment } from '../services/process-environment.js';
+import { pythonExecutable } from './python-executable.js';
 
 const execute = promisify(execFile);
 
@@ -80,7 +81,7 @@ export class LocalCandidateProfileAdapter implements CandidateProfilePort {
   private async run(args: string[]): Promise<Record<string, unknown>> {
     const skillRoot = this.path(this.settings.skillPath);
     try {
-      const { stdout } = await execute(process.env.PYTHON_EXECUTABLE || 'python', [resolve(skillRoot, 'scripts', 'profile_contract.py'), ...args], {
+      const { stdout } = await execute(pythonExecutable(), [resolve(skillRoot, 'scripts', 'profile_contract.py'), ...args], {
         cwd: skillRoot, windowsHide: true, env: buildMinimalLocalChildEnvironment()
       });
       return JSON.parse(stdout) as Record<string, unknown>;

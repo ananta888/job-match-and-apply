@@ -405,6 +405,14 @@ export class App implements OnInit, OnDestroy {
     if (this.mcpRuntime.connected) return 'MCP verbunden';
     return ({ demo: 'Sicherer Demo-Modus', ready_to_connect: 'Startpfad bereit', invalid: 'Runtime ungültig' } as const)[this.mcpRuntime.state];
   }
+  /** Verständlicher Status für die Kopfzeile; die technische Bezeichnung bleibt im Bereich „Quellen & MCP“. */
+  headerStatusLabel(): string {
+    return ({ loading: 'Status wird geprüft', demo: 'Demo-Modus', ready: 'Jobsuche startklar', connected: 'Jobsuche verbunden', invalid: 'Jobsuche gestört' } as const)[this.mcpRuntimeState()];
+  }
+  /** Der globale Speichern-Knopf erscheint nur dort, wo die lokale Konfiguration bearbeitet wird. */
+  hasSettingsToSave(): boolean {
+    return (['search', 'identity', 'sources'] as Section[]).includes(this.section);
+  }
   mcpRuntimeState(): 'loading' | 'demo' | 'ready' | 'connected' | 'invalid' {
     if (!this.mcpRuntime) return 'loading';
     if (this.mcpRuntime.connected) return 'connected';

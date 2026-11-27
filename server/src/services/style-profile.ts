@@ -6,6 +6,7 @@ import { promisify } from 'node:util';
 import YAML from 'yaml';
 import type { AppConfig } from '../domain/models.js';
 import { buildMinimalLocalChildEnvironment } from './process-environment.js';
+import { pythonExecutable } from '../adapters/python-executable.js';
 
 const execute = promisify(execFile);
 const SHA256 = /^[a-f0-9]{64}$/;
@@ -322,7 +323,7 @@ export class ApplicationStyleProfileStore {
 
   private async validateWithSkill(candidateStylePath: string): Promise<void> {
     if (this.validationOverride) { await this.validationOverride(candidateStylePath); return; }
-    const python = process.env.PYTHON_EXECUTABLE || 'python';
+    const python = pythonExecutable();
     try {
       await execute(python, [resolve(this.skillPath, 'scripts', 'validate_profiles.py'), '--candidate', this.candidatePath, '--style', candidateStylePath], {
         cwd: this.skillPath, windowsHide: true, timeout: 30_000, maxBuffer: 128 * 1024,

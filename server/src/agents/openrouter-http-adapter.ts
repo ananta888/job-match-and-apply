@@ -8,7 +8,9 @@ import {
   type AgentRunnerPort,
   type ProviderRunContext,
 } from '../ports/agent-runner.js';
-import { providerCredentialEnv } from './provider-credentials.js';
+import {
+  OPENROUTER_ENDPOINT_ENV, OPENROUTER_ENDPOINT_PATTERN, providerCredentialEnv,
+} from './provider-credentials.js';
 
 /**
  * Tool-less direct model access behind the AgentRunnerPort. The application
@@ -120,20 +122,32 @@ interface ChatCompletionResult {
 
 export class OpenRouterHttpAgentAdapter implements AgentRunnerPort {
   readonly provider = OPENROUTER_PROVIDER_ID;
-  private readonly endpoint: string;
   private readonly contexts = new Map<string, { controller: AbortController; cancelled: boolean }>();
 
   constructor(private readonly options: OpenRouterHttpAdapterOptions = {}) {
-    this.endpoint = options.endpoint ?? OPENROUTER_DEFAULT_ENDPOINT;
-    if (!/^https:\/\/[A-Za-z0-9.-]+(?::\d+)?\/[A-Za-z0-9./_-]*$/.test(this.endpoint)) {
+    if (options.endpoint !== undefined && !OPENROUTER_ENDPOINT_PATTERN.test(options.endpoint)) {
       throw new Error('openrouter_endpoint_invalid');
     }
   }
 
+  private credentials(): NodeJS.ProcessEnv {
+    return (this.options.credentialEnv ?? providerCredentialEnv)(this.provider);
+  }
+
   private key(): string | undefined {
-    const env = (this.options.credentialEnv ?? providerCredentialEnv)(this.provider);
-    const value = env.OPENROUTER_API_KEY;
+    const value = this.credentials().OPENROUTER_API_KEY;
     return typeof value === 'string' && value.trim() ? value : undefined;
+  }
+
+  /**
+   * Endpoint precedence: explicit constructor option, then the operator-entered URL stored with the
+   * OpenRouter credentials (validated on save), then the official default.
+   */
+  private endpointUrl(): string {
+    if (this.options.endpoint) return this.options.endpoint;
+    const stored = this.credentials()[OPENROUTER_ENDPOINT_ENV];
+    return typeof stored === 'string' && OPENROUTER_ENDPOINT_PATTERN.test(stored.trim())
+      ? stored.trim() : OPENROUTER_DEFAULT_ENDPOINT;
   }
 
   async discover(): Promise<AgentProviderInstallation[]> {
@@ -143,7 +157,7 @@ export class OpenRouterHttpAgentAdapter implements AgentRunnerPort {
     return [{
       provider: this.provider,
       runtimeTarget,
-      executable: this.endpoint,
+      executable: this.endpointUrl(),
       version: `openrouter-http ${OPENROUTER_ADAPTER_VERSION}`,
       support: key ? 'supported' : 'unavailable',
       authStatus: key ? 'authenticated' : 'unauthenticated',
@@ -384,7 +398,7 @@ export class OpenRouterHttpAgentAdapter implements AgentRunnerPort {
     if (runController.signal.aborted) onAbort();
     const send = async (effective: OpenRouterReasoning): Promise<Response> => {
       try {
-        return await fetchImpl(this.endpoint, {
+        return await fetchImpl(this.endpointUrl(), {
           method: 'POST',
           signal: controller.signal,
           headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' },

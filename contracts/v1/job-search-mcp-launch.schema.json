@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://job-match-and-apply.local/contracts/v1/job-search-mcp-launch.schema.json",
   "title": "Trusted-host job-search-mcp launch contract",
-  "description": "A direct native Windows or WSL stdio launch owned by the integration host. Agent sandboxes and shell wrappers are intentionally not representable.",
+  "description": "A direct native Windows, native macOS or WSL stdio launch owned by the integration host. Agent sandboxes and shell wrappers are intentionally not representable.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -16,7 +16,7 @@
   "properties": {
     "contractVersion": { "const": "1.0" },
     "executionIsolation": { "const": "trusted-host" },
-    "runtimeTarget": { "enum": ["windows", "wsl"] },
+    "runtimeTarget": { "enum": ["windows", "wsl", "darwin"] },
     "distribution": {
       "type": "string",
       "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
@@ -25,7 +25,7 @@
       "type": "string",
       "minLength": 3,
       "maxLength": 4096,
-      "pattern": "^(?:[A-Za-z]:[\\\\/]|\\\\\\\\)"
+      "pattern": "^(?:[A-Za-z]:[\\\\/]|\\\\\\\\|/)"
     },
     "args": {
       "type": "array",
@@ -84,6 +84,20 @@
           }
         }
       }
+    },
+    {
+      "properties": {
+        "runtimeTarget": { "const": "darwin" },
+        "command": { "pattern": "^/.*/\\.venv/bin/job-search-mcp$" },
+        "args": { "maxItems": 0 },
+        "env": {
+          "properties": {
+            "JOB_MCP_STATE_DIR": { "pattern": "^/" }
+          },
+          "not": { "required": ["WSLENV"] }
+        }
+      },
+      "not": { "required": ["distribution"] }
     }
   ]
 }

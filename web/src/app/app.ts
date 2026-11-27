@@ -11,7 +11,7 @@ import { CvStudioStore } from './cv-studio.store';
 import { APP_HOST } from './app-host';
 import { CvFactsEditorComponent } from './cv-facts-editor.component.js';
 import { type Subscription } from 'rxjs';
-import type { AgentOrchestrationRecord, AgentRunRequest, AppConfig, ApplicationCase, ApplicationDraft, ApplicationExportResult, ApplicationProfileSetupStatus, ApplicationStyleDocumentType, ApplicationStyleExampleDocumentType, ApplicationStyleProfileView, ArtifactRevision, CandidateMatchAnalysis, CandidateProfileSummary, CompanyCrm, CorrelatedMail, JobInventoryView, JobInventoryCategory, SearchRunSummary, JobSearchMcpRuntimeCandidate, DataInventory, EditableApplicationStyleProfile, IdentityProfile, JobDecision, JobMatch, JobSourceCapabilities, LanguageCheckResult, MailAccount, McpRuntimeStatus, ProfileImportPreview, SearchSchedule, Section, SourceCapability, SourceStatus } from './models';
+import type { AgentOrchestrationRecord, AgentRunRequest, AppConfig, ApplicationCase, ApplicationDraft, ApplicationExportResult, ApplicationProfileSetupStatus, ApplicationStyleDocumentType, ApplicationStyleExampleDocumentType, ApplicationStyleProfileView, ArtifactRevision, CandidateMatchAnalysis, CandidateProfileSummary, CompanyCrm, CorrelatedMail, JobInventoryView, JobInventoryCategory, SearchRunSummary, JobSearchMcpRuntimeCandidate, JobSearchMcpRuntimeTarget, DataInventory, EditableApplicationStyleProfile, IdentityProfile, JobDecision, JobMatch, JobSourceCapabilities, LanguageCheckResult, MailAccount, McpRuntimeStatus, ProfileImportPreview, SearchSchedule, Section, SourceCapability, SourceStatus } from './models';
 
 @Component({
   selector: 'app-root',
@@ -167,19 +167,21 @@ export class App implements OnInit, OnDestroy {
     });
   }
 
-  selectMcpRuntime(runtimeTarget: 'windows' | 'wsl'): void {
+  selectMcpRuntime(runtimeTarget: JobSearchMcpRuntimeTarget): void {
     if (!this.config || this.mcpRuntimeBusy) return;
     this.mcpRuntimeBusy = true; this.error = ''; this.notice = '';
     this.api.selectMcpRuntime(runtimeTarget, this.config.revision).subscribe({
       next: (config) => {
         this.config = config; this.mcpRuntimeBusy = false;
-        this.notice = `Job-Suche-MCP läuft jetzt über die ${runtimeTarget === 'windows' ? 'native Windows' : 'WSL'}-Runtime.`;
+        this.notice = `Job-Suche-MCP läuft jetzt über die Runtime „${this.mcpRuntimeLabelFor(runtimeTarget)}“.`;
         this.refreshSources(); this.refreshView();
       },
       error: (error) => { this.mcpRuntimeBusy = false; this.error = this.message(error); this.refreshView(); }
     });
   }
-  mcpRuntimeLabelFor(target: 'windows' | 'wsl'): string { return target === 'windows' ? 'Nativ (Windows)' : 'WSL (Ubuntu)'; }
+  mcpRuntimeLabelFor(target: JobSearchMcpRuntimeTarget): string {
+    return ({ windows: 'Nativ (Windows)', wsl: 'WSL (Ubuntu)', darwin: 'Nativ (macOS)' } as const)[target];
+  }
 
   select(section: Section): void {
     this.applySection(section);

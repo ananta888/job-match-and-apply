@@ -79,7 +79,7 @@ export interface SourceStatus {
 export interface AppConfig {
   revision: number;
   searchProfile: SearchProfile; identities: IdentityProfile[]; activeIdentityId: string;
-  mcp: { mode: 'demo' | 'stdio'; executionIsolation: 'trusted-host'; runtimeTarget?: 'windows' | 'wsl'; distribution?: string; command: string; args: string[]; env: Record<string, string>; configuredEnvironmentKeys?: string[] };
+  mcp: { mode: 'demo' | 'stdio'; executionIsolation: 'trusted-host'; runtimeTarget?: JobSearchMcpRuntimeTarget; distribution?: string; command: string; args: string[]; env: Record<string, string>; configuredEnvironmentKeys?: string[] };
   assistant: { skillPath: string; candidateProfilePath: string; styleProfilePath: string };
 }
 
@@ -177,15 +177,18 @@ export interface McpRuntimeStatus {
   contractVersion: '1.0';
   mode: 'demo' | 'stdio';
   state: 'demo' | 'ready_to_connect' | 'invalid';
-  runtimeTarget?: 'windows' | 'wsl';
+  runtimeTarget?: JobSearchMcpRuntimeTarget;
   distribution?: string;
   launchValidated: boolean;
   connected: boolean;
   note: string;
 }
 
+/** Laufzeit des job-search-mcp: native Windows-Venv, WSL-Venv oder native macOS-Venv. */
+export type JobSearchMcpRuntimeTarget = 'windows' | 'wsl' | 'darwin';
+
 export interface JobSearchMcpRuntimeCandidate {
-  runtimeTarget: 'windows' | 'wsl';
+  runtimeTarget: JobSearchMcpRuntimeTarget;
   available: boolean;
   active: boolean;
   distribution?: string;

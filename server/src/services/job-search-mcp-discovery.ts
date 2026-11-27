@@ -1,4 +1,4 @@
-import { resolve } from 'node:path';
+import { posix, resolve } from 'node:path';
 import type { AppConfig } from '../domain/models.js';
 import { inspectTrustedHostMcpRuntime } from '../adapters/mcp-job-source.js';
 import { AgentRuntimeDiscovery, defaultWslHostExecutable, isSafeWslDistribution } from '../agents/runtime-discovery.js';
@@ -6,14 +6,15 @@ import { AgentRuntimeDiscovery, defaultWslHostExecutable, isSafeWslDistribution 
 type McpSettings = AppConfig['mcp'];
 
 /**
- * Actively discovers the job-search MCP in both supported trusted-host runtimes — the native Windows
- * venv and the WSL venv — so the user can see which are installed/valid and switch between them.
+ * Actively discovers the job-search MCP in the supported trusted-host runtimes — on Windows the native
+ * venv and the WSL venv, on macOS the native venv — so the user can see which are installed/valid and
+ * switch between them.
  * Each candidate is validated with the same launch-path contract the runtime status endpoint uses;
  * a candidate that fails validation (missing venv, stale path) is reported as unavailable rather than
  * throwing, so one broken runtime never hides the other.
  */
 export interface JobSearchMcpRuntimeCandidate {
-  runtimeTarget: 'windows' | 'wsl';
+  runtimeTarget: 'windows' | 'wsl' | 'darwin';
   available: boolean;
   active: boolean;
   distribution?: string;
@@ -51,6 +52,20 @@ async function wslCandidateSettings(
   };
 }
 
+function darwinCandidateSettings(projectRoot: string, env: Readonly<Record<string, string>>): McpSettings {
+  return {
+    mode: 'stdio', executionIsolation: 'trusted-host', runtimeTarget: 'darwin',
+    command: posix.join(projectRoot, 'integrations', 'job-search-mcp', '.venv', 'bin', 'job-search-mcp'),
+    args: [],
+    env: {
+      ALLOW_EXTERNAL_PORTALS: env.ALLOW_EXTERNAL_PORTALS ?? '0',
+      JOB_MCP_STATE_DIR: posix.join(projectRoot, '.local-data', 'mcp-state'),
+    },
+  };
+}
+
+const RUNTIME_LABEL: Record<'windows' | 'wsl' | 'darwin', string> = { windows: 'native', wsl: 'WSL', darwin: 'macOS' };
+
 function isActive(config: McpSettings, candidate: McpSettings): boolean {
   return config.mode === 'stdio' && config.runtimeTarget === candidate.runtimeTarget && config.command === candidate.command;
 }
@@ -60,7 +75,7 @@ async function evaluate(
 ): Promise<JobSearchMcpRuntimeCandidate> {
   const status = await inspectTrustedHostMcpRuntime(candidate, projectRoot);
   return {
-    runtimeTarget: candidate.runtimeTarget as 'windows' | 'wsl',
+    runtimeTarget: candidate.runtimeTarget as 'windows' | 'wsl' | 'darwin',
     available: status.state === 'ready_to_connect', active,
     ...(candidate.distribution ? { distribution: candidate.distribution } : {}),
     note: status.note,
@@ -69,29 +84,36 @@ async function evaluate(
 
 /** Build the validated launch settings for a chosen runtime, or throw if it is not available. */
 export async function buildJobSearchMcpRuntimeSettings(
-  runtimeTarget: 'windows' | 'wsl', config: AppConfig, projectRoot: string,
+  runtimeTarget: 'windows' | 'wsl' | 'darwin', config: AppConfig, projectRoot: string,
 ): Promise<McpSettings> {
   const distribution = config.mcp.distribution && isSafeWslDistribution(config.mcp.distribution) ? config.mcp.distribution : 'Ubuntu';
   let candidate: McpSettings;
   try {
-    candidate = runtimeTarget === 'windows'
-      ? nativeCandidateSettings(projectRoot, config.mcp.env)
-      : await wslCandidateSettings(projectRoot, distribution, config.mcp.env);
+    candidate = runtimeTarget === 'darwin'
+      ? darwinCandidateSettings(projectRoot, config.mcp.env)
+      : runtimeTarget === 'windows'
+        ? nativeCandidateSettings(projectRoot, config.mcp.env)
+        : await wslCandidateSettings(projectRoot, distribution, config.mcp.env);
   } catch {
     throw Object.assign(new Error(
-      `Die ${runtimeTarget === 'windows' ? 'native' : 'WSL'}-MCP-Runtime ist nicht verfügbar: Laufzeitpfade konnten nicht geprüft werden.`
+      `Die ${RUNTIME_LABEL[runtimeTarget]}-MCP-Runtime ist nicht verfügbar: Laufzeitpfade konnten nicht geprüft werden.`
     ), { statusCode: 409 });
   }
   const status = await inspectTrustedHostMcpRuntime(candidate, projectRoot);
   if (status.state !== 'ready_to_connect') {
-    throw Object.assign(new Error(`Die ${runtimeTarget === 'windows' ? 'native' : 'WSL'}-MCP-Runtime ist nicht verfügbar: ${status.note}`), { statusCode: 409 });
+    throw Object.assign(new Error(`Die ${RUNTIME_LABEL[runtimeTarget]}-MCP-Runtime ist nicht verfügbar: ${status.note}`), { statusCode: 409 });
   }
   return candidate;
 }
 
 export async function discoverJobSearchMcpRuntimes(
-  config: AppConfig, projectRoot = resolve(process.cwd(), '..'),
+  config: AppConfig, projectRoot = resolve(process.cwd(), '..'), platform: NodeJS.Platform = process.platform,
 ): Promise<JobSearchMcpRuntimeCandidate[]> {
+  if (platform === 'darwin') {
+    // On a Mac only the native macOS venv can run; Windows and WSL candidates would only report noise.
+    const darwin = darwinCandidateSettings(projectRoot, config.mcp.env);
+    return [await evaluate(darwin, projectRoot, isActive(config.mcp, darwin))];
+  }
   const results: JobSearchMcpRuntimeCandidate[] = [];
   const native = nativeCandidateSettings(projectRoot, config.mcp.env);
   results.push(await evaluate(native, projectRoot, isActive(config.mcp, native)));

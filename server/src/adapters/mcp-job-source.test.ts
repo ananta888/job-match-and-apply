@@ -162,4 +162,44 @@ describe('job-search MCP process boundary', () => {
     expect(status.state).toBe('invalid');
     expect(status.note).toContain('state_dir_outside_private_runtime');
   });
+  describe('native macOS runtime', () => {
+    const projectRoot = '/Users/alex/repo';
+    const command = '/Users/alex/repo/integrations/job-search-mcp/.venv/bin/job-search-mcp';
+    const darwin: AppConfig['mcp'] = {
+      mode: 'stdio', executionIsolation: 'trusted-host', runtimeTarget: 'darwin', command, args: [],
+      env: { ALLOW_EXTERNAL_PORTALS: '0', JOB_MCP_STATE_DIR: '/Users/alex/repo/.local-data/mcp-state' }
+    };
+    const identity = { projectRoot, realpath: async (path: string) => path, access: async () => undefined };
+
+    it('accepts the canonical venv entry point below the integration', async () => {
+      expect(() => assertTrustedHostMcpLaunch(darwin)).not.toThrow();
+      const ready = await inspectTrustedHostMcpRuntime(darwin, projectRoot, identity);
+      expect(ready).toMatchObject({ state: 'ready_to_connect', runtimeTarget: 'darwin', launchValidated: true, connected: false });
+    });
+
+    it('rejects arguments, wrappers and extra environment', () => {
+      expect(() => assertTrustedHostMcpLaunch({ ...darwin, args: ['--debug'] })).toThrow('darwin_launch_invalid');
+      expect(() => assertTrustedHostMcpLaunch({ ...darwin, command: '/usr/bin/sandbox-exec' })).toThrow('sandbox_wrapper_forbidden');
+      expect(() => assertTrustedHostMcpLaunch({ ...darwin, command: '/bin/sh' })).toThrow('darwin_launch_invalid');
+      expect(() => assertTrustedHostMcpLaunch({ ...darwin, env: { ...darwin.env, ROOT_APP_SECRET: 'x' } })).toThrow('environment_key_forbidden');
+      expect(() => assertTrustedHostMcpLaunch({ ...darwin, env: { ...darwin.env, WSLENV: 'ALLOW_EXTERNAL_PORTALS:JOB_MCP_STATE_DIR' } }))
+        .toThrow('darwin_environment_invalid');
+    });
+
+    it('rejects an entry point whose realpath leaves the integration venv', async () => {
+      const escaped = await inspectTrustedHostMcpRuntime(darwin, projectRoot, {
+        ...identity, realpath: async (path: string) => path === command ? '/tmp/job-search-mcp' : path
+      });
+      expect(escaped.state).toBe('invalid');
+      expect(escaped.note).toContain('outside_allowed_venv');
+    });
+
+    it('binds mutable MCP state to the ignored Root runtime', async () => {
+      const status = await inspectTrustedHostMcpRuntime(
+        { ...darwin, env: { ...darwin.env, JOB_MCP_STATE_DIR: '/tmp/escaped-state' } }, projectRoot, identity
+      );
+      expect(status.state).toBe('invalid');
+      expect(status.note).toContain('state_dir_outside_private_runtime');
+    });
+  });
 });

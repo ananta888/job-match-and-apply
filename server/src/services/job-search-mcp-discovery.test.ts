@@ -17,7 +17,7 @@ vi.mock('../agents/runtime-discovery.js', async (importOriginal) => {
   };
 });
 
-import { buildJobSearchMcpRuntimeSettings } from './job-search-mcp-discovery.js';
+import { buildJobSearchMcpRuntimeSettings, discoverJobSearchMcpRuntimes } from './job-search-mcp-discovery.js';
 
 describe('job-search MCP runtime selection', () => {
   beforeEach(() => {
@@ -41,5 +41,16 @@ describe('job-search MCP runtime selection', () => {
       message: 'Die WSL-MCP-Runtime ist nicht verfügbar: Laufzeitpfade konnten nicht geprüft werden.',
     });
     expect(String(failure)).not.toContain('sensitive synthetic host detail');
+  });
+  it('offers only the native macOS venv on a Mac and reports it unavailable until installed', async () => {
+    const candidates = await discoverJobSearchMcpRuntimes(structuredClone(defaultConfig), '/synthetic/repo', 'darwin');
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]).toMatchObject({ runtimeTarget: 'darwin', available: false, active: false });
+    expect(runtimeDiscovery.windowsPathToWsl).not.toHaveBeenCalled();
+  });
+
+  it('refuses to select the macOS runtime while its venv is missing', async () => {
+    await expect(buildJobSearchMcpRuntimeSettings('darwin', structuredClone(defaultConfig), '/synthetic/repo'))
+      .rejects.toMatchObject({ statusCode: 409, message: expect.stringContaining('Die macOS-MCP-Runtime ist nicht verfügbar') });
   });
 });

@@ -294,12 +294,13 @@ describe('API', () => {
     await request(app).delete(`/api/comparison-notes/${note.body.id}`).send({ confirmation: `DELETE comparison-note ${note.body.id}` }).expect(200);
   });
 
-  it('actively discovers both native and WSL job-search MCP runtime candidates', async () => {
+  it('actively discovers the job-search MCP runtime candidates of this platform', async () => {
     const app = createApp(new MemoryConfigStore());
     const response = await request(app).get('/api/sources/runtime/candidates').expect(200);
     expect(response.body.contract).toBe('job-search-mcp-runtime-candidates');
     const byTarget = Object.fromEntries((response.body.candidates as Array<{ runtimeTarget: string }>).map((c) => [c.runtimeTarget, c]));
-    expect(Object.keys(byTarget).sort()).toEqual(['windows', 'wsl']);
+    // macOS offers only its native venv; Windows and Linux hosts offer the native Windows and WSL runtimes.
+    expect(Object.keys(byTarget).sort()).toEqual(process.platform === 'darwin' ? ['darwin'] : ['windows', 'wsl']);
     for (const candidate of response.body.candidates as Array<{ available: unknown; active: unknown; note: unknown }>) {
       expect(typeof candidate.available).toBe('boolean');
       expect(typeof candidate.active).toBe('boolean');

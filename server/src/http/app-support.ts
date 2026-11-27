@@ -87,7 +87,7 @@ export const identitySchema = z.object({
 
 export const mcpConfigSchema = z.object({
   mode: z.enum(['demo', 'stdio']), executionIsolation: z.literal('trusted-host'),
-  runtimeTarget: z.enum(['windows', 'wsl']).optional(), distribution: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/).optional(),
+  runtimeTarget: z.enum(['windows', 'wsl', 'darwin']).optional(), distribution: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/).optional(),
   command: z.string().max(4_096), args: z.array(z.string().max(4_096)).max(128),
   env: z.record(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]{0,127}$/), z.string().max(16_384)),
   configuredEnvironmentKeys: z.array(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]{0,127}$/)).max(128).optional()

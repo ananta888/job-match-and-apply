@@ -1,11 +1,12 @@
 import { spawn } from 'node:child_process';
+import { constants as fsConstants } from 'node:fs';
 import { access, realpath } from 'node:fs/promises';
 import { posix, win32 } from 'node:path';
 
 export const JOB_SEARCH_MCP_LAUNCH_CONTRACT_VERSION = '1.0';
 
 /**
- * @typedef {{contractVersion:'1.0', executionIsolation:'trusted-host', runtimeTarget:'windows'|'wsl', distribution?:string, command:string, args:string[], env:Record<string,string>}} JobSearchMcpLaunch
+ * @typedef {{contractVersion:'1.0', executionIsolation:'trusted-host', runtimeTarget:'windows'|'wsl'|'darwin', distribution?:string, command:string, args:string[], env:Record<string,string>}} JobSearchMcpLaunch
  */
 
 const DISTRIBUTION = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
@@ -50,8 +51,11 @@ export function parseJobSearchMcpLaunch(value) {
   if (Object.keys(input).some((key) => !allowedKeys.has(key))) fail('job_search_mcp_launch_unknown_property');
   if (input.contractVersion !== JOB_SEARCH_MCP_LAUNCH_CONTRACT_VERSION) fail('job_search_mcp_launch_version_unsupported');
   if (input.executionIsolation !== 'trusted-host') fail('job_search_mcp_requires_trusted_host');
-  if (input.runtimeTarget !== 'windows' && input.runtimeTarget !== 'wsl') fail('job_search_mcp_runtime_target_invalid');
-  if (typeof input.command !== 'string' || Buffer.byteLength(input.command) > 4_096 || !win32.isAbsolute(input.command)) {
+  if (input.runtimeTarget !== 'windows' && input.runtimeTarget !== 'wsl' && input.runtimeTarget !== 'darwin') {
+    fail('job_search_mcp_runtime_target_invalid');
+  }
+  const isAbsoluteCommand = input.runtimeTarget === 'darwin' ? posix.isAbsolute : win32.isAbsolute;
+  if (typeof input.command !== 'string' || Buffer.byteLength(input.command) > 4_096 || !isAbsoluteCommand(input.command)) {
     fail('job_search_mcp_command_must_be_absolute');
   }
   const args = stringArray(input.args);
@@ -67,7 +71,17 @@ export function parseJobSearchMcpLaunch(value) {
 
   /** @type {string | undefined} */
   let distribution;
-  if (input.runtimeTarget === 'windows') {
+  if (input.runtimeTarget === 'darwin') {
+    // Native macOS: the venv entry point itself, no wrapper, no WSL bridge.
+    if (input.distribution !== undefined || posix.basename(input.command) !== 'job-search-mcp' || args.length !== 0) {
+      fail('job_search_mcp_darwin_launch_invalid');
+    }
+    if (env.WSLENV !== undefined || typeof env.JOB_MCP_STATE_DIR !== 'string'
+      || !posix.isAbsolute(env.JOB_MCP_STATE_DIR)) fail('job_search_mcp_darwin_environment_invalid');
+    if (Object.keys(env).some((key) => key !== 'ALLOW_EXTERNAL_PORTALS' && key !== 'JOB_MCP_STATE_DIR')) {
+      fail('job_search_mcp_environment_key_forbidden');
+    }
+  } else if (input.runtimeTarget === 'windows') {
     if (input.distribution !== undefined || commandName !== 'job-search-mcp' || args.length !== 0) {
       fail('job_search_mcp_native_launch_invalid');
     }
@@ -97,7 +111,7 @@ export function parseJobSearchMcpLaunch(value) {
   return /** @type {JobSearchMcpLaunch} */ ({
     contractVersion: JOB_SEARCH_MCP_LAUNCH_CONTRACT_VERSION,
     executionIsolation: /** @type {'trusted-host'} */ ('trusted-host'),
-    runtimeTarget: /** @type {'windows'|'wsl'} */ (input.runtimeTarget),
+    runtimeTarget: /** @type {'windows'|'wsl'|'darwin'} */ (input.runtimeTarget),
     ...(distribution ? { distribution } : {}),
     command: input.command,
     args,
@@ -145,7 +159,25 @@ function defaultWslRun(command, distribution, args) {
 export async function validateJobSearchMcpRuntime(value, options) {
   const launch = parseJobSearchMcpLaunch(value);
   const canonical = options.realpath ?? realpath;
-  const canAccess = options.access ?? access;
+  const canAccess = options.access ?? ((path) => access(path, fsConstants.X_OK));
+  if (launch.runtimeTarget === 'darwin') {
+    const integrationRoot = posix.resolve(options.projectRoot, 'integrations', 'job-search-mcp');
+    const allowedRoot = posix.join(integrationRoot, '.venv', 'bin');
+    const runtimeRoot = posix.resolve(options.projectRoot, '.local-data');
+    const expectedStateRoot = posix.join(runtimeRoot, 'mcp-state');
+    if (posix.resolve(launch.env.JOB_MCP_STATE_DIR) !== expectedStateRoot) {
+      fail('job_search_mcp_state_dir_outside_private_runtime');
+    }
+    const [commandReal, rootReal, integrationReal, runtimeReal, stateReal] = await Promise.all([
+      canonical(launch.command), canonical(allowedRoot), canonical(integrationRoot),
+      canonical(runtimeRoot), canonical(expectedStateRoot)
+    ]);
+    if (rootReal !== posix.join(integrationReal, '.venv', 'bin')) fail('job_search_mcp_darwin_venv_realpath_invalid');
+    if (commandReal !== posix.join(rootReal, 'job-search-mcp')) fail('job_search_mcp_executable_outside_allowed_venv');
+    if (stateReal !== posix.join(runtimeReal, 'mcp-state')) fail('job_search_mcp_state_dir_realpath_invalid');
+    await canAccess(commandReal);
+    return { ...launch, command: commandReal, targetExecutable: commandReal, ready: true };
+  }
   if (launch.runtimeTarget === 'windows') {
     const integrationRoot = win32.resolve(options.projectRoot, 'integrations', 'job-search-mcp');
     const allowedRoot = win32.resolve(integrationRoot, '.venv', 'Scripts');
@@ -207,11 +239,13 @@ export async function validateJobSearchMcpRuntime(value, options) {
 
 /** @param {Record<string, unknown>} settings @param {string} projectRoot */
 export function launchFromMcpSettings(settings, projectRoot) {
-  const command = typeof settings.command === 'string' && win32.isAbsolute(settings.command)
-    ? settings.command : win32.resolve(projectRoot, String(settings.command ?? ''));
+  const darwin = settings.runtimeTarget === 'darwin';
+  const paths = darwin ? posix : win32;
+  const command = typeof settings.command === 'string' && paths.isAbsolute(settings.command)
+    ? settings.command : paths.resolve(projectRoot, String(settings.command ?? ''));
   const args = Array.isArray(settings.args) ? settings.args : [];
   const commandName = executableName(command);
-  const runtimeTarget = settings.runtimeTarget === 'windows' || settings.runtimeTarget === 'wsl'
+  const runtimeTarget = settings.runtimeTarget === 'windows' || settings.runtimeTarget === 'wsl' || darwin
     ? settings.runtimeTarget : commandName === 'wsl' ? 'wsl' : 'windows';
   const distribution = runtimeTarget === 'wsl'
     ? (settings.distribution ?? (args[0] === '-d' ? args[1] : undefined)) : undefined;

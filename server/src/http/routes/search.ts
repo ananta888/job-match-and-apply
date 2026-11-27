@@ -108,7 +108,7 @@ export function registerSearchRoutes(app: Express, ctx: AppContext): void {
 
   app.post('/api/sources/runtime/select', asyncRoute(async (request, response) => {
     const input = z.object({
-      runtimeTarget: z.enum(['windows', 'wsl']), confirmed: z.literal(true), expectedRevision: z.number().int().nonnegative(),
+      runtimeTarget: z.enum(['windows', 'wsl', 'darwin']), confirmed: z.literal(true), expectedRevision: z.number().int().nonnegative(),
     }).strict().parse(request.body);
     const projectRoot = resolve(process.cwd(), '..');
     const saved = await store.compareAndSave(input.expectedRevision, async (config) => {

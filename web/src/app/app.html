@@ -436,7 +436,7 @@
           <p class="runtime-note">{{ mcpRuntime?.note || 'Runtime-Status wird ausschließlich über GET /api/sources/runtime geprüft.' }}</p>
           @if (mcpRuntimeCandidates.length) {
             <section class="mcp-runtimes" data-testid="mcp-runtime-candidates" aria-label="Verfügbare MCP-Runtimes">
-              <h4>Runtime wählen — beide Umgebungen werden aktiv geprüft</h4>
+              <h4>Runtime wählen — jede verfügbare Umgebung wird aktiv geprüft</h4>
               <div class="mcp-runtime-list">
                 @for (candidate of mcpRuntimeCandidates; track candidate.runtimeTarget) {
                   <div class="mcp-runtime-card" [class.available]="candidate.available" [class.active]="candidate.active" [attr.data-target]="candidate.runtimeTarget">

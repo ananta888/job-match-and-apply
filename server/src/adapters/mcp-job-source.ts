@@ -36,7 +36,7 @@ export interface McpRuntimeStatus {
   contractVersion: '1.0';
   mode: 'stdio';
   state: 'ready_to_connect' | 'invalid';
-  runtimeTarget?: 'windows' | 'wsl';
+  runtimeTarget?: 'windows' | 'wsl' | 'darwin';
   distribution?: string;
   launchValidated: boolean;
   /** Launch validation is not protocol connectivity; /api/sources proves the latter. */

@@ -314,7 +314,7 @@ export interface AppConfig {
     /** Portal/browser integration must run as a trusted host process, never in an agent sandbox. */
     executionIsolation: 'trusted-host';
     /** Bound to the versioned private launch contract when setup has selected a runtime. */
-    runtimeTarget?: 'windows' | 'wsl';
+    runtimeTarget?: 'windows' | 'wsl' | 'darwin';
     distribution?: string;
     command: string;
     args: string[];

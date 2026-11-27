@@ -1,6 +1,6 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
-import type { CareerReasoning } from './models';
+import type { CareerReasoning, JobSearchMcpRuntimeTarget } from './models';
 import { Observable } from 'rxjs';
 import type { AtsCheckReport, AgentArtifactAdoptionResult, AgentArtifactContent, AgentArtifactRecord, AgentConfigProfile, AgentConfigProfileView, AgentNodeRetryRefinement, AgentOrchestrationConfirmationInput, AgentOrchestrationConflict, AgentOrchestrationConflictResolutionRequest, AgentOrchestrationCreateRequest, AgentOrchestrationRecord, AgentProvider, AgentQueueSnapshot, AgentRecoveryDecision, AgentRecoveryLease, AgentRecoveryResolution, AgentRecoverySnapshot, AgentRun, AgentRunEvent, AgentRunEventsPage, AgentRunPreflight, AgentRunRequest, AgentWorkflow, AppConfig, ApplicationCase, ApplicationSourceCvCandidate, ApplicationDraft, ApplicationExportResult, ApplicationPipelineFinalizeResult, ApplicationProfileSetupStatus, ApplicationStyleProfileView, ArtifactRevision, CandidateMatchAnalysis, CandidateProfileSummary, CompanyCrm, CorrelatedMail, CvAiProviderSelection, CvAiStructuringOptions, CvAiStructuringPublicRun, CvAiStructuringSelection, CvAdoptionRevocationCandidates, CvFactOperation, CvIncognitoPreview, CvImportRecord, CvProfileSnapshotList, CvImportSummary, CvRecognitionVersionList, CvTheme, DataInventory, EditableApplicationStyleProfile, IdentityProfile, JobDecision, JobInventoryCategory, JobInventoryView, JobMatch, JobSearchMcpRuntimeCandidate, JobSourceCapabilities, LanguageCheckResult, MailAccount, McpRuntimeStatus, ProfileImportPreview, ProviderModelCatalog, ProviderCredentialSummary, AgentWslDistributionsView, SearchProfile, SearchRunSummary, SearchSchedule, SourceStatus, VersionApproval, VersionApprovalSnapshot } from './models';
 
@@ -23,7 +23,7 @@ export class ApiService {
   mcpRuntimeCandidates(): Observable<{ candidates: JobSearchMcpRuntimeCandidate[] }> {
     return this.http.get<{ candidates: JobSearchMcpRuntimeCandidate[] }>('/api/sources/runtime/candidates');
   }
-  selectMcpRuntime(runtimeTarget: 'windows' | 'wsl', expectedRevision: number): Observable<AppConfig> {
+  selectMcpRuntime(runtimeTarget: JobSearchMcpRuntimeTarget, expectedRevision: number): Observable<AppConfig> {
     return this.http.post<AppConfig>('/api/sources/runtime/select', { runtimeTarget, confirmed: true, expectedRevision });
   }
   capabilities(): Observable<JobSourceCapabilities> { return this.http.get<JobSourceCapabilities>('/api/capabilities'); }

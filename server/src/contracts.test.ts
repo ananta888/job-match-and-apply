@@ -113,7 +113,7 @@ describe('cross-repository contract fixtures', () => {
     ]));
     expect((launch.properties as Record<string, Record<string, unknown>>).contractVersion).toEqual({ const: '1.0' });
     expect((launch.properties as Record<string, Record<string, unknown>>).executionIsolation).toEqual({ const: 'trusted-host' });
-    expect(launch.oneOf).toHaveLength(2);
+    expect(launch.oneOf).toHaveLength(3);
   });
 
   it('publishes a closed preflight contract with an exact Root domain-tool allowlist', async () => {

@@ -56,3 +56,21 @@ describe('API DNS-rebinding protection', () => {
     expect(preflight.headers['access-control-allow-origin']).toBeUndefined();
   });
 });
+
+describe('loopback request guard with configured LAN hosts', () => {
+  it('accepts only the configured LAN hostnames, and only while LAN_ALLOWED_HOSTS is set', () => {
+    const previous = process.env.LAN_ALLOWED_HOSTS;
+    try {
+      delete process.env.LAN_ALLOWED_HOSTS;
+      expect(isLoopbackHostHeader('192.168.1.20:4201')).toBe(false);
+      process.env.LAN_ALLOWED_HOSTS = '192.168.1.20, mac.local';
+      expect(isLoopbackHostHeader('192.168.1.20:4201')).toBe(true);
+      expect(isLoopbackOrigin('http://mac.local:4201')).toBe(true);
+      expect(isLoopbackHostHeader('192.168.1.21:4201')).toBe(false);
+      expect(isLoopbackHostHeader('attacker.example:4201')).toBe(false);
+    } finally {
+      if (previous === undefined) delete process.env.LAN_ALLOWED_HOSTS;
+      else process.env.LAN_ALLOWED_HOSTS = previous;
+    }
+  });
+});

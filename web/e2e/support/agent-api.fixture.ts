@@ -888,6 +888,13 @@ export class AgentApiStub {
       if (url.searchParams.get('refresh') === 'true') this.providerRefreshRequests.push(request.url());
       return this.json(route, PROVIDERS);
     }
+    // Provider-Einrichtung: offline ohne Freigaben, gespeicherte Schlüssel oder WSL-Distributionen.
+    if (method === 'GET' && path === '/api/agents/version-approvals') return this.json(route, { schemaVersion: 1, updatedAt: null, approvals: [] });
+    if (method === 'GET' && path === '/api/agents/providers/credentials') return this.json(route, []);
+    if (method === 'GET' && path === '/api/agents/wsl-distributions') {
+      return this.json(route, { contract: 'agent-wsl-distributions', contractVersion: '1.0', available: false, distributions: [], note: 'Synthetisches Offline-Fixture.' });
+    }
+    if (method === 'GET' && path === '/api/application-cases/source-cv-candidates') return this.json(route, []);
     if (method === 'GET' && path === '/api/application-cases') return this.json(route, [...this.applicationCases.values()]);
     if (method === 'GET' && path === '/api/cv-imports') {
       this.cvImportListRequests.push(request.url());

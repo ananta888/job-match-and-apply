@@ -36,7 +36,7 @@
 .job-score { flex-shrink: 0; display: inline-flex; align-items: baseline; justify-content: center; min-width: 34px; padding: 5px 7px; border-radius: 9px; font-size: var(--fs-2); font-weight: 900; line-height: 1; }
 .job-score small { font-size: var(--fs-1); font-weight: 800; margin-left: 1px; }
 .job-score[data-match="good"] { color: var(--color-success); background: var(--color-success-soft); }
-.job-score[data-match="mid"] { color: #8a6d1a; background: #fdf2d6; }
+.job-score[data-match="mid"] { color: #7a5f12; background: #fdf2d6; }
 .job-score[data-match="low"] { color: var(--color-text-secondary); background: #eef1f5; }
 .job-facts { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
 .job-facts span { padding: 2px 7px; border-radius: 6px; background: #f1f3f7; color: #4a5568; font-size: var(--fs-1); font-weight: 700; }

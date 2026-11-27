@@ -2781,4 +2781,17 @@ describe('App', () => {
     fixture.destroy();
   });
 
+  it('enables job comparison only once three jobs are marked', async () => {
+    const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
+    const component = fixture.componentInstance;
+    component.select('search'); component.comparisonJobIds = ['job-a', 'job-b']; component.refreshView(); fixture.detectChanges();
+    const button = () => [...(fixture.nativeElement as HTMLElement).querySelectorAll('button')].find((item) => /zum Vergleich|vergleichen/.test(item.textContent ?? '')) as HTMLButtonElement;
+    expect(button().textContent?.trim()).toBe('2/3 zum Vergleich');
+    expect(button().disabled).toBe(true);
+    component.comparisonJobIds = ['job-a', 'job-b', 'job-c']; component.refreshView(); fixture.detectChanges();
+    expect(button().textContent?.trim()).toBe('3 vergleichen');
+    expect(button().disabled).toBe(false);
+    fixture.destroy();
+  });
+
 });

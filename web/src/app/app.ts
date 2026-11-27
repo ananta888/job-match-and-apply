@@ -188,6 +188,15 @@ export class App implements OnInit, OnDestroy {
     if (this.router?.config.length && sectionFromUrl(this.router.url) !== section) void this.router.navigateByUrl(target);
   }
 
+  /**
+   * Wechselt den sichtbaren Bereich aus einem Ablauf heraus (z. B. „Bewerbung →“), ohne dessen
+   * Ladeaktionen auszulösen, und hält die URL synchron, damit F5 und Zurück stimmen.
+   */
+  private showSection(section: Section): void {
+    this.section = section;
+    if (this.router?.config.length && sectionFromUrl(this.router.url) !== section) void this.router.navigateByUrl(sectionUrl(section));
+  }
+
   /** Synchronisiert den Bereich mit der URL: F5, Lesezeichen und Zurück-Button landen im richtigen Bereich. */
   private bindSectionToRouter(): void {
     if (!this.router) return;
@@ -379,7 +388,7 @@ export class App implements OnInit, OnDestroy {
     // explicit deduplicated button below, not silently on every search.
     this.api.search(this.config.searchProfile, false).subscribe({
       next: ({ runId, matches, partialFailures }) => {
-        this.matches = matches; this.selectedMatch = matches[0]; this.busy = false; this.section = 'search';
+        this.matches = matches; this.selectedMatch = matches[0]; this.busy = false; this.showSection('search');
         this.searchFailures = partialFailures; this.lastSearchRunId = runId; this.lastSearchAdopted = false;
         this.notice = `${matches.length} Stellen bewertet${partialFailures.length ? `; ${partialFailures.length} Quelle(n) mit Teilausfall` : ''}. Mit „In ‚Meine Jobs' übernehmen" dubletten-frei speichern.`;
         this.refreshView();
@@ -494,7 +503,7 @@ export class App implements OnInit, OnDestroy {
         this.applicationCases.unshift(application);
         this.applicationArtifacts[application.id] = [];
         this.selectApplicationCase(application);
-        this.jobsBusy = false; this.section = 'applications';
+        this.jobsBusy = false; this.showSection('applications');
         this.notice = `Bewerbungsfall für „${entry.job.title}" angelegt.`; this.refreshView();
       },
       error: (error) => { this.jobsError = this.message(error); this.jobsBusy = false; this.refreshView(); }
@@ -563,7 +572,7 @@ export class App implements OnInit, OnDestroy {
     if (!match || !this.config) return;
     this.selectedMatch = match; this.busy = true;
     this.api.draft(match, this.config.activeIdentityId, this.documentType).subscribe({
-      next: (draft) => { this.draft = draft; this.busy = false; this.section = 'applications'; this.refreshView(); },
+      next: (draft) => { this.draft = draft; this.busy = false; this.showSection('applications'); this.refreshView(); },
       error: (error) => this.fail(error)
     });
   }

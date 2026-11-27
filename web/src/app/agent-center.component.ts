@@ -12,9 +12,8 @@ import { APP_HOST } from './app-host';
   selector: 'app-agent-center',
   imports: [CommonModule, FormsModule],
   templateUrl: './agent-center.component.html',
-  // Übergangsweise dieselben Styles wie die App, damit Darstellung und Spezifität identisch bleiben.
-  // Die Agent-Center-Regeln werden mit den Design-Tokens in eine eigene Datei verschoben.
-  styleUrl: './app.scss',
+  // Gemeinsame Basis aus app.scss plus die nur hier genutzten Regeln.
+  styleUrls: ['./app.scss', './agent-center.component.scss'],
   styles: [':host { min-height: 0; }']
 })
 export class AgentCenterComponent {

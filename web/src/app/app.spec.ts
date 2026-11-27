@@ -2146,7 +2146,7 @@ describe('App', () => {
     component.select('agents'); fixture.detectChanges(); await fixture.whenStable();
     expect(component.agentProviders.find(p => p.id === 'openrouter')?.available).toBe(false);
     apiMock['agentProviders'].mockReturnValue(of([provider(true)]));
-    component.agentCredentialDraft = { providerId: 'openrouter', envKey: 'OPENROUTER_API_KEY', envSecret: 'synthetic-openrouter-key', confirmed: true };
+    component.agentCredentialDraft = { providerId: 'openrouter', envKey: 'OPENROUTER_API_KEY', envSecret: 'synthetic-openrouter-key', endpointUrl: '', confirmed: true };
     component.saveProviderCredentials();
     expect(component.agentProviders.find(p => p.id === 'openrouter')?.available).toBe(true);
     expect(component.agentCredentialDraft.envSecret).toBe('');
@@ -2186,7 +2186,7 @@ describe('App', () => {
     fixture.detectChanges(); await fixture.whenStable();
     expect(element.querySelector('[data-testid="agent-version-approved"]')).toBeTruthy();
 
-    component.agentCredentialDraft = { providerId: 'opencode', envKey: 'OPENAI_API_KEY', envSecret: secret, confirmed: true };
+    component.agentCredentialDraft = { providerId: 'opencode', envKey: 'OPENAI_API_KEY', envSecret: secret, endpointUrl: '', confirmed: true };
     expect(component.credentialSaveUnavailableReason()).toBe('');
     component.saveProviderCredentials();
     expect(apiMock['saveProviderCredentials']).toHaveBeenCalledWith('opencode', { OPENAI_API_KEY: secret });

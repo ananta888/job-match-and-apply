@@ -24,7 +24,9 @@ internen Pythonmodelle, sondern verwendet schmale Ports und versionierte CLI-/MC
 ## Portal- und Agentengrenze
 
 Die Angular-App kennt weder Portal-Credentials noch Browserzustände. Sie spricht ausschließlich
-mit der lokalen API auf `127.0.0.1`. Der Root-MCP-Adapter startet `job-search-mcp` direkt über
+mit der lokalen API auf `127.0.0.1`. Gegen DNS-Rebinding weist die API jede Anfrage mit fremdem `Host`- oder `Origin`-Header
+ab (`403`, `host_not_loopback`/`origin_not_loopback`); zugelassen sind nur `localhost`, `127.0.0.1` und
+`[::1]` (`server/src/services/loopback-request-guard.ts`). Der Root-MCP-Adapter startet `job-search-mcp` direkt über
 stdio und ruft dessen öffentliche Status-, Such- und Login-Werkzeuge auf.
 
 Dieser Portalprozess ist eine eigene `trusted-host`-Grenze und läuft ausdrücklich außerhalb jeder

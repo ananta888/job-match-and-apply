@@ -27,7 +27,9 @@
     <header class="topbar">
       <div>
         <p class="eyebrow">Arbeitsbereich</p>
-        <h1>{{ section === 'overview' ? 'Guten Tag' : section === 'search' ? 'Jobsuche' : section === 'jobs' ? 'Meine Jobs' : section === 'identity' ? 'Profil & Identität' : section === 'cv' ? 'Lebenslauf-Studio' : section === 'sources' ? 'Quellen & MCP' : section === 'crm' ? 'Firmen & Antworten' : section === 'agents' ? 'Agent Center' : section === 'operations' ? 'Daten & Betrieb' : 'Bewerbungswerkstatt' }}</h1>
+        @if (section === 'overview') { <p class="topbar-title">Übersicht</p> } @else {
+          <h1>{{ section === 'search' ? 'Jobsuche' : section === 'jobs' ? 'Meine Jobs' : section === 'identity' ? 'Profil & Identität' : section === 'cv' ? 'Lebenslauf-Studio' : section === 'sources' ? 'Quellen & MCP' : section === 'crm' ? 'Firmen & Antworten' : section === 'agents' ? 'Agent Center' : section === 'operations' ? 'Daten & Betrieb' : 'Bewerbungswerkstatt' }}</h1>
+        }
       </div>
       <div class="top-actions">
         <span class="mode-pill" [attr.data-runtime-state]="mcpRuntimeState()"><i></i>{{ mcpRuntimeLabel() }}</span>
@@ -45,48 +47,7 @@
       <section class="loading"><span></span><p>Lokalen Arbeitsbereich laden …</p></section>
     } @else {
       @if (section === 'overview') {
-        <section class="hero">
-          <div>
-            <span class="kicker">DEIN JOB-AGENT</span>
-            <h2>Finden. Prüfen.<br><em>Gezielt bewerben.</em></h2>
-            <p>Mehrere Jobquellen, nachvollziehbares Matching und faktenbasierte Bewerbungsentwürfe in einem privaten Arbeitsbereich.</p>
-            <div class="hero-actions">
-              <button class="primary" type="button" (click)="runSearch()" [disabled]="busy">{{ busy ? 'Suche läuft …' : 'Jobs jetzt suchen' }} <span>→</span></button>
-              <button class="secondary" type="button" (click)="select('identity')">Suchprofil anpassen</button>
-            </div>
-          </div>
-          <div class="match-orbit" aria-hidden="true">
-            <div class="orbit orbit-a"></div><div class="orbit orbit-b"></div>
-            <div class="score-core"><strong>{{ matches[0]?.searchPreferenceScore ?? '—' }}</strong><span>Suchscore</span></div>
-            @if (config.searchProfile.mustHave[0]; as tag) { <span class="float-chip chip-a">{{ tag }}</span> }
-            @if (config.searchProfile.workModels[0]; as model) { <span class="float-chip chip-b">{{ model }}</span> }
-            @if (config.searchProfile.regions[0]; as region) { <span class="float-chip chip-c">{{ region }}</span> }
-          </div>
-        </section>
-
-        <section class="stats-grid">
-          <article><span class="stat-icon purple">⌕</span><div><small>Gefundene Jobs</small><strong>{{ matches.length || '—' }}</strong><p>letzter Suchlauf</p></div></article>
-          <article><span class="stat-icon green">✓</span><div><small>Gute Matches</small><strong>{{ acceptedCount() || '—' }}</strong><p>Muss-Kriterien erfüllt</p></div></article>
-          <article><span class="stat-icon amber">◇</span><div><small>Aktive Quellen</small><strong>{{ sources.length }}</strong><p>MCP & Profile</p></div></article>
-          <article><span class="stat-icon blue">◎</span><div><small>Identität</small><strong class="stat-text">{{ activeIdentity()?.mode === 'incognito' ? 'Inkognito' : 'Real' }}</strong><p>{{ displayIdentityName(activeIdentity()) }}</p></div></article>
-        </section>
-
-        <section class="two-column">
-          <article class="panel profile-summary">
-            <div class="panel-head"><div><span class="kicker">SUCHPROFIL</span><h3>{{ config.searchProfile.name }}</h3></div><button class="text-button" (click)="select('identity')">Bearbeiten →</button></div>
-            <div class="summary-row"><span>⌖</span><div><small>Regionen</small><p>{{ config.searchProfile.regions.join(' · ') }}</p></div></div>
-            <div class="summary-row"><span>⌂</span><div><small>Arbeitsmodell</small><p>{{ config.searchProfile.workModels.join(' · ') }}</p></div></div>
-            <div class="summary-row"><span>★</span><div><small>Muss enthalten</small><p class="tag-line">@for (tag of config.searchProfile.mustHave; track tag) { <b>{{ tag }}</b> }</p></div></div>
-            <div class="summary-row danger"><span>×</span><div><small>Ausschließen</small><p>{{ config.searchProfile.exclude.join(' · ') || 'Keine Ausschlüsse' }}</p></div></div>
-          </article>
-          <article class="panel source-summary">
-            <div class="panel-head"><div><span class="kicker">SYSTEMSTATUS</span><h3>Quellen & Assistent</h3></div><button class="text-button" (click)="select('sources')">Verwalten →</button></div>
-            @for (source of sources.slice(0, 4); track source.id) {
-              <div class="source-row"><span class="source-logo">{{ source.name.slice(0, 2) }}</span><div><strong>{{ source.name }}</strong><small>{{ source.kind === 'demo' ? 'Demo-Adapter' : source.kind }}</small></div><span class="status" [class.ok]="source.connected">{{ source.connected ? 'Bereit' : 'Konfigurieren' }}</span></div>
-            }
-            <div class="source-row"><span class="source-logo assistant-logo">AI</span><div><strong>Bewerbungsassistent</strong><small>{{ assistant.note }}</small></div><span class="status" [class.ok]="assistant.available">{{ assistant.available ? 'Bereit' : 'Setup' }}</span></div>
-          </article>
-        </section>
+        <app-overview-home [state]="overviewState()" (act)="onOverviewAction($event)" />
       }
 
       @if (section === 'search') {

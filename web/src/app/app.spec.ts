@@ -414,6 +414,7 @@ describe('App', () => {
       createSubmissionDryRun: vi.fn(),
       jobDecisions: vi.fn().mockReturnValue(of([])),
       jobInventory: vi.fn().mockReturnValue(of([])),
+      mailMessages: vi.fn().mockReturnValue(of([])),
       setJobInventoryCategory: vi.fn(),
       markJobInventoryApplied: vi.fn(),
       searchRunsSummary: vi.fn().mockReturnValue(of([])),
@@ -2791,6 +2792,19 @@ describe('App', () => {
     component.comparisonJobIds = ['job-a', 'job-b', 'job-c']; component.refreshView(); fixture.detectChanges();
     expect(button().textContent?.trim()).toBe('3 vergleichen');
     expect(button().disabled).toBe(false);
+    fixture.destroy();
+  });
+
+  it('shows one next step on the start page and routes its main action', async () => {
+    const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
+    const component = fixture.componentInstance;
+    const element = fixture.nativeElement as HTMLElement;
+    expect(element.querySelectorAll('h1')).toHaveLength(1);
+    expect(element.querySelector('.next h2')?.textContent).toContain('Lebenslauf importieren');
+    expect(element.querySelectorAll('.next .btn-primary')).toHaveLength(1);
+    const select = vi.spyOn(component, 'select');
+    (element.querySelector('.next .btn-primary') as HTMLButtonElement).click();
+    expect(select).toHaveBeenCalledWith('cv');
     fixture.destroy();
   });
 

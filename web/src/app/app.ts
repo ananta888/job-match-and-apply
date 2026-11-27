@@ -8,6 +8,7 @@ import { AgentCenterComponent } from './agent-center.component';
 import { AgentCenterStore } from './agent-center.store';
 import { CvStudioComponent } from './cv-studio.component';
 import { CvStudioStore } from './cv-studio.store';
+import { OverviewHomeComponent, type OverviewAction, type OverviewState } from './overview-home.component';
 import { APP_HOST } from './app-host';
 import { CvFactsEditorComponent } from './cv-facts-editor.component.js';
 import { type Subscription } from 'rxjs';
@@ -15,7 +16,7 @@ import type { AgentOrchestrationRecord, AgentRunRequest, AppConfig, ApplicationC
 
 @Component({
   selector: 'app-root',
-  imports: [CommonModule, FormsModule, CvFactsEditorComponent, AgentCenterComponent, CvStudioComponent],
+  imports: [CommonModule, FormsModule, CvFactsEditorComponent, AgentCenterComponent, CvStudioComponent, OverviewHomeComponent],
   templateUrl: './app.html',
   styleUrl: './app.scss',
   providers: [{ provide: APP_HOST, useExisting: forwardRef(() => App) }]
@@ -82,6 +83,8 @@ export class App implements OnInit, OnDestroy {
   companies: CompanyCrm[] = [];
   mailAccounts: MailAccount[] = [];
   mailInbox: CorrelatedMail[] = [];
+  /** Zugeordnete Antworten von Firmen, für die Pipeline der Startseite. */
+  overviewReplies = 0;
   mailCorrelationTarget: Record<string, string> = {};
   mailAccountForm = { label: '', email: '', host: '', port: 993, secure: true, username: '', secret: '', authType: 'password' as const, enabled: false, mailbox: 'INBOX' };
   importPreview?: ProfileImportPreview;
@@ -139,6 +142,7 @@ export class App implements OnInit, OnDestroy {
     });
     this.refreshSources();
     this.api.jobDecisions().subscribe({ next: (items) => { this.jobDecisions = items; this.refreshView(); } });
+    if (this.section === 'overview') this.loadOverview();
     this.api.assistantStatus().subscribe({ next: (status) => { this.assistant = status; this.refreshView(); } });
     this.loadProfileSetup();
   }
@@ -183,6 +187,76 @@ export class App implements OnInit, OnDestroy {
     return ({ windows: 'Nativ (Windows)', wsl: 'WSL (Ubuntu)', darwin: 'Nativ (macOS)' } as const)[target];
   }
 
+  /** Daten der Startseite: nächster Schritt, Pipeline, Suchprofil und Systemstatus. */
+  overviewState(): OverviewState {
+    const identity = this.activeIdentity();
+    const firstName = identity && identity.mode === 'real' && this.revealSensitiveIdentity ? identity.fullName.split(' ')[0] : undefined;
+    const open = this.jobInventory.filter((entry) => !entry.status.applied);
+    const candidate = open.filter((entry) => entry.category === 'apply')
+      .sort((left, right) => (right.match?.score ?? 0) - (left.match?.score ?? 0))[0];
+    const lastSearch = this.searchRunSummaries.map((run) => Date.parse(run.createdAt)).filter(Number.isFinite).sort((a, b) => b - a)[0];
+    const working: ApplicationCase['state'][] = ['selected', 'analysis', 'questions', 'draft', 'review'];
+    const approved: ApplicationCase['state'][] = ['approved', 'exported', 'dry_run', 'submitted'];
+    return {
+      greetingName: firstName,
+      cvConfirmed: this.cv.cvImportInventory.length > 0 || Boolean(this.candidateProfile?.claims?.length),
+      pendingDecisions: this.agents.globalAgentApprovals().filter((item) => item.actionable).length,
+      topCandidate: candidate ? { title: candidate.job.title, company: candidate.job.company, score: Math.round(candidate.match?.score ?? 0) } : undefined,
+      hoursSinceLastSearch: lastSearch ? (Date.now() - lastSearch) / 3_600_000 : undefined,
+      pipeline: {
+        neu: open.filter((entry) => entry.category === 'inbox').length,
+        zuBewerben: open.filter((entry) => entry.category === 'apply').length,
+        inArbeit: this.applicationCases.filter((item) => working.includes(item.state)).length,
+        freigegeben: this.applicationCases.filter((item) => approved.includes(item.state)).length,
+        antworten: this.overviewReplies,
+      },
+      status: {
+        mcpConnected: this.mcpRuntime?.connected === true || this.sources.some((source) => source.kind === 'mcp' && source.connected),
+        portalsOpen: this.config?.mcp.env['ALLOW_EXTERNAL_PORTALS'] === '1',
+        aiProviderReady: this.agents.agentProviders.some((provider) => provider.available),
+      },
+      profile: {
+        name: this.config?.searchProfile.name ?? '',
+        query: this.config?.searchProfile.query ?? '',
+        regions: this.config?.searchProfile.regions ?? [],
+        mustHave: this.config?.searchProfile.mustHave ?? [],
+      },
+    };
+  }
+
+  onOverviewAction(action: OverviewAction): void {
+    switch (action) {
+      case 'import-cv': this.select('cv'); break;
+      case 'review-decisions': this.select('agents'); break;
+      case 'start-application': {
+        const candidate = this.jobInventory.filter((entry) => entry.category === 'apply' && !entry.status.applied)
+          .sort((left, right) => (right.match?.score ?? 0) - (left.match?.score ?? 0))[0];
+        if (candidate) this.startApplicationFromInventory(candidate); else this.select('jobs');
+        break;
+      }
+      case 'search': this.select('search'); this.runSearch(); break;
+      case 'open-crm': this.select('crm'); break;
+      case 'edit-profile': this.select('search'); break;
+      case 'open-jobs': this.select('jobs'); break;
+      case 'open-applications': this.select('applications'); break;
+      case 'open-sources': this.select('sources'); break;
+    }
+  }
+
+  /** Lädt, was die Startseite zeigt; jede Quelle ist optional und blockiert die anderen nicht. */
+  private loadOverview(): void {
+    this.loadJobs();
+    this.cv.loadCvImportInventory();
+    this.loadCandidateProfile();
+    this.api.applicationCases().subscribe({ next: (items) => { this.applicationCases = items; this.refreshView(); }, error: () => undefined });
+    this.api.agentRuns().subscribe({ next: (runs) => { this.agents.agentRuns = runs; this.refreshView(); }, error: () => undefined });
+    if (!this.agents.agentProviders.length) this.agents.loadAgentProviders();
+    this.api.mailMessages().subscribe({
+      next: (items) => { this.overviewReplies = items.filter((item) => Boolean(item.correlation.applicationCaseId)).length; this.refreshView(); },
+      error: () => undefined
+    });
+  }
+
   select(section: Section): void {
     this.applySection(section);
     const target = sectionUrl(section);
@@ -214,6 +288,7 @@ export class App implements OnInit, OnDestroy {
     if (section !== 'agents' && section !== 'cv' && section !== 'applications') this.agents.stopAgentPolling();
     if (section !== 'agents') { this.agents.stopAgentStream(); this.agents.closeAgentRecoveryDialog(); }
     if (section !== 'cv') this.cv.stopCvAiPolling();
+    if (section === 'overview') this.loadOverview();
     if (section === 'jobs') this.loadJobs();
     if (section === 'identity') { this.loadProfileSetup(); this.loadCandidateProfile(); this.cv.loadProfileCvOverview(); }
     if (section === 'cv') this.cv.loadCvStudio();

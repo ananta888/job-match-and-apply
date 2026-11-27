@@ -1,0 +1,44 @@
+<header class="home-head">
+  <h1>{{ greeting() }}</h1>
+  <p class="status-line" role="status">
+    <span class="dot" [class.ok]="state().status.mcpConnected"></span>{{ state().status.mcpConnected ? 'Quellen verbunden' : 'Demo-Daten aktiv' }}
+    <span aria-hidden="true">·</span> Portale {{ state().status.portalsOpen ? 'freigegeben' : 'gesperrt' }}
+    <span aria-hidden="true">·</span> Alle Daten lokal auf diesem Gerät
+  </p>
+</header>
+
+<div class="home-grid">
+  <section class="next" aria-labelledby="next-title">
+    <p class="kicker">{{ next().kicker }}</p>
+    <h2 id="next-title">{{ next().title }}</h2>
+    <p class="reason">{{ next().reason }}</p>
+    <button class="btn-primary" type="button" (click)="act.emit(next().action)">{{ next().cta }}<span aria-hidden="true"> →</span></button>
+  </section>
+
+  <aside class="side" aria-label="Suchprofil und Status">
+    <section class="card" aria-labelledby="profile-title">
+      <div class="card-head"><h2 id="profile-title">Suchprofil</h2><button class="btn-link" type="button" (click)="act.emit('edit-profile')">Bearbeiten</button></div>
+      <p class="profile-query">{{ state().profile.name }}</p>
+      <p class="muted">{{ profileLine() }}</p>
+      <ul class="chips" aria-label="Muss-Kriterien">
+        @for (term of state().profile.mustHave.slice(0, 3); track term) { <li>{{ term }}</li> }
+      </ul>
+    </section>
+    <section class="card" aria-labelledby="system-title">
+      <div class="card-head"><h2 id="system-title">System</h2><button class="btn-link" type="button" (click)="act.emit('open-sources')">Verwalten</button></div>
+      <ul class="system">
+        <li><span class="dot" [class.ok]="state().status.mcpConnected"></span>Job-Suche {{ state().status.mcpConnected ? 'verbunden' : 'im Demo-Modus' }}</li>
+        <li><span class="dot" [class.ok]="state().status.aiProviderReady"></span>KI-Provider {{ state().status.aiProviderReady ? 'bereit' : 'nicht eingerichtet' }}</li>
+        <li><span class="dot" [class.ok]="state().status.portalsOpen"></span>Portalzugriff {{ state().status.portalsOpen ? 'freigegeben' : 'gesperrt' }}</li>
+      </ul>
+    </section>
+  </aside>
+
+  <nav class="pipeline" aria-label="Bewerbungs-Pipeline">
+    <ol>
+      @for (stage of stages(); track stage.key) {
+        <li><a [href]="stage.href" (click)="openStage($event, stage.action)"><strong>{{ stage.count }}</strong><span>{{ stage.label }}</span></a></li>
+      }
+    </ol>
+  </nav>
+</div>

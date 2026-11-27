@@ -43,9 +43,11 @@
         }
       </div>
       <div class="top-actions">
-        <span class="mode-pill" [attr.data-runtime-state]="mcpRuntimeState()"><i></i>{{ mcpRuntimeLabel() }}</span>
-        <button class="icon-button" type="button" aria-label="Quellen aktualisieren" (click)="refreshSources()">↻</button>
-        <button class="primary compact" type="button" (click)="saveConfig()" [disabled]="busy || !config">Speichern</button>
+        <button class="mode-pill" type="button" [attr.data-runtime-state]="mcpRuntimeState()" [attr.aria-label]="headerStatusLabel() + ' – Quellen & MCP öffnen'" (click)="select('sources')"><i></i>{{ headerStatusLabel() }}</button>
+        <button class="icon-button" type="button" aria-label="Quellen aktualisieren" title="Quellen aktualisieren" (click)="refreshSources()">↻</button>
+        @if (hasSettingsToSave()) {
+          <button class="primary compact" type="button" (click)="saveConfig()" [disabled]="busy || !config">Einstellungen speichern</button>
+        }
       </div>
     </header>
 

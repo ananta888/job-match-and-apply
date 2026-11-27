@@ -8,6 +8,7 @@ import type { ApplicationAssistantPort, FinalizeApplicationCommand } from '../po
 import YAML from 'yaml';
 import { buildMinimalLocalChildEnvironment } from '../services/process-environment.js';
 import { LocalLanguageChecker } from '../services/language-check.js';
+import { pythonExecutable } from './python-executable.js';
 
 const execute = promisify(execFile);
 
@@ -24,7 +25,7 @@ export class LocalApplicationAssistantAdapter implements ApplicationAssistantPor
 
   async capabilities(): Promise<ApplicationPipelineCapabilities> {
     const skillRoot = this.projectPath(this.settings.skillPath);
-    const python = process.env.PYTHON_EXECUTABLE || 'python';
+    const python = pythonExecutable();
     try {
       const { stdout } = await execute(python, [resolve(skillRoot, 'scripts', 'pipeline_contract.py'), 'capabilities'], {
         cwd: skillRoot, windowsHide: true, env: buildMinimalLocalChildEnvironment()
@@ -66,7 +67,7 @@ export class LocalApplicationAssistantAdapter implements ApplicationAssistantPor
     const candidate = this.projectPath(this.settings.candidateProfilePath);
     const style = this.projectPath(this.settings.styleProfilePath);
     try {
-      await execute(process.env.PYTHON_EXECUTABLE || 'python', [
+      await execute(pythonExecutable(), [
         resolve(skillRoot, 'scripts', 'validate_profiles.py'), '--candidate', candidate, '--style', style,
       ], { cwd: skillRoot, windowsHide: true, env: buildMinimalLocalChildEnvironment() });
       const document = YAML.parse(await readFile(style, 'utf8')) as Record<string, unknown>;
@@ -93,7 +94,7 @@ export class LocalApplicationAssistantAdapter implements ApplicationAssistantPor
     let previousAnalysis: Record<string, unknown> | undefined;
     try { previousAnalysis = YAML.parse(await readFile(analysisPath, 'utf8')) as Record<string, unknown>; } catch { previousAnalysis = undefined; }
     await writeFile(jobPath, JSON.stringify(job), { encoding: 'utf8', mode: 0o600 });
-    const python = process.env.PYTHON_EXECUTABLE || 'python';
+    const python = pythonExecutable();
     const script = resolve(skillRoot, 'scripts', 'match_contract.py');
     try {
       await execute(python, [script, 'analyze', '--job', jobPath, '--output', analysisPath], { cwd: skillRoot, windowsHide: true, env: buildMinimalLocalChildEnvironment() });
@@ -126,7 +127,7 @@ export class LocalApplicationAssistantAdapter implements ApplicationAssistantPor
     const matrixPath = resolve(runDirectory, 'reviewed-match-matrix.yaml');
     await writeFile(matrixPath, YAML.stringify(matrix), { encoding: 'utf8', mode: 0o600 });
     try {
-      const { stdout } = await execute(process.env.PYTHON_EXECUTABLE || 'python', [
+      const { stdout } = await execute(pythonExecutable(), [
         resolve(skillRoot, 'scripts', 'match_contract.py'), 'validate-match', '--matrix', matrixPath,
         '--candidate', candidate, '--output-type', documentType
       ], { cwd: skillRoot, windowsHide: true, env: buildMinimalLocalChildEnvironment() });
@@ -255,7 +256,7 @@ export class LocalApplicationAssistantAdapter implements ApplicationAssistantPor
     await writeFile(annotated, command.annotatedContent, { encoding: 'utf8', mode: 0o600 });
     await writeFile(manifest, command.iterationManifest, { encoding: 'utf8', mode: 0o600 });
 
-    const python = process.env.PYTHON_EXECUTABLE || 'python';
+    const python = pythonExecutable();
     try {
       const { stdout } = await execute(python, [
         resolve(skillRoot, 'scripts', 'pipeline_contract.py'), 'finalize',

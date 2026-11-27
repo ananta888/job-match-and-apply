@@ -24,7 +24,7 @@ test.describe('Agent Center – offline browser contract', () => {
     agentApi.seedReadyMcpRuntime();
     await openSources(page);
 
-    await expect(page.locator('.top-actions .mode-pill')).toHaveText(/Startpfad bereit/);
+    await expect(page.locator('.top-actions .mode-pill')).toHaveText(/Jobsuche startklar/);
     const panel = page.getByTestId('mcp-runtime-panel');
     await expect(panel).toContainText('Windows');
     await expect(panel).toContainText('Bestätigt');
@@ -37,7 +37,7 @@ test.describe('Agent Center – offline browser contract', () => {
     const panelA11y = await new AxeBuilder({ page }).include('[data-testid="mcp-runtime-panel"]').withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa']).analyze();
     expect(panelA11y.violations, panelA11y.violations.map((item) => `${item.id}: ${item.help}`).join('\n')).toEqual([]);
 
-    await page.locator('.top-actions').getByRole('button', { name: 'Speichern', exact: true }).click();
+    await page.locator('.top-actions').getByRole('button', { name: 'Einstellungen speichern', exact: true }).click();
     await expect.poll(() => agentApi.configSaveRequests.length).toBe(1);
     expect(agentApi.configSaveRequests[0].mcp.env).toEqual({ ALLOW_EXTERNAL_PORTALS: '', JOB_MCP_STATE_DIR: '' });
     expect(agentApi.configSaveRequests[0].mcp.configuredEnvironmentKeys).toEqual(['ALLOW_EXTERNAL_PORTALS', 'JOB_MCP_STATE_DIR']);
@@ -79,7 +79,7 @@ test.describe('Agent Center – offline browser contract', () => {
   test('uses the runtime endpoint fail-closed when a stdio start path is invalid', async ({ page, agentApi }) => {
     agentApi.seedInvalidMcpRuntime();
     await openSources(page);
-    await expect(page.locator('.top-actions .mode-pill')).toHaveText(/Runtime ungültig/);
+    await expect(page.locator('.top-actions .mode-pill')).toHaveText(/Jobsuche gestört/);
     const panel = page.getByTestId('mcp-runtime-panel');
     await expect(panel).toContainText('Der synthetische Startpfad ist absichtlich ungültig.');
     await expect(panel.getByRole('button', { name: 'Portalzugriff freigeben', exact: true })).toBeDisabled();

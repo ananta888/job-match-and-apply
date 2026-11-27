@@ -962,7 +962,7 @@ describe('App', () => {
     const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
     const component = fixture.componentInstance;
     component.select('identity'); fixture.detectChanges(); await fixture.whenStable();
-    expect(component.applicationStyleProfile?.revision).toBe(3);
+    expect(component.cv.applicationStyleProfile?.revision).toBe(3);
     expect(component.styleProfileDraft?.tone).toBe('klar');
     component.styleProfileDraft!.tone = 'präzise und ruhig';
     component.styleVocabularyPreferText = 'umgesetzt\nbelegt';
@@ -979,7 +979,7 @@ describe('App', () => {
       avoidPatterns: ['Superlative', 'Unbelegte Behauptung']
     });
     expect(JSON.stringify(profile)).not.toMatch(/styleProfilePath|languageQuality|local_server|yaml/i);
-    expect(component.applicationStyleProfile).toMatchObject({ revision: 4, sha256: '9'.repeat(64) });
+    expect(component.cv.applicationStyleProfile).toMatchObject({ revision: 4, sha256: '9'.repeat(64) });
     expect(component.styleProfileConfirmed).toBe(false);
     fixture.destroy();
   });
@@ -1380,10 +1380,10 @@ describe('App', () => {
     }));
     expect((apiMock['importCv'].mock.calls[0]?.[0] as { base64: string }).base64).toMatch(/^[A-Za-z0-9+/]+=*$/);
     fixture.detectChanges();
-    expect(component.cvStep).toBe(2);
+    expect(component.cv.cvStep).toBe(2);
     expect(element.querySelector('nav[aria-label="Lebenslauf-Schritte"] [aria-current="step"]')?.textContent).toContain('Fakten');
     expect(element.querySelector('[data-testid="cv-facts-step"]')?.textContent).toContain('Ungeprüft');
-    expect(component.cvImport?.source.retention).toBe('upload_deleted_after_local_extraction');
+    expect(component.cv.cvImport?.source.retention).toBe('upload_deleted_after_local_extraction');
     fixture.destroy();
   });
 
@@ -1398,9 +1398,9 @@ describe('App', () => {
     apiMock['renderIncognitoCvPreview'] = vi.fn().mockReturnValue(of(preview));
     const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
     const component = fixture.componentInstance;
-    component.section = 'cv'; component.cvStep = 5; component.cvImport = cvImportFixture();
+    component.section = 'cv'; component.cv.cvStep = 5; component.cv.cvImport = cvImportFixture();
     component.agents.selectedAgentRun = { id: 'run-1' } as never;
-    component.cvSelectedApplicationCaseId = '55555555-5555-4555-8555-555555555555';
+    component.cv.cvSelectedApplicationCaseId = '55555555-5555-4555-8555-555555555555';
     component.applicationCases = [{
       id: '55555555-5555-4555-8555-555555555555', documentType: 'cv', identityMode: 'incognito', state: 'selected'
     }] as never;
@@ -1420,18 +1420,18 @@ describe('App', () => {
       return anchor as unknown as HTMLElement;
     }) as never);
     try {
-      component.renderIncognitoCvPreview(component.agents.agentArtifacts[0]!);
-      await vi.waitFor(() => expect(component.cvIncognitoPreview).toBeDefined());
-      component.downloadIncognitoCvPreview();
+      component.cv.renderIncognitoCvPreview(component.agents.agentArtifacts[0]!);
+      await vi.waitFor(() => expect(component.cv.cvIncognitoPreview).toBeDefined());
+      component.cv.downloadIncognitoCvPreview();
     } finally {
       createElement.mockRestore();
     }
 
-    expect(component.cvIncognitoPreview?.usableAsDocumentRevision).toBe(false);
+    expect(component.cv.cvIncognitoPreview?.usableAsDocumentRevision).toBe(false);
     // The unconfirmed state is carried in the file name, not just on screen.
     expect(anchors[0]?.download).toBe(`lebenslauf-inkognito-proposed-${'c'.repeat(12)}.html`);
     // Nothing here turns the import into a proposal-bearing record.
-    expect(component.cvImport?.proposal).toBeUndefined();
+    expect(component.cv.cvImport?.proposal).toBeUndefined();
     fixture.destroy();
   });
 
@@ -1444,7 +1444,7 @@ describe('App', () => {
     const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
     const component = fixture.componentInstance;
     component.select('identity');
-    await vi.waitFor(() => expect(component.styleProfileError).toContain('technical_density'));
+    await vi.waitFor(() => expect(component.cv.styleProfileError).toContain('technical_density'));
     fixture.detectChanges();
 
     const element = fixture.nativeElement as HTMLElement;
@@ -1466,8 +1466,8 @@ describe('App', () => {
     const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
     const component = fixture.componentInstance;
     component.select('cv');
-    await vi.waitFor(() => expect(component.styleProfileError).toBeTruthy());
-    component.cvImport = cvImportFixture(); component.cvStep = 3;
+    await vi.waitFor(() => expect(component.cv.styleProfileError).toBeTruthy());
+    component.cv.cvImport = cvImportFixture(); component.cv.cvStep = 3;
     component.loadApplicationStyleProfile();
     await vi.waitFor(() => expect(component.styleProfileBusy).toBe(false));
     fixture.detectChanges();
@@ -1486,9 +1486,9 @@ describe('App', () => {
     const confirmed = { ...current, facts: current.facts.map((fact) => ({ ...fact, decision: 'confirmed' as const })) };
     const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
     const component = fixture.componentInstance;
-    component.section = 'cv'; component.cvStep = 2; component.cvImport = confirmed;
-    component.loadCvClaimManagement();
-    await vi.waitFor(() => expect(component.cvClaimManagementBusy).toBe(false));
+    component.section = 'cv'; component.cv.cvStep = 2; component.cv.cvImport = confirmed;
+    component.cv.loadCvClaimManagement();
+    await vi.waitFor(() => expect(component.cv.cvClaimManagementBusy).toBe(false));
     fixture.detectChanges();
     const element = fixture.nativeElement as HTMLElement;
     expect(element.querySelector('[data-testid="cv-claim-management"]')).toBeNull();
@@ -1501,8 +1501,8 @@ describe('App', () => {
         sourceSha256: confirmed.source.sha256, claimCount: 213, presentClaimCount: 213
       }]
     }));
-    component.loadCvClaimManagement();
-    await vi.waitFor(() => expect(component.cvRevocableAdoptions).toHaveLength(1));
+    component.cv.loadCvClaimManagement();
+    await vi.waitFor(() => expect(component.cv.cvRevocableAdoptions).toHaveLength(1));
     fixture.detectChanges();
     const panel = element.querySelector('[data-testid="cv-claim-management"]')!;
     expect(panel.textContent).toContain('213');
@@ -1527,23 +1527,23 @@ describe('App', () => {
     apiMock['adoptCvFacts'].mockReturnValue(of(readopted));
     const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
     const component = fixture.componentInstance;
-    component.section = 'cv'; component.cvStep = 2; component.cvImport = confirmed;
-    component.cvRevocableAdoptions = [{
+    component.section = 'cv'; component.cv.cvStep = 2; component.cv.cvImport = confirmed;
+    component.cv.cvRevocableAdoptions = [{
       transactionId: 'c'.repeat(32), occurredAt: '2026-08-15T10:28:58.136Z',
       sourceSha256: confirmed.source.sha256, claimCount: 213, presentClaimCount: 213
     }];
 
-    component.revokeAndReadoptCvAdoption();
+    component.cv.revokeAndReadoptCvAdoption();
     expect(apiMock['revokeCvAdoption']).not.toHaveBeenCalled();
 
-    component.cvRevokeConfirmed = true;
-    component.revokeAndReadoptCvAdoption();
+    component.cv.cvRevokeConfirmed = true;
+    component.cv.revokeAndReadoptCvAdoption();
     await vi.waitFor(() => expect(apiMock['adoptCvFacts']).toHaveBeenCalled());
     expect(apiMock['revokeCvAdoption']).toHaveBeenCalledWith(confirmed, 'c'.repeat(32));
     expect(apiMock['adoptCvFacts']).toHaveBeenCalledWith(revoked);
-    expect(component.cvImport?.status).toBe('adopted');
-    expect(component.cvRevokeConfirmed).toBe(false);
-    expect(component.cvClaimManagementNotice).toContain('verworfen');
+    expect(component.cv.cvImport?.status).toBe('adopted');
+    expect(component.cv.cvRevokeConfirmed).toBe(false);
+    expect(component.cv.cvClaimManagementNotice).toContain('verworfen');
     fixture.destroy();
   });
 
@@ -1553,11 +1553,11 @@ describe('App', () => {
     apiMock['adoptCvFacts'].mockReturnValue(throwError(() => ({ status: 409 })));
     const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
     const component = fixture.componentInstance;
-    component.section = 'cv'; component.cvStep = 2; component.cvImport = confirmed;
+    component.section = 'cv'; component.cv.cvStep = 2; component.cv.cvImport = confirmed;
 
-    component.markCvAlreadyAdopted();
-    await vi.waitFor(() => expect(component.cvClaimManagementError).toContain('Nur ein Teil'));
-    expect(component.cvImport?.adoption).toBeUndefined();
+    component.cv.markCvAlreadyAdopted();
+    await vi.waitFor(() => expect(component.cv.cvClaimManagementError).toContain('Nur ein Teil'));
+    expect(component.cv.cvImport?.adoption).toBeUndefined();
     fixture.destroy();
   });
 
@@ -1567,7 +1567,7 @@ describe('App', () => {
     apiMock['restoreCvProfileSnapshot'].mockReturnValue(of(rolledBack));
     const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
     const component = fixture.componentInstance;
-    component.section = 'cv'; component.cvStep = 2; component.cvImport = current;
+    component.section = 'cv'; component.cv.cvStep = 2; component.cv.cvImport = current;
     apiMock['cvProfileSnapshots'].mockReturnValue(of({
       contract: 'cv-profile-snapshot-list', contractVersion: '1.0',
       importId: current.id, candidateProfileSha256: 'e'.repeat(64),
@@ -1584,28 +1584,28 @@ describe('App', () => {
         }
       ]
     }));
-    component.loadCvClaimManagement();
-    await vi.waitFor(() => expect(component.cvProfileSnapshots).toHaveLength(2));
+    component.cv.loadCvClaimManagement();
+    await vi.waitFor(() => expect(component.cv.cvProfileSnapshots).toHaveLength(2));
     fixture.detectChanges();
     // The load preselects the newest restorable state, never the live one.
-    expect(component.cvSelectedSnapshotId).toBe('profile-snapshot-' + 'a'.repeat(16));
+    expect(component.cv.cvSelectedSnapshotId).toBe('profile-snapshot-' + 'a'.repeat(16));
     expect((fixture.nativeElement as HTMLElement).querySelectorAll('[data-testid="cv-profile-snapshots"] li')).toHaveLength(2);
 
-    component.restoreCvProfileSnapshot();
+    component.cv.restoreCvProfileSnapshot();
     expect(apiMock['restoreCvProfileSnapshot']).not.toHaveBeenCalled();
 
-    component.cvSnapshotConfirmed = true;
-    component.restoreCvProfileSnapshot();
+    component.cv.cvSnapshotConfirmed = true;
+    component.cv.restoreCvProfileSnapshot();
     await vi.waitFor(() => expect(apiMock['restoreCvProfileSnapshot']).toHaveBeenCalled());
     expect(apiMock['restoreCvProfileSnapshot']).toHaveBeenCalledWith(current, 'profile-snapshot-' + 'a'.repeat(16));
-    expect(component.cvSnapshotConfirmed).toBe(false);
-    expect(component.cvClaimManagementNotice).toContain('zurückgerollt');
+    expect(component.cv.cvSnapshotConfirmed).toBe(false);
+    expect(component.cv.cvClaimManagementNotice).toContain('zurückgerollt');
 
     // The live state must never be selectable as a rollback target.
-    component.cvSelectedSnapshotId = 'profile-snapshot-' + 'b'.repeat(16);
-    component.cvSnapshotConfirmed = true;
+    component.cv.cvSelectedSnapshotId = 'profile-snapshot-' + 'b'.repeat(16);
+    component.cv.cvSnapshotConfirmed = true;
     apiMock['restoreCvProfileSnapshot'].mockClear();
-    component.restoreCvProfileSnapshot();
+    component.cv.restoreCvProfileSnapshot();
     expect(apiMock['restoreCvProfileSnapshot']).not.toHaveBeenCalled();
     fixture.destroy();
   });
@@ -1616,21 +1616,21 @@ describe('App', () => {
     apiMock['startCvAiStructuring'].mockReturnValue(of(queued));
     const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
     const component = fixture.componentInstance;
-    component.section = 'cv'; component.cvStep = 2; component.cvImport = current;
-    component.cvAiOptions = cvAiOptionsFixture(current);
-    const installation = component.cvAiInstallations()[0]!;
-    component.cvAiInstallationKey = component.cvAiInstallationKeyFor(installation.providerId, installation.installation);
-    component.startCvAiStructuring();
+    component.section = 'cv'; component.cv.cvStep = 2; component.cv.cvImport = current;
+    component.cv.cvAiOptions = cvAiOptionsFixture(current);
+    const installation = component.cv.cvAiInstallations()[0]!;
+    component.cv.cvAiInstallationKey = component.cv.cvAiInstallationKeyFor(installation.providerId, installation.installation);
+    component.cv.startCvAiStructuring();
     expect(apiMock['startCvAiStructuring']).not.toHaveBeenCalled();
-    expect(component.cvAiError).toContain('Weitergabe');
-    component.cvAiDisclosureConfirmed = true;
-    component.startCvAiStructuring();
+    expect(component.cv.cvAiError).toContain('Weitergabe');
+    component.cv.cvAiDisclosureConfirmed = true;
+    component.cv.startCvAiStructuring();
     expect(apiMock['startCvAiStructuring']).toHaveBeenCalledWith(current, {
       providerId: 'codex', runtimeTarget: 'windows', expectedVersion: '1.0'
     });
-    expect(component.cvImport?.facts).toEqual(current.facts);
-    expect(component.cvAiRun?.status).toBe('queued');
-    expect(component.cvAiDisclosureConfirmed).toBe(false);
+    expect(component.cv.cvImport?.facts).toEqual(current.facts);
+    expect(component.cv.cvAiRun?.status).toBe('queued');
+    expect(component.cv.cvAiDisclosureConfirmed).toBe(false);
     fixture.detectChanges();
     const content = (fixture.nativeElement as HTMLElement).querySelector('[data-testid="cv-ai-assist"]')?.textContent ?? '';
     expect(content).toContain('Einfach prüfbar, nicht automatisch freigegeben');
@@ -1647,13 +1647,13 @@ describe('App', () => {
     apiMock['cvAiStructuringRuns'].mockReturnValue(of([replacement]));
     const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
     const component = fixture.componentInstance;
-    component.section = 'cv'; component.cvImport = current;
+    component.section = 'cv'; component.cv.cvImport = current;
     const intervalSpy = vi.spyOn(globalThis, 'setInterval').mockReturnValue(1 as ReturnType<typeof setInterval>);
     const clearIntervalSpy = vi.spyOn(globalThis, 'clearInterval').mockImplementation(() => undefined);
     try {
-      component.loadCvAiStructuringState();
-      expect(component.cvAiRunActive(replacement)).toBe(true);
-      expect(component.cvAiStartUnavailableReason()).toContain('aktuellen AI-Lauf');
+      component.cv.loadCvAiStructuringState();
+      expect(component.cv.cvAiRunActive(replacement)).toBe(true);
+      expect(component.cv.cvAiStartUnavailableReason()).toContain('aktuellen AI-Lauf');
       const cvPollingCalls = () => intervalSpy.mock.calls.filter((call) => call[1] === 1_500);
       expect(cvPollingCalls()).toHaveLength(1);
 
@@ -1664,13 +1664,13 @@ describe('App', () => {
       expect(apiMock['cvAiStructuringRun']).toHaveBeenNthCalledWith(1, current.id, replacement.id);
       expect(cvPollingCalls()).toHaveLength(1);
 
-      component.selectCvAiRun(legacy.id);
+      component.cv.selectCvAiRun(legacy.id);
       expect(apiMock['cvAiStructuringRun']).toHaveBeenNthCalledWith(2, current.id, legacy.id);
-      expect(component.cvAiRunActive(legacy)).toBe(false);
-      expect(component.cvAiRun?.proposal).toEqual(legacy.proposal);
+      expect(component.cv.cvAiRunActive(legacy)).toBe(false);
+      expect(component.cv.cvAiRun?.proposal).toEqual(legacy.proposal);
       expect(clearIntervalSpy).toHaveBeenCalled();
-      component.cvAiDisclosureConfirmed = true;
-      expect(component.cvAiStartUnavailableReason()).toBe('');
+      component.cv.cvAiDisclosureConfirmed = true;
+      expect(component.cv.cvAiStartUnavailableReason()).toBe('');
     } finally {
       fixture.destroy(); intervalSpy.mockRestore(); clearIntervalSpy.mockRestore();
     }
@@ -1707,21 +1707,21 @@ describe('App', () => {
 
     const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
     const component = fixture.componentInstance;
-    component.section = 'cv'; component.cvStep = 2; component.cvImport = current;
-    component.cvRecognitionVersions = cvRecognitionVersionsFixture(current);
-    component.loadCvAiStructuringState();
+    component.section = 'cv'; component.cv.cvStep = 2; component.cv.cvImport = current;
+    component.cv.cvRecognitionVersions = cvRecognitionVersionsFixture(current);
+    component.cv.loadCvAiStructuringState();
 
-    await vi.waitFor(() => expect(component.cvRecognitionVersions?.activeVersionId).toBe(CV_AI_RECOGNITION_ID));
+    await vi.waitFor(() => expect(component.cv.cvRecognitionVersions?.activeVersionId).toBe(CV_AI_RECOGNITION_ID));
     expect(apiMock['cvImport']).toHaveBeenCalledTimes(1);
     expect(apiMock['cvImport']).toHaveBeenCalledWith(current.id);
     expect(apiMock['cvRecognitionVersions']).toHaveBeenCalledWith(recognized);
     expect(apiMock['cvAiStructuringOptions']).not.toHaveBeenCalledWith(current);
     expect(apiMock['cvAiStructuringOptions']).toHaveBeenCalledWith(recognized);
     expect(apiMock['cvAiStructuringRun']).not.toHaveBeenCalled();
-    expect(component.cvImport).toBe(recognized);
-    expect(component.cvImport?.facts).toEqual([expect.objectContaining({ decision: 'pending' })]);
-    expect(component.cvImport?.adoption).toBeUndefined();
-    expect(component.cvAiRun?.status).toBe('applied');
+    expect(component.cv.cvImport).toBe(recognized);
+    expect(component.cv.cvImport?.facts).toEqual([expect.objectContaining({ decision: 'pending' })]);
+    expect(component.cv.cvImport?.adoption).toBeUndefined();
+    expect(component.cv.cvAiRun?.status).toBe('applied');
     fixture.destroy();
   });
 
@@ -1749,18 +1749,18 @@ describe('App', () => {
     apiMock['cvRecognitionVersions'].mockImplementation((record: CvImportRecord) => of(cvRecognitionVersionsFixture(record, 'ai')));
     const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
     const component = fixture.componentInstance;
-    component.section = 'cv'; component.cvStep = 2; component.cvImport = current;
-    component.cvRecognitionVersions = cvRecognitionVersionsFixture(current);
+    component.section = 'cv'; component.cv.cvStep = 2; component.cv.cvImport = current;
+    component.cv.cvRecognitionVersions = cvRecognitionVersionsFixture(current);
 
-    component.selectCvAiRun(applied.id);
+    component.cv.selectCvAiRun(applied.id);
 
-    await vi.waitFor(() => expect(component.cvRecognitionVersions?.activeVersionId).toBe(CV_AI_RECOGNITION_ID));
+    await vi.waitFor(() => expect(component.cv.cvRecognitionVersions?.activeVersionId).toBe(CV_AI_RECOGNITION_ID));
     expect(apiMock['cvAiStructuringRun']).toHaveBeenCalledWith(current.id, applied.id);
     expect(apiMock['cvImport']).toHaveBeenCalledTimes(1);
-    expect(component.cvImport).toBe(recognized);
-    expect(component.cvImport?.facts).toEqual([expect.objectContaining({ decision: 'pending' })]);
-    expect(component.cvImport?.adoption).toBeUndefined();
-    expect(component.cvAiRun?.status).toBe('applied');
+    expect(component.cv.cvImport).toBe(recognized);
+    expect(component.cv.cvImport?.facts).toEqual([expect.objectContaining({ decision: 'pending' })]);
+    expect(component.cv.cvImport?.adoption).toBeUndefined();
+    expect(component.cv.cvAiRun?.status).toBe('applied');
     fixture.destroy();
   });
 
@@ -1773,20 +1773,20 @@ describe('App', () => {
     apiMock['cvAiStructuringRuns'].mockReturnValue(of([applied]));
     const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
     const component = fixture.componentInstance;
-    component.section = 'cv'; component.cvStep = 2; component.cvImport = current;
+    component.section = 'cv'; component.cv.cvStep = 2; component.cv.cvImport = current;
     const aiActive = cvRecognitionVersionsFixture(current, 'ai');
-    component.cvRecognitionVersions = {
+    component.cv.cvRecognitionVersions = {
       ...aiActive, activeVersionId: CV_DETERMINISTIC_RECOGNITION_ID,
       versions: aiActive.versions.map((version) => ({ ...version, active: version.id === CV_DETERMINISTIC_RECOGNITION_ID }))
     };
-    component.loadCvAiStructuringState();
+    component.cv.loadCvAiStructuringState();
     expect(apiMock['cvImport']).not.toHaveBeenCalled();
-    expect(component.cvAiRecognitionVersionActive(applied)).toBe(false);
-    expect(component.cvAiRunStatusLabel('applied', applied)).toBe('KI-Erkennungsstand angelegt');
+    expect(component.cv.cvAiRecognitionVersionActive(applied)).toBe(false);
+    expect(component.cv.cvAiRunStatusLabel('applied', applied)).toBe('KI-Erkennungsstand angelegt');
 
-    component.cvRecognitionVersions = aiActive;
-    expect(component.cvAiRecognitionVersionActive(applied)).toBe(true);
-    expect(component.cvAiRunStatusLabel('applied', applied)).toBe('KI-Erkennungsstand aktiv');
+    component.cv.cvRecognitionVersions = aiActive;
+    expect(component.cv.cvAiRecognitionVersionActive(applied)).toBe(true);
+    expect(component.cv.cvAiRunStatusLabel('applied', applied)).toBe('KI-Erkennungsstand aktiv');
     fixture.destroy();
   });
 
@@ -1815,16 +1815,16 @@ describe('App', () => {
     apiMock['cvRecognitionVersions'].mockReturnValue(of(cvRecognitionVersionsFixture(switched, 'ai')));
     const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
     const component = fixture.componentInstance;
-    component.section = 'cv'; component.cvStep = 2; component.cvImport = current;
-    component.cvRecognitionVersions = versions;
-    component.activateCvRecognitionVersion(versions.versions[1]!.id);
+    component.section = 'cv'; component.cv.cvStep = 2; component.cv.cvImport = current;
+    component.cv.cvRecognitionVersions = versions;
+    component.cv.activateCvRecognitionVersion(versions.versions[1]!.id);
     expect(apiMock['activateCvRecognitionVersion']).toHaveBeenCalledWith(current, versions.versions[1]!.id);
-    expect(component.cvImport?.facts.at(-1)).toMatchObject({
+    expect(component.cv.cvImport?.facts.at(-1)).toMatchObject({
       value: 'Senior Entwickler', decision: 'pending',
       provenance: { recognition: { method: 'ai_assisted', suggestionId: 'suggestion-2222222222222222' } }
     });
-    expect(component.cvImport?.adoption).toBeUndefined();
-    expect(component.cvRecognitionVersionNotice).toContain('ungeprüft');
+    expect(component.cv.cvImport?.adoption).toBeUndefined();
+    expect(component.cv.cvRecognitionVersionNotice).toContain('ungeprüft');
     fixture.destroy();
   });
 
@@ -1837,16 +1837,16 @@ describe('App', () => {
     apiMock['confirmCvRecognitionVersion'].mockReturnValue(of(confirmed));
     const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
     const component = fixture.componentInstance;
-    component.section = 'cv'; component.cvStep = 2; component.cvImport = current;
-    component.cvRecognitionVersions = cvRecognitionVersionsFixture(current);
-    component.confirmCvRecognitionVersion();
+    component.section = 'cv'; component.cv.cvStep = 2; component.cv.cvImport = current;
+    component.cv.cvRecognitionVersions = cvRecognitionVersionsFixture(current);
+    component.cv.confirmCvRecognitionVersion();
     expect(apiMock['confirmCvRecognitionVersion']).not.toHaveBeenCalled();
-    component.cvRecognitionVersionConfirmed = true;
-    component.confirmCvRecognitionVersion();
+    component.cv.cvRecognitionVersionConfirmed = true;
+    component.cv.confirmCvRecognitionVersion();
     expect(apiMock['confirmCvRecognitionVersion']).toHaveBeenCalledWith(current, CV_DETERMINISTIC_RECOGNITION_ID);
-    expect(component.cvImport?.facts.map((fact) => fact.decision)).toEqual(['confirmed', 'rejected']);
-    expect(component.cvRecognitionVersionConfirmed).toBe(false);
-    expect(component.cvRecognitionVersionNotice).toContain('Verworfene Fakten bleiben ausgeschlossen');
+    expect(component.cv.cvImport?.facts.map((fact) => fact.decision)).toEqual(['confirmed', 'rejected']);
+    expect(component.cv.cvRecognitionVersionConfirmed).toBe(false);
+    expect(component.cv.cvRecognitionVersionNotice).toContain('Verworfene Fakten bleiben ausgeschlossen');
     fixture.destroy();
   });
 
@@ -1863,17 +1863,17 @@ describe('App', () => {
     apiMock['reviewCvFacts'].mockReturnValue(of(added));
     const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
     const component = fixture.componentInstance;
-    (component as unknown as { applyCvImport(record: CvImportRecord): void }).applyCvImport(initial);
-    component.cvNewFactDraft.value = 'Synthetischer Zusatzfakt';
-    component.cvNewFactDraft.explicitlyConfirmed = true;
-    component.addCvFact();
+    (component.cv as unknown as { applyCvImport(record: CvImportRecord): void }).applyCvImport(initial);
+    component.cv.cvNewFactDraft.value = 'Synthetischer Zusatzfakt';
+    component.cv.cvNewFactDraft.explicitlyConfirmed = true;
+    component.cv.addCvFact();
     expect(apiMock['reviewCvFacts']).toHaveBeenCalledWith(initial, [{
       action: 'add', category: 'additional', newRecordKey: 'additional-fact', field: 'detail',
       value: 'Synthetischer Zusatzfakt', explicitlyConfirmed: true
     }]);
-    expect(component.cvImport?.facts.at(-1)).toMatchObject({ decision: 'confirmed', provenance: { origin: 'user_supplied' } });
-    expect(component.cvImport?.adoption).toBeUndefined();
-    expect(component.cvNewFactDraft.value).toBe('');
+    expect(component.cv.cvImport?.facts.at(-1)).toMatchObject({ decision: 'confirmed', provenance: { origin: 'user_supplied' } });
+    expect(component.cv.cvImport?.adoption).toBeUndefined();
+    expect(component.cv.cvNewFactDraft.value).toBe('');
     fixture.destroy();
   });
 
@@ -1892,9 +1892,9 @@ describe('App', () => {
     ];
     const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
     const component = fixture.componentInstance;
-    (component as unknown as { applyCvImport(record: CvImportRecord): void }).applyCvImport(current);
-    expect(component.cvFactGroups().map((group) => group.recordId)).toEqual(['employment-current', 'employment-old', 'skill-1']);
-    expect(component.cvFactGroups()[0]).toMatchObject({ title: 'Senior Engineer · Heute AG', period: '2022–heute' });
+    (component.cv as unknown as { applyCvImport(record: CvImportRecord): void }).applyCvImport(current);
+    expect(component.cv.cvFactGroups().map((group) => group.recordId)).toEqual(['employment-current', 'employment-old', 'skill-1']);
+    expect(component.cv.cvFactGroups()[0]).toMatchObject({ title: 'Senior Engineer · Heute AG', period: '2022–heute' });
     fixture.destroy();
   });
 
@@ -1903,15 +1903,15 @@ describe('App', () => {
     apiMock['deleteCvImport'].mockReturnValue(of({ removed: 1 }));
     const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
     const component = fixture.componentInstance;
-    (component as unknown as { applyCvImport(record: CvImportRecord): void }).applyCvImport(current);
-    component.cvDeleteConfirmation = 'DELETE cv-import wrong';
-    component.deleteCurrentCvImport();
+    (component.cv as unknown as { applyCvImport(record: CvImportRecord): void }).applyCvImport(current);
+    component.cv.cvDeleteConfirmation = 'DELETE cv-import wrong';
+    component.cv.deleteCurrentCvImport();
     expect(apiMock['deleteCvImport']).not.toHaveBeenCalled();
-    component.cvDeleteConfirmation = `DELETE cv-import ${current.id}`;
-    component.deleteCurrentCvImport();
+    component.cv.cvDeleteConfirmation = `DELETE cv-import ${current.id}`;
+    component.cv.deleteCurrentCvImport();
     expect(apiMock['deleteCvImport']).toHaveBeenCalledWith(current);
-    expect(component.cvImport).toBeUndefined();
-    expect(component.cvStep).toBe(1);
+    expect(component.cv.cvImport).toBeUndefined();
+    expect(component.cv.cvStep).toBe(1);
     fixture.destroy();
   });
 
@@ -1922,12 +1922,12 @@ describe('App', () => {
     const input = (fixture.nativeElement as HTMLElement).querySelector<HTMLInputElement>('[data-testid="cv-file-input"]')!;
     Object.defineProperty(input, 'files', { configurable: true, value: [new File(['legacy'], 'legacy.doc', { type: 'application/msword' })] });
     input.dispatchEvent(new Event('change'));
-    expect(component.cvError).toContain('ausschließlich PDF, DOCX, ODT, HTML und HTM');
+    expect(component.cv.cvError).toContain('ausschließlich PDF, DOCX, ODT, HTML und HTM');
     const oversized = new File(['x'], 'zu-gross.html', { type: 'text/html' });
     Object.defineProperty(oversized, 'size', { configurable: true, value: 10 * 1024 * 1024 + 1 });
     Object.defineProperty(input, 'files', { configurable: true, value: [oversized] });
     input.dispatchEvent(new Event('change'));
-    expect(component.cvError).toContain('zwischen 1 Byte und 10 MiB');
+    expect(component.cv.cvError).toContain('zwischen 1 Byte und 10 MiB');
     expect(apiMock['importCv']).not.toHaveBeenCalled();
     fixture.destroy();
   });
@@ -1944,28 +1944,28 @@ describe('App', () => {
     apiMock['adoptCvFacts'].mockReturnValue(of(adoptedCvImportFixture()));
     const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
     const component = fixture.componentInstance;
-    (component as unknown as { applyCvImport(record: CvImportRecord): void }).applyCvImport(initial);
-    component.cvStep = 2;
-    component.decideCvFact(initial.facts[0]!, 'confirm');
+    (component.cv as unknown as { applyCvImport(record: CvImportRecord): void }).applyCvImport(initial);
+    component.cv.cvStep = 2;
+    component.cv.decideCvFact(initial.facts[0]!, 'confirm');
     expect(apiMock['reviewCvFacts']).toHaveBeenNthCalledWith(1, initial, [{ factId: 'fact-employment-company', action: 'confirm' }]);
-    component.decideCvFact(firstReviewed.facts[1]!, 'reject');
+    component.cv.decideCvFact(firstReviewed.facts[1]!, 'reject');
     expect(apiMock['reviewCvFacts']).toHaveBeenNthCalledWith(2, firstReviewed, [{ factId: 'fact-employment-period', action: 'reject' }]);
-    component.adoptCvFacts();
+    component.cv.adoptCvFacts();
     expect(apiMock['adoptCvFacts']).not.toHaveBeenCalled();
-    component.cvAdoptionConfirmed = true;
-    component.adoptCvFacts();
+    component.cv.cvAdoptionConfirmed = true;
+    component.cv.adoptCvFacts();
     expect(apiMock['adoptCvFacts']).toHaveBeenCalledWith(fullyReviewed);
-    expect(component.cvImport?.adoption?.adoptedClaimIds).toEqual(['claim-cv-employment-company']);
-    expect(component.cvImport?.facts.find((fact) => fact.id === 'fact-employment-period')?.decision).toBe('rejected');
+    expect(component.cv.cvImport?.adoption?.adoptedClaimIds).toEqual(['claim-cv-employment-company']);
+    expect(component.cv.cvImport?.facts.find((fact) => fact.id === 'fact-employment-period')?.decision).toBe('rejected');
 
-    const adopted = component.cvImport!;
-    component.updateCvFactDraft(adopted.facts[0]!, 'value', 'Lokale, noch nicht gespeicherte Änderung');
+    const adopted = component.cv.cvImport!;
+    component.cv.updateCvFactDraft(adopted.facts[0]!, 'value', 'Lokale, noch nicht gespeicherte Änderung');
     apiMock['reviewCvFacts'].mockReturnValueOnce(throwError(() => ({ status: 409, error: { error: 'CV-Import wurde zwischenzeitlich geändert.' } })));
-    component.saveCvFact(adopted.facts[0]!);
+    component.cv.saveCvFact(adopted.facts[0]!);
     expect(apiMock['reviewCvFacts']).toHaveBeenCalledTimes(3);
-    expect(component.cvFactDraft(adopted.facts[0]!).value).toBe('Lokale, noch nicht gespeicherte Änderung');
-    expect(component.cvImport?.revision).toBe(4);
-    expect(component.cvError).toContain('zwischenzeitlich geändert');
+    expect(component.cv.cvFactDraft(adopted.facts[0]!).value).toBe('Lokale, noch nicht gespeicherte Änderung');
+    expect(component.cv.cvImport?.revision).toBe(4);
+    expect(component.cv.cvError).toContain('zwischenzeitlich geändert');
     fixture.destroy();
   });
 
@@ -2009,21 +2009,21 @@ describe('App', () => {
     const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
     const component = fixture.componentInstance;
     component.select('cv'); fixture.detectChanges(); await fixture.whenStable();
-    (component as unknown as { applyCvImport(record: CvImportRecord): void }).applyCvImport(adopted);
-    component.cvStep = 4; component.cvThemeConfirmed = true;
-    component.saveCvTheme();
+    (component.cv as unknown as { applyCvImport(record: CvImportRecord): void }).applyCvImport(adopted);
+    component.cv.cvStep = 4; component.cv.cvThemeConfirmed = true;
+    component.cv.saveCvTheme();
     expect(apiMock['saveCvTheme']).toHaveBeenCalledWith(adopted, expect.objectContaining({ template: 'classic', font: 'Arial' }));
-    component.applicationCases = [structuredClone(cvCase)]; component.cvSelectedApplicationCaseId = cvCase.id;
-    expect(component.cvHtmlRenderUnavailableReason()).toContain('zuerst geprüft');
-    component.startCvAgentOrchestration();
+    component.applicationCases = [structuredClone(cvCase)]; component.cv.cvSelectedApplicationCaseId = cvCase.id;
+    expect(component.cv.cvHtmlRenderUnavailableReason()).toContain('zuerst geprüft');
+    component.cv.startCvAgentOrchestration();
     expect(apiMock['createAgentOrchestration']).toHaveBeenCalledWith(expect.objectContaining({
       workflowId: 'evidence-application-package', providerId: 'codex', runtimeTarget: 'windows', applicationCaseId: cvCase.id
     }));
     expect(apiMock['createAgentOrchestration'].mock.calls[0]?.[0].prompt).toContain('ausschließlich bestätigte CandidateProfile-Claims');
-    expect(component.cvAgentOrchestrationId).toBe('33333333-3333-4333-8333-333333333333');
+    expect(component.cv.cvAgentOrchestrationId).toBe('33333333-3333-4333-8333-333333333333');
 
     component.agents.agentOrchestrations = [orchestrationFixture('succeeded')];
-    component.cvStep = 6;
+    component.cv.cvStep = 6;
     fixture.detectChanges();
     const directResult = (fixture.nativeElement as HTMLElement)
       .querySelector<HTMLIFrameElement>('[data-testid="cv-agent-html-result"]');
@@ -2032,7 +2032,7 @@ describe('App', () => {
     expect(directResult?.getAttribute('sandbox')).toBe('');
 
     component.applicationCases = [approvedCvCase];
-    component.renderApprovedCvHtml();
+    component.cv.renderApprovedCvHtml();
     expect(apiMock['createCvProposal']).toHaveBeenCalledWith(
       cvCase.id, themed, artifactRevisionFixture.id, artifactRevisionFixture.sha256
     );
@@ -2068,9 +2068,9 @@ describe('App', () => {
     component.select('applications'); fixture.detectChanges(); await fixture.whenStable();
 
     component.documentType = 'cover_letter';
-    component.sourceCvCandidates = [candidate];
-    component.sourceCvSelection = component.sourceCvCandidateKey(candidate);
-    expect(component.sourceCvBindingForCreation()).toEqual({
+    component.cv.sourceCvCandidates = [candidate];
+    component.cv.sourceCvSelection = component.cv.sourceCvCandidateKey(candidate);
+    expect(component.cv.sourceCvBindingForCreation()).toEqual({
       caseId: candidate.caseId, revisionId: candidate.revisionId, sha256: candidate.sha256
     });
     component.selectedMatch = { job: structuredClone(applicationCaseFixture.job) } as never;
@@ -2256,7 +2256,7 @@ describe('App', () => {
 
     // The fix action saves only the confirmed runtime/distribution change from the SAVED revision.
     component.agents.agentProfileRuntimeFixConfirmed = true;
-    component.alignAgentProfileRuntimeTo();
+    component.cv.alignAgentProfileRuntimeTo();
     const savedProfile = apiMock['saveAgentConfigProfile'].mock.calls[0]?.[1];
     const expected = structuredClone(agentConfigProfileFixture.profile);
     const expectedRule = expected.providers.find((item) => item.provider === 'opencode')!;
@@ -2358,21 +2358,21 @@ describe('App', () => {
     }));
     const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
     const component = fixture.componentInstance;
-    (component as unknown as { applyCvImport(value: CvImportRecord): void }).applyCvImport(record);
-    component.cvStep = 2;
+    (component.cv as unknown as { applyCvImport(value: CvImportRecord): void }).applyCvImport(record);
+    component.cv.cvStep = 2;
 
-    component.updateCvFactDraft(record.facts[0]!, 'value', 'Korrigierter Arbeitgeber');
-    component.saveCvFact(record.facts[0]!);
+    component.cv.updateCvFactDraft(record.facts[0]!, 'value', 'Korrigierter Arbeitgeber');
+    component.cv.saveCvFact(record.facts[0]!);
     expect(apiMock['reviewCvFacts'].mock.calls.at(-1)?.[1]).toContainEqual(expect.objectContaining({
       action: 'edit', factId: 'fact-employment-company', value: 'Korrigierter Arbeitgeber'
     }));
-    component.decideCvFact(record.facts[0]!, 'confirm');
-    component.decideCvFact(record.facts[1]!, 'confirm');
-    expect(component.cvFactCount('pending')).toBe(0);
+    component.cv.decideCvFact(record.facts[0]!, 'confirm');
+    component.cv.decideCvFact(record.facts[1]!, 'confirm');
+    expect(component.cv.cvFactCount('pending')).toBe(0);
 
     // 2) The confirmed facts are adopted into the candidate profile (separate step).
-    component.cvAdoptionConfirmed = true;
-    component.adoptCvFacts();
+    component.cv.cvAdoptionConfirmed = true;
+    component.cv.adoptCvFacts();
     expect(apiMock['adoptCvFacts']).toHaveBeenCalled();
     fixture.detectChanges(); await fixture.whenStable();
 
@@ -2504,16 +2504,16 @@ describe('App', () => {
     apiMock['reviewCvFacts'].mockReturnValue(of(edited));
     const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
     const component = fixture.componentInstance;
-    (component as unknown as { applyCvImport(value: CvImportRecord): void }).applyCvImport(record);
-    component.updateCvFactDraftShared(record.facts[0]!, 'value', 'Korrigierter Arbeitgeber');
-    component.updateCvFactDraftShared(record.facts[1]!, 'value', 'Zweiter, noch nicht gespeicherter Entwurf');
-    component.saveCvFact(record.facts[0]!);
+    (component.cv as unknown as { applyCvImport(value: CvImportRecord): void }).applyCvImport(record);
+    component.cv.updateCvFactDraftShared(record.facts[0]!, 'value', 'Korrigierter Arbeitgeber');
+    component.cv.updateCvFactDraftShared(record.facts[1]!, 'value', 'Zweiter, noch nicht gespeicherter Entwurf');
+    component.cv.saveCvFact(record.facts[0]!);
     expect(apiMock['reviewCvFacts']).toHaveBeenCalledTimes(1);
     expect(apiMock['reviewCvFacts'].mock.calls[0]![1]).toHaveLength(1);
     expect(apiMock['reviewCvFacts'].mock.calls[0]![1][0]).toEqual(expect.objectContaining({ action: 'edit', factId: record.facts[0]!.id, value: 'Korrigierter Arbeitgeber' }));
-    expect(component.cvFactDrafts[record.facts[1]!.id]?.value).toBe('Zweiter, noch nicht gespeicherter Entwurf');
-    expect(component.cvImport!.facts[0]!.decision).toBe('pending');
-    expect(component.cvImport!.facts[0]!.provenance.origin).toBe('user_supplied');
+    expect(component.cv.cvFactDrafts[record.facts[1]!.id]?.value).toBe('Zweiter, noch nicht gespeicherter Entwurf');
+    expect(component.cv.cvImport!.facts[0]!.decision).toBe('pending');
+    expect(component.cv.cvImport!.facts[0]!.provenance.origin).toBe('user_supplied');
     fixture.destroy();
   });
 
@@ -2528,7 +2528,7 @@ describe('App', () => {
     };
     const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
     const component = fixture.componentInstance;
-    (component as unknown as { applyCvImport(value: CvImportRecord): void }).applyCvImport(record);
+    (component.cv as unknown as { applyCvImport(value: CvImportRecord): void }).applyCvImport(record);
     component.select('identity'); fixture.detectChanges(); await fixture.whenStable();
     const element = fixture.nativeElement as HTMLElement;
     expect(element.querySelector('[data-testid="cv-fact-masked"]')).toBeTruthy();
@@ -2547,16 +2547,16 @@ describe('App', () => {
     apiMock['reviewCvFacts'].mockReturnValue(late);
     const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
     const component = fixture.componentInstance;
-    (component as unknown as { applyCvImport(value: CvImportRecord): void }).applyCvImport(importA);
-    component.updateCvFactDraftShared(importA.facts[0]!, 'value', 'Späte Änderung');
-    component.saveCvFact(importA.facts[0]!);
+    (component.cv as unknown as { applyCvImport(value: CvImportRecord): void }).applyCvImport(importA);
+    component.cv.updateCvFactDraftShared(importA.facts[0]!, 'value', 'Späte Änderung');
+    component.cv.saveCvFact(importA.facts[0]!);
     // The user switches to another import before the old save answers.
-    (component as unknown as { applyCvImport(value: CvImportRecord): void }).applyCvImport(importB);
+    (component.cv as unknown as { applyCvImport(value: CvImportRecord): void }).applyCvImport(importB);
     late.next({ ...importA, revision: 9, facts: importA.facts.map((fact) => ({ ...fact, value: 'Veraltete Antwort' })) });
     late.complete();
     fixture.detectChanges(); await fixture.whenStable();
-    expect(component.cvImport!.id).toBe(importB.id);
-    expect(component.cvImport!.facts[0]!.value).not.toBe('Veraltete Antwort');
+    expect(component.cv.cvImport!.id).toBe(importB.id);
+    expect(component.cv.cvImport!.facts[0]!.value).not.toBe('Veraltete Antwort');
     fixture.destroy();
   });
 
@@ -2597,13 +2597,13 @@ describe('App', () => {
     };
     const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
     const component = fixture.componentInstance;
-    (component as unknown as { applyCvImport(record: CvImportRecord): void }).applyCvImport(adopted);
+    (component.cv as unknown as { applyCvImport(record: CvImportRecord): void }).applyCvImport(adopted);
     component.applicationCases = [incognitoCase];
-    component.cvSelectedApplicationCaseId = incognitoCase.id;
-    expect(component.cvHtmlRenderUnavailableReason()).toContain('nicht verwendbare Vorschläge');
-    component.renderApprovedCvHtml();
+    component.cv.cvSelectedApplicationCaseId = incognitoCase.id;
+    expect(component.cv.cvHtmlRenderUnavailableReason()).toContain('nicht verwendbare Vorschläge');
+    component.cv.renderApprovedCvHtml();
     expect(apiMock['createCvProposal']).not.toHaveBeenCalled();
-    expect(component.cvError).toContain('HTML-Erzeugung und Download sind gesperrt');
+    expect(component.cv.cvError).toContain('HTML-Erzeugung und Download sind gesperrt');
     fixture.destroy();
   });
 
@@ -2626,22 +2626,22 @@ describe('App', () => {
     const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
     const component = fixture.componentInstance;
     component.select('cv'); fixture.detectChanges(); await fixture.whenStable();
-    (component as unknown as { applyCvImport(record: CvImportRecord): void }).applyCvImport(record);
-    expect(component.cvThemeVariant).toBe('ats');
+    (component.cv as unknown as { applyCvImport(record: CvImportRecord): void }).applyCvImport(record);
+    expect(component.cv.cvThemeVariant).toBe('ats');
 
-    component.selectCvThemeVariant('original');
-    expect(component.cvThemeDraft.mode).toBe('original');
-    expect(component.cvThemeDraft.original?.columns).toBe(2);
-    expect(component.cvThemeDraft.original?.side).toEqual(['profile', 'skill']);
-    expect(component.cvThemeDraft.original?.main).toEqual(['employment', 'education']);
-    expect(component.cvThemeDraft.original?.palette.accent).toBe('#7c3aed');
-    expect(component.cvThemeDraft.accentColor).toBe('#7c3aed');
+    component.cv.selectCvThemeVariant('original');
+    expect(component.cv.cvThemeDraft.mode).toBe('original');
+    expect(component.cv.cvThemeDraft.original?.columns).toBe(2);
+    expect(component.cv.cvThemeDraft.original?.side).toEqual(['profile', 'skill']);
+    expect(component.cv.cvThemeDraft.original?.main).toEqual(['employment', 'education']);
+    expect(component.cv.cvThemeDraft.original?.palette.accent).toBe('#7c3aed');
+    expect(component.cv.cvThemeDraft.accentColor).toBe('#7c3aed');
 
-    component.prefillAtsFromOriginal();
-    expect(component.cvThemeDraft.mode).toBe('ats');
-    expect(component.cvThemeDraft.original).toBeUndefined();
-    expect(component.cvThemeDraft.sectionOrder.slice(0, 4)).toEqual(['profile', 'skill', 'employment', 'education']);
-    expect(component.cvThemeDraft.sectionOrder.length).toBe(8);
+    component.cv.prefillAtsFromOriginal();
+    expect(component.cv.cvThemeDraft.mode).toBe('ats');
+    expect(component.cv.cvThemeDraft.original).toBeUndefined();
+    expect(component.cv.cvThemeDraft.sectionOrder.slice(0, 4)).toEqual(['profile', 'skill', 'employment', 'education']);
+    expect(component.cv.cvThemeDraft.sectionOrder.length).toBe(8);
     fixture.destroy();
   });
 
@@ -2699,12 +2699,12 @@ describe('App', () => {
     const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
     const component = fixture.componentInstance;
     component.select('cv'); fixture.detectChanges(); await fixture.whenStable();
-    (component as unknown as { applyCvImport(record: CvImportRecord): void }).applyCvImport(record);
+    (component.cv as unknown as { applyCvImport(record: CvImportRecord): void }).applyCvImport(record);
 
-    component.runCvAtsCheck('theme-preview');
+    component.cv.runCvAtsCheck('theme-preview');
     expect(apiMock['atsCheckCv']).toHaveBeenCalledWith(record, 'theme-preview', expect.any(Array), expect.any(Array));
-    expect(component.cvAtsReport?.summary.parseable).toBe(true);
-    expect(component.cvAtsReport?.summary.fail).toBe(0);
+    expect(component.cv.cvAtsReport?.summary.parseable).toBe(true);
+    expect(component.cv.cvAtsReport?.summary.fail).toBe(0);
     fixture.destroy();
   });
 
@@ -2747,9 +2747,9 @@ describe('App', () => {
     const failed = {...orchestrationFixture('failed'), providerId: 'openrouter'};
     failed.nodes = [{nodeId: 'finalizer', role: 'finalizer', status: 'failed', attempts: 1, runIds: [], dependsOn: [], inputDigests: {}, artifacts: []}];
     apiMock['retryAgentOrchestrationNode'].mockReturnValue(of({...failed, id: 'new-fast-retry', status: 'running'}));
-    expect(component.canRetryFinalizerQuickly(failed)).toBe(true);
-    expect(component.canRetryFinalizerQuickly({...failed, providerId: 'opencode'})).toBe(false);
-    component.retryFinalizerQuickly(failed);
+    expect(component.cv.canRetryFinalizerQuickly(failed)).toBe(true);
+    expect(component.cv.canRetryFinalizerQuickly({...failed, providerId: 'opencode'})).toBe(false);
+    component.cv.retryFinalizerQuickly(failed);
     expect(apiMock['retryAgentOrchestrationNode']).toHaveBeenCalledWith(failed.id, 'finalizer', undefined, 'off');
     expect(component.notice).toContain('Reasoning Aus');
     fixture.destroy();
@@ -2765,6 +2765,19 @@ describe('App', () => {
     component.select('agents'); fixture.detectChanges(); await fixture.whenStable();
     expect((fixture.nativeElement as HTMLElement).querySelector('app-agent-center')).not.toBeNull();
     expect(component.agents.agentRunForm.prompt).toBe('Entwurf bleibt erhalten');
+    fixture.destroy();
+  });
+
+  it('keeps Lebenslauf-Studio drafts when the user switches sections and back', async () => {
+    const fixture = TestBed.createComponent(App); fixture.detectChanges(); await fixture.whenStable();
+    const component = fixture.componentInstance;
+    component.select('cv'); fixture.detectChanges(); await fixture.whenStable();
+    component.cv.cvNewFactDraft.value = 'Entwurf bleibt erhalten';
+    component.select('overview'); fixture.detectChanges(); await fixture.whenStable();
+    expect((fixture.nativeElement as HTMLElement).querySelector('app-cv-studio')).toBeNull();
+    component.select('cv'); fixture.detectChanges(); await fixture.whenStable();
+    expect((fixture.nativeElement as HTMLElement).querySelector('app-cv-studio')).not.toBeNull();
+    expect(component.cv.cvNewFactDraft.value).toBe('Entwurf bleibt erhalten');
     fixture.destroy();
   });
 

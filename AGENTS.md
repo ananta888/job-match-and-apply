@@ -159,8 +159,10 @@ an agent sandbox and never as a child of an agent.
   each section to a URL (`/jobsuche`, `/agenten`, …). The Agent Center is split out: state and logic
   live in the root service `AgentCenterStore` (`agent-center.store.ts`, also used by CV and
   application sections, reached as `app.agents`), the view in `AgentCenterComponent`, loaded lazily via
-  `@defer`. The app is zoneless: after mutating store state call `host.refreshView()`, which also bumps
-  `agents.revision` so the Agent Center view redraws. Plus `api.service.ts` and `models.ts`, which
+  `@defer`. The Lebenslauf-Studio follows the same pattern: `CvStudioStore` (`cv-studio.store.ts`,
+  reached as `app.cv`) plus the lazily loaded `CvStudioComponent`. The app is zoneless: after mutating
+  store state call `host.refreshView()`, which bumps each store's `revision` signal so the extracted
+  views redraw. Plus `api.service.ts` and `models.ts`, which
   mirrors server DTOs and must stay in sync. E2E uses the mocked API in
   `web/e2e/support/agent-api.fixture.ts`.
 - External portals stay blocked (`ALLOW_EXTERNAL_PORTALS=0`) until the user confirms portal access in

@@ -1,0 +1,443 @@
+  <!-- data-view-revision: liest das Store-Signal, damit Änderungen am Store diese Ansicht neu zeichnen. -->
+  <section class="page-intro cv-intro" [attr.data-view-revision]="cv.revision()">
+    <div><span class="kicker">EVIDENCE-BASIERT · HTML V1</span><h2>Lebenslauf-Studio</h2><p>Importiere einen bestehenden Lebenslauf, prüfe jeden Fakt und verbessere ihn anschließend mit der vollständigen Bewerbungs-Pipeline für eine konkrete Stelle.</p></div>
+    @if (cv.cvImport) { <button class="secondary" type="button" (click)="cv.reloadCvImport()" [disabled]="cv.cvBusy">↻ Aktuelle Revision laden</button> }
+  </section>
+
+  <nav class="cv-step-navigation panel" aria-label="Lebenslauf-Schritte">
+    <ol>
+      @for (step of cv.cvSteps; track step.id) {
+        <li [class.complete]="step.id < cv.cvStep && cv.cvStepAvailable(step.id)">
+          <button type="button" [class.active]="cv.cvStep === step.id" [disabled]="!cv.cvStepAvailable(step.id)"
+            [attr.aria-current]="cv.cvStep === step.id ? 'step' : null" (click)="cv.selectCvStep(step.id)">
+            <span>{{ step.id }}</span><strong>{{ step.label }}</strong>
+          </button>
+        </li>
+      }
+    </ol>
+  </nav>
+
+  <div class="cv-live-region" aria-live="polite" aria-atomic="true">
+    @if (cv.cvBusy) { <p role="status">Der Lebenslauf wird verarbeitet …</p> }
+    @if (cv.cvNotice) { <p class="info-box" role="status">{{ cv.cvNotice }}</p> }
+    @if (cv.cvError) { <p class="warning-box" role="alert">{{ cv.cvError }}</p> }
+  </div>
+
+  @if (cv.cvStep === 1) {
+    <section class="panel cv-step-panel" data-testid="cv-import-step" aria-labelledby="cv-step-heading-1">
+      <div class="cv-step-heading"><span class="cv-step-number">01</span><div><span class="kicker">QUELLDOKUMENT</span><h2 id="cv-step-heading-1" tabindex="-1">Lebenslauf sicher importieren</h2><p>Die Datei wird lokal extrahiert. Der Upload wird danach gelöscht; nur normalisierte, zunächst ungeprüfte Fakten bleiben erhalten.</p></div></div>
+      <fieldset class="cv-upload-fieldset"><legend>Datei auswählen</legend>
+        <label for="cv-import-file">PDF, Word/DOCX, LibreOffice/ODT oder HTML · maximal 10 MiB</label>
+        <input id="cv-import-file" data-testid="cv-file-input" type="file" accept=".pdf,.docx,.odt,.html,.htm" (change)="cv.importCvFile($event)" [disabled]="cv.cvBusy">
+        <p class="field-help">Makrohaltige, verschlüsselte, zu große oder nicht zum Dateityp passende Dokumente lehnt der Server ab.</p>
+      </fieldset>
+      @if (cv.cvImportInventory.length) {
+        <section class="cv-import-inventory" aria-labelledby="cv-import-inventory-heading">
+          <div><h3 id="cv-import-inventory-heading">Gespeicherte Imports</h3><p>Verschlüsselt lokal gespeicherte, öffentliche Vertragsansichten. Öffnen lädt immer die aktuelle Serverrevision.</p></div>
+          <div class="list-bulk-actions">
+            <label><input type="checkbox" [checked]="cv.cvImportAllSelected()" (change)="cv.toggleAllCvImportSelection($any($event.target).checked)" [disabled]="cv.cvInventoryBusy">Alle auswählen</label>
+            <button class="danger-button compact" type="button" (click)="cv.deleteSelectedCvImports()" [disabled]="cv.cvBusy || cv.cvInventoryBusy || !cv.selectedCvImportCount()">Ausgewählte löschen ({{ cv.selectedCvImportCount() }})</button>
+          </div>
+          <ol>
+            @for (record of cv.cvImportInventory; track record.id) {
+              <li>
+                <input type="checkbox" [attr.aria-label]="'Auswählen: ' + record.source.fileName" [checked]="!!cv.cvImportSelection[record.id]" (change)="cv.toggleCvImportSelection(record.id, $any($event.target).checked)" [disabled]="cv.cvInventoryBusy">
+                <div><strong>{{ record.source.fileName }}</strong><small>{{ record.status }} · Revision {{ record.revision }} · {{ record.factCounts.total }} Fakten ({{ record.factCounts.pending }} offen) · {{ record.warningCount }} Hinweis(e) · {{ record.updatedAt | date:'short' }}</small></div>
+                <button class="secondary compact" type="button" (click)="cv.openCvImport(record.id)" [disabled]="cv.cvBusy || cv.cvInventoryBusy">Öffnen</button>
+                <button class="danger-button compact" type="button" (click)="cv.deleteCvImportRow(record)" [disabled]="cv.cvBusy || cv.cvInventoryBusy">Löschen</button>
+              </li>
+            }
+          </ol>
+        </section>
+      }
+      @if (cv.cvImport; as imported) {
+        <div class="cv-source-card" data-testid="cv-source-state">
+          <div><small>Datei</small><strong>{{ imported.source.fileName }}</strong></div>
+          <div><small>Status</small><strong>{{ imported.status }}</strong></div>
+          <div><small>Größe</small><strong>{{ imported.source.bytes | number }} Byte</strong></div>
+          <div><small>Importrevision</small><strong>{{ imported.revision }}</strong></div>
+          <div><small>Vertrag</small><strong>{{ imported.contract }} · {{ imported.contractVersion }}</strong></div>
+          <div class="wide"><small>Quell-SHA-256</small><code>{{ imported.source.sha256 }}</code></div>
+          <div class="wide"><small>Aufbewahrung</small><strong>Upload nach lokaler Extraktion gelöscht</strong></div>
+        </div>
+        @if (imported.warnings.length) { <div class="warning-box" role="status"><strong>Importhinweise</strong><ul>@for (warning of imported.warnings; track warning) { <li>{{ warning }}</li> }</ul></div> }
+        <details class="cv-delete-import"><summary>Diesen Import löschen</summary><p>Diese lokale Löschung entfernt Fakten, Theme und eine eventuell gerenderte HTML-Revision. Sie ändert bereits übernommene CandidateProfile-Claims nicht rückwirkend.</p><label for="cv-delete-confirmation">Zur Bestätigung exakt <code>{{ cv.cvDeleteConfirmationExpected() }}</code> eingeben</label><input id="cv-delete-confirmation" data-testid="cv-delete-confirmation" [(ngModel)]="cv.cvDeleteConfirmation" autocomplete="off" spellcheck="false"><button class="danger-button" data-testid="cv-delete-import" type="button" (click)="cv.deleteCurrentCvImport()" [disabled]="cv.cvBusy || cv.cvDeleteConfirmation !== cv.cvDeleteConfirmationExpected()">Import revisionsgebunden löschen</button></details>
+        <div class="cv-step-actions"><button class="primary" type="button" (click)="cv.selectCvStep(2)">Fakten prüfen →</button></div>
+      }
+    </section>
+  }
+
+  @if (cv.cvStep === 2) {
+    <section class="panel cv-step-panel" data-testid="cv-facts-step" aria-labelledby="cv-step-heading-2">
+      <div class="cv-step-heading"><span class="cv-step-number">02</span><div><span class="kicker">STRUKTURIERTER LEBENSLAUF</span><h2 id="cv-step-heading-2" tabindex="-1">Erkennungsstand auswählen und gesammelt bestätigen</h2><p>Prüfe die erkannten Stationen als Ganzes und bestätige den aktiven Stand mit einem Klick. Einzelne Korrekturen bleiben optional möglich.</p></div></div>
+      @if (cv.cvImport; as imported) {
+        <section class="cv-recognition-versions" data-testid="cv-recognition-versions" aria-labelledby="cv-recognition-versions-heading">
+          <div class="cv-recognition-version-head">
+            <div><span class="kicker">ERKENNUNGSSTÄNDE</span><h3 id="cv-recognition-versions-heading" tabindex="-1">{{ cv.cvRecognitionVersionCountLabel() }}</h3><p>Wechsle die erkannte Struktur revisionsgebunden. Der deterministische Stand bleibt als lokaler Fallback erhalten; kein Stand bestätigt Fakten automatisch.</p></div>
+            <button class="secondary compact" type="button" (click)="cv.loadCvRecognitionVersions()" [disabled]="cv.cvRecognitionVersionBusy || cv.cvBusy">Stände aktualisieren</button>
+          </div>
+          @if (cv.cvRecognitionVersions; as recognition) {
+            <label for="cv-recognition-version-select">Aktiver Erkennungsstand</label>
+            <select id="cv-recognition-version-select" data-testid="cv-recognition-version-select" [(ngModel)]="cv.cvRecognitionSelectedVersionId" (ngModelChange)="cv.activateCvRecognitionVersion($event)" [disabled]="cv.cvRecognitionVersionBusy || cv.cvBusy">
+              @for (version of recognition.versions; track version.id) {
+                <option [value]="version.id">{{ version.label }} · {{ cv.cvRecognitionVersionKindLabel(version.kind) }} · {{ version.factCounts.total }} Fakten · {{ version.createdAt | date:'short' }}{{ version.active ? ' · aktiv' : '' }}</option>
+              }
+            </select>
+            @if (cv.cvRecognitionActiveVersion(); as activeVersion) {
+              <p class="cv-recognition-active" data-testid="cv-recognition-active"><strong>{{ activeVersion.label }}</strong><span>{{ cv.cvRecognitionVersionKindLabel(activeVersion.kind) }} · {{ activeVersion.factCounts.total }} Fakten · {{ activeVersion.warningCount }} Hinweis(e)</span></p>
+              @if (activeVersion.factCounts.pending > 0) {
+                <div class="cv-recognition-confirm">
+                  <label class="explicit-confirmation"><input data-testid="cv-recognition-confirmation" type="checkbox" [(ngModel)]="cv.cvRecognitionVersionConfirmed" [disabled]="cv.cvRecognitionVersionBusy || cv.cvBusy"><span>Ich bestätige, dass die sichtbaren Fakten dieses Stands korrekt sind. {{ activeVersion.factCounts.rejected }} bereits verworfene Fakten bleiben ausgeschlossen.</span></label>
+                  <button class="primary compact" data-testid="cv-recognition-confirm" type="button" (click)="cv.confirmCvRecognitionVersion()" [disabled]="cv.cvRecognitionVersionBusy || cv.cvBusy || !cv.cvRecognitionVersionConfirmed">Stand bestätigen</button>
+                </div>
+              } @else {
+                <p class="field-help">Dieser Stand enthält keine ungeprüften Fakten mehr.</p>
+              }
+            }
+          } @else if (!cv.cvRecognitionVersionBusy) {
+            <p class="field-help">Noch keine vertragskonforme Standliste geladen.</p>
+          }
+          <div class="cv-recognition-live" aria-live="polite" aria-atomic="true">
+            @if (cv.cvRecognitionVersionBusy) { <p role="status">Erkennungsstände werden geladen …</p> }
+            @if (cv.cvRecognitionVersionNotice) { <p class="info-box ready" role="status">{{ cv.cvRecognitionVersionNotice }}</p> }
+            @if (cv.cvRecognitionVersionError) { <p class="warning-box" role="alert">{{ cv.cvRecognitionVersionError }}</p> }
+          </div>
+        </section>
+        @if (imported.warnings.length) { <div class="warning-box" role="status"><strong>Importhinweise vor der Faktenfreigabe</strong><ul>@for (warning of imported.warnings; track warning) { <li>{{ warning }}</li> }</ul></div> }
+        <div class="cv-fact-metrics" aria-label="Faktenstatus">
+          <div><small>Ungeprüft</small><strong>{{ cv.cvFactCount('pending') }}</strong></div>
+          <div><small>Bestätigt</small><strong>{{ cv.cvFactCount('confirmed') }}</strong></div>
+          <div><small>Verworfen</small><strong>{{ cv.cvFactCount('rejected') }}</strong></div>
+          <div><small>CAS-Revision</small><strong>{{ imported.revision }}</strong></div>
+        </div>
+        <section class="cv-ai-assist" data-testid="cv-ai-assist" aria-labelledby="cv-ai-heading">
+          <div class="cv-ai-heading">
+            <div><span class="cv-origin-badge ai">OPTIONAL · KI-ERKENNUNGSSTAND</span><h3 id="cv-ai-heading">Lebenslauf mit KI strukturieren</h3><p>Ein neuer, austauschbarer Erkennungsstand kann Stationen und Kategorien besser ordnen. Die lokale deterministische Erkennung bleibt als Fallback erhalten.</p></div>
+            <button class="secondary compact" type="button" (click)="cv.loadCvAiStructuringState()" [disabled]="cv.cvAiBusy">Optionen aktualisieren</button>
+          </div>
+          <div class="cv-ai-safety-note" role="note"><strong>Einfach prüfbar, nicht automatisch freigegeben</strong><p>Die KI erstellt einen vollständigen neuen Erkennungsstand aus der Originalquelle. Prüfe ihn als Ganzes und nutze „Stand bestätigen“; nur notwendige Korrekturen bearbeitest du einzeln. Die Profilübernahme bleibt ein separater Schritt.</p></div>
+          <div class="cv-ai-live" aria-live="polite" aria-atomic="true">
+            @if (cv.cvAiBusy) { <p role="status">Optionale AI-Strukturierung wird verarbeitet …</p> }
+            @if (cv.cvAiNotice) { <p class="info-box" role="status">{{ cv.cvAiNotice }}</p> }
+            @if (cv.cvAiError) { <p class="warning-box" role="alert">{{ cv.cvAiError }}</p> }
+          </div>
+
+          @if (cv.cvAiOptions; as options) {
+            <fieldset class="cv-ai-provider"><legend>Provider und Datenfreigabe</legend>
+              <label for="cv-ai-installation">Serverseitig geprüfte Providerinstallation</label>
+              <select id="cv-ai-installation" data-testid="cv-ai-installation" [ngModel]="cv.cvAiInstallationKey" (ngModelChange)="cv.selectCvAiInstallation($event)" [disabled]="cv.cvAiBusy || cv.cvAiRunActive()">
+                <option value="">Bitte wählen</option>
+                @for (item of cv.cvAiInstallations(); track cv.cvAiInstallationKeyFor(item.providerId, item.installation)) {
+                  <option [value]="cv.cvAiInstallationKeyFor(item.providerId, item.installation)" [disabled]="!item.installation.ready">
+                    {{ cv.cvAiProviderLabel(item.providerId) }} · {{ item.installation.runtimeTarget }}{{ item.installation.wslDistribution ? ' / ' + item.installation.wslDistribution : '' }} · {{ item.installation.version || 'Version unbekannt' }}{{ item.installation.ready ? '' : ' · blockiert' }}
+                  </option>
+                }
+              </select>
+              @if (cv.cvAiSelectedInstallation(); as selected) {
+                <div class="cv-ai-provider-state" [attr.data-ready]="selected.installation.ready">
+                  <strong>{{ cv.cvAiProviderLabel(selected.providerId) }} · {{ cv.cvAiRuntimeLabel(selected) }}</strong>
+                  @if (selected.installation.blockers.length) { <ul>@for (blocker of selected.installation.blockers; track blocker) { <li>{{ cv.cvAiBlockerLabel(blocker) }}</li> }</ul> }
+                </div>
+                <label class="agent-config-model" for="cv-ai-model">Modell (optional — sonst Profilstandard)
+                  <span class="agent-config-model-input">
+                    <input id="cv-ai-model" data-testid="cv-ai-model" [(ngModel)]="cv.cvAiModelOverride" list="cv-ai-model-list" maxlength="192" placeholder="Profilstandard" autocomplete="off" [disabled]="cv.cvAiBusy || cv.cvAiRunActive()">
+                    <button type="button" (click)="cv.loadCvAiModels()" [disabled]="app.agents.agentModelCatalogBusy[cv.cvAiModelCatalogKey()] || cv.cvAiBusy || cv.cvAiRunActive()">{{ app.agents.agentModelCatalogBusy[cv.cvAiModelCatalogKey()] ? 'Lade…' : 'Modelle laden' }}</button>
+                  </span>
+                  @if (cv.cvAiModelCatalog(); as catalog) {
+                    <datalist id="cv-ai-model-list">
+                      @for (model of catalog.models; track model.id) { <option [value]="model.id">{{ model.label || model.id }}{{ model.note ? ' — ' + model.note : '' }}</option> }
+                    </datalist>
+                    <small class="agent-config-model-hint">@if (catalog.models.length) { {{ catalog.models.length }} Modelle aus dem Tool @if (catalog.currentModel) { · aktiv im Tool: {{ catalog.currentModel }} } } @else { {{ catalog.note || 'Keine Liste – Name frei eingeben.' }} }</small>
+                  } @else if (app.agents.agentModelCatalogError[cv.cvAiModelCatalogKey()]) {
+                    <small class="agent-config-model-hint error">{{ app.agents.agentModelCatalogError[cv.cvAiModelCatalogKey()] }}</small>
+                  } @else {
+                    <small class="agent-config-model-hint">Leer lassen für den im Agent-Profil gesetzten Standard, oder „Modelle laden" für Vorschläge aus dem Tool.</small>
+                  }
+                </label>
+              }
+              <dl class="cv-ai-disclosure">
+                <div><dt>Geteilte Daten</dt><dd>Vollständiger lokal extrahierter Lebenslauftext und exakte Quellanker</dd></div>
+                <div><dt>Empfänger</dt><dd>{{ cv.cvAiSelectedProviderLabel() }}</dd></div>
+                <div><dt>Provider-Control-Plane</dt><dd>Providerverwaltet; kann Netzwerk verwenden</dd></div>
+                <div><dt>Agentenwerkzeuge</dt><dd>Tool-Netzwerk gesperrt · keine Root-MCP-Werkzeuge · Jobsuche nicht erreichbar</dd></div>
+                <div><dt>Disclosure-Vertrag</dt><dd>{{ options.disclosure.version }} · erfasst {{ options.capturedAt | date:'short' }}</dd></div>
+              </dl>
+              <label class="explicit-confirmation"><input data-testid="cv-ai-disclosure" type="checkbox" [(ngModel)]="cv.cvAiDisclosureConfirmed" [disabled]="cv.cvAiBusy || cv.cvAiRunActive()"><span>Ich willige ausdrücklich ein, dass der vollständige extrahierte Lebenslauftext an den ausgewählten Provider gesendet wird, und habe verstanden, dass dessen Control-Plane trotz gesperrter Agentenwerkzeuge Netzwerk verwenden kann.</span></label>
+              <div class="cv-ai-actions">
+                <button class="primary" data-testid="cv-ai-start" type="button" (click)="cv.startCvAiStructuring()" [disabled]="cv.cvAiBusy || !!cv.cvAiStartUnavailableReason()">Mit KI strukturieren</button>
+                @if (cv.cvAiRun && cv.cvAiCanRetry()) { <button class="secondary" data-testid="cv-ai-retry" type="button" (click)="cv.retryCvAiStructuring()" [disabled]="cv.cvAiBusy || !!cv.cvAiStartUnavailableReason()">Mit frischer Zustimmung erneut versuchen</button> }
+              </div>
+              @if (cv.cvAiStartUnavailableReason() && !cv.cvAiRunActive()) { <p class="field-help">{{ cv.cvAiStartUnavailableReason() }}</p> }
+            </fieldset>
+          } @else if (!cv.cvAiBusy) {
+            <p class="info-box" role="status">Keine serverseitig gebundene AI-Option verfügbar. Der lokale deterministische Import und die manuelle Faktenprüfung funktionieren weiterhin vollständig.</p>
+          }
+
+          @if (cv.cvAiRuns.length) {
+            <div class="cv-ai-history"><label for="cv-ai-run-select">Gespeicherter AI-Lauf</label><div class="cv-ai-history-row"><select id="cv-ai-run-select" data-testid="cv-ai-run-select" [ngModel]="cv.cvAiRun?.id || ''" (ngModelChange)="cv.selectCvAiRun($event)" [disabled]="cv.cvAiBusy"><option value="">Bitte wählen</option>@for (run of cv.cvAiRuns; track run.id) { <option [value]="run.id">Versuch {{ run.attempt }} · {{ cv.cvAiRunStatusLabel(run.status, run) }} · {{ run.updatedAt | date:'short' }}</option> }</select>@if (cv.cvAiRun; as run) { <button class="danger-button compact" type="button" (click)="cv.deleteCvAiRun(run)" [disabled]="cv.cvAiBusy">Lauf löschen</button> }</div></div>
+          }
+
+          @if (cv.cvAiRun; as run) {
+            <section class="cv-ai-status" data-testid="cv-ai-status" aria-labelledby="cv-ai-status-heading">
+              <div class="panel-head"><div><span class="kicker">GETRENNTER AI-LAUF</span><h4 id="cv-ai-status-heading" tabindex="-1">{{ cv.cvAiRunStatusLabel(run.status, run) }}</h4></div><div class="cv-ai-actions"><button class="secondary compact" type="button" (click)="cv.refreshCvAiRun()" [disabled]="cv.cvAiBusy">Status aktualisieren</button>@if (cv.cvAiCanCancel(run)) { <button class="secondary compact" data-testid="cv-ai-cancel" type="button" (click)="cv.cancelCvAiStructuring()" [disabled]="cv.cvAiBusy || run.status === 'cancel_requested'">Lauf abbrechen</button> }</div></div>
+              <label [for]="'cv-ai-progress-' + run.id">Fortschritt: {{ cv.cvAiRunStatusLabel(run.status, run) }}</label>
+              <progress [id]="'cv-ai-progress-' + run.id" max="5" [value]="cv.cvAiProgressValue(run)">{{ cv.cvAiProgressValue(run) }} von 5</progress>
+              <dl class="cv-ai-run-meta"><div><dt>Provider</dt><dd>{{ cv.cvAiProviderLabel(run.provider.id) }} · {{ run.provider.version }}</dd></div><div><dt>Versuch</dt><dd>{{ run.attempt }}</dd></div><div><dt>Importbindung</dt><dd>Revision {{ run.binding.cvImportRevision }} · <code>{{ run.binding.cvImportSha256 }}</code></dd></div><div><dt>Ablauf</dt><dd>{{ run.expiresAt | date:'short' }}</dd></div></dl>
+              @if (run.failure; as failure) { <div class="warning-box" role="alert"><strong>{{ failure.stage }} · {{ failure.code }}</strong><p>{{ failure.retryable ? 'Der Server erlaubt nach frischer Datenfreigabe einen neuen Versuch.' : 'Dieser Fehler ist nicht automatisch wiederholbar.' }}</p></div> }
+              @if (run.result; as result) { <div class="info-box ready" data-testid="cv-ai-result"><strong>{{ cv.cvAiRecognitionVersionActive(run) ? 'Neuer KI-Erkennungsstand aktiv' : 'KI-Erkennungsstand angelegt' }}</strong><p>{{ result.stagedFactIds.length }} Fakten · CV-Revision {{ result.cvImportRevision }} · weiterhin ungeprüft. {{ cv.cvAiRecognitionVersionActive(run) ? 'Der vorherige Stand bleibt über die Stand-Leiste auswählbar.' : 'Aktuell ist ein anderer Erkennungsstand ausgewählt.' }}</p></div> }
+            </section>
+
+            @if ((run.mode === 'review_suggestions' || !run.mode) && run.proposal; as proposal) {
+              <details class="cv-ai-legacy-review"><summary>Frühere Vorschlagsprüfung anzeigen (nur lesbar)</summary>
+              <section class="cv-ai-suggestions" data-testid="cv-ai-suggestions" aria-labelledby="cv-ai-suggestions-heading">
+                <div class="cv-ai-heading"><div><span class="cv-origin-badge ai">AI · UNVERIFIED</span><h4 id="cv-ai-suggestions-heading">Servervalidierte Strukturvorschläge</h4><p>{{ proposal.suggestions.length }} Vorschläge sind exakt an Quelltext und Proposal-Hash gebunden. Nicht ausgewählte oder verworfene Vorschläge werden nicht angewendet.</p></div><code>{{ proposal.sha256 }}</code></div>
+                <ol class="cv-ai-timeline" aria-label="AI-Strukturvorschläge nach Abschnitten und Stationen">
+                  @for (group of cv.cvAiSuggestionGroups(); track group.key) {
+                    <li><article class="cv-ai-group"><header><span>{{ cv.cvAiGroupLabel(group.category) }}</span><div><strong>{{ group.title }}</strong><small>{{ group.period || group.recordId || 'Abschnittsklassifikation' }}</small></div></header>
+                      @for (suggestion of group.suggestions; track suggestion.id) {
+                        <fieldset class="cv-ai-suggestion" [attr.data-mergeable]="suggestion.mergeable" [attr.data-rejected]="cv.cvAiRejectedSuggestions[suggestion.id] || null">
+                          <legend>{{ cv.cvAiSuggestionFieldLabel(suggestion.field) }} · AI-Vorschlag · ungeprüft</legend>
+                          @if (!suggestion.mergeable) { <div class="warning-box" role="alert"><strong>Nicht zusammenführbar</strong><p>Die serverseitige Vertragsprüfung hat diesen Abschnitt oder Konflikthinweis nur zur Prüfung sichtbar gemacht. Er kann nicht als Fakt gestaged werden.</p></div> }
+                          @if (suggestion.value !== null) { <p class="cv-ai-value"><strong>{{ suggestion.value }}</strong></p> } @else { <p class="cv-ai-value missing">Keine belegte Primäraussage</p> }
+                          <div class="cv-ai-evidence"><span>{{ cv.cvAiConfidenceLabel(suggestion.confidence) }}</span><span>{{ cv.cvAiAnchorLabel(suggestion.sourceAnchor) }}</span>@if (suggestion.sourceAnchor; as anchor) { <q>{{ anchor.quote }}</q> }</div>
+                          @if (suggestion.alternatives.length) { <div class="cv-ai-alternatives"><strong>Früher erkannte Alternativen</strong><ul>@for (alternative of suggestion.alternatives; track alternative.id) { <li>{{ alternative.value }} · {{ cv.cvAiConfidenceLabel(alternative.confidence) }} · {{ cv.cvAiAnchorLabel(alternative.sourceAnchor) }}</li> }</ul></div> }
+                          @if (suggestion.questions.length) { <div class="cv-ai-questions" role="note"><strong>Offene Fragen vor einer Bestätigung</strong><ul>@for (question of suggestion.questions; track question) { <li>{{ question }}</li> }</ul></div> }
+                          <p class="cv-provenance">Pfad <code>{{ suggestion.path }}</code> · Suggestion <code>{{ suggestion.id }}</code></p>
+                          <p class="field-help">Legacy-Ansicht: Dieser Einzelvorschlag kann im einfachen Stand-Modus nicht angewendet werden.</p>
+                        </fieldset>
+                      }
+                    </article></li>
+                  }
+                </ol>
+              </section>
+              </details>
+            }
+          }
+        </section>
+        <div class="cv-local-facts-heading">
+          @if (cv.cvRecognitionActiveVersion(); as activeVersion) { <span class="cv-origin-badge" [class.ai]="activeVersion.kind === 'ai'" [class.local]="activeVersion.kind === 'deterministic'">AKTIVER STAND · {{ cv.cvRecognitionVersionKindLabel(activeVersion.kind) }}</span> }
+          <div><h3>Erkannte Angaben</h3><p>Stationen bleiben bis zu deiner Einzelentscheidung ungeprüft. Ein KI-Erkennungsstand ist keine fachliche Bestätigung.</p></div>
+        </div>
+        <app-cv-facts-editor [facts]="imported.facts" [busy]="cv.cvBusy" [revealSensitive]="app.revealSensitiveIdentity" [drafts]="cv.cvFactDrafts"
+          (draftChange)="cv.updateCvFactDraftShared($event.fact, $event.field, $event.value)"
+          (saveFact)="cv.saveCvFact($event)"
+          (decideFact)="cv.decideCvFactShared($event.fact, $event.decision)"
+          (addFacts)="cv.submitCvFactOperations($event)"
+          (resetDraft)="cv.resetCvFactDraft($event)" />
+        @if (imported.adoption; as adoption) {
+          <div class="info-box ready" data-testid="cv-adoption-proof"><strong>Revisionsgebunden übernommen</strong><p>{{ adoption.adoptedClaimIds.length }} bestätigte Claims und {{ adoption.adoptedRecordIds.length }} Datensätze · CandidateProfile {{ adoption.candidateProfileRevision }} · <code>{{ adoption.candidateProfileSha256 }}</code></p></div>
+          <div class="cv-step-actions"><button class="primary" type="button" (click)="cv.selectCvStep(3)">Zum Schreibstil →</button></div>
+        } @else {
+          <div class="cv-adoption-bar">
+            <label class="explicit-confirmation"><input data-testid="cv-adopt-confirmation" type="checkbox" [(ngModel)]="cv.cvAdoptionConfirmed" [disabled]="cv.cvFactCount('pending') > 0 || cv.cvFactCount('confirmed') < 1"><span>Ich habe jeden Fakt geprüft. Nur die {{ cv.cvFactCount('confirmed') }} bestätigten Fakten dürfen als <code>user_confirmed</code> in mein Kandidatenprofil übernommen werden; verworfene Fakten bleiben ausgeschlossen.</span></label>
+            <button class="primary" data-testid="cv-adopt" type="button" (click)="cv.adoptCvFacts()" [disabled]="cv.cvBusy || !cv.cvAdoptionConfirmed || cv.cvFactCount('pending') > 0 || cv.cvFactCount('confirmed') < 1">{{ cv.cvBusy ? 'Übernahme läuft …' : 'Bestätigte Fakten ausdrücklich übernehmen' }}</button>
+            @if (cv.cvError) { <p class="warning-box cv-adoption-error" role="alert" data-testid="cv-adopt-error">{{ cv.cvError }}</p> }
+
+            @if (cv.cvRevocableAdoption(); as revocable) {
+              <div class="cv-claim-management" data-testid="cv-claim-management">
+                <h3>Frühere Übernahme im Kandidatenprofil</h3>
+                <p>Das Kandidatenprofil enthält bereits eine Übernahme dieser Quelle vom {{ revocable.occurredAt }} mit {{ revocable.claimCount }} Claims, davon {{ revocable.presentClaimCount }} noch vorhanden. Deshalb lehnt der Vertrag eine erneute Übernahme als Dublette ab.</p>
+                <div class="cv-claim-management-actions">
+                  <button class="secondary" data-testid="cv-mark-already-adopted" type="button" (click)="cv.markCvAlreadyAdopted()" [disabled]="cv.cvBusy || cv.cvClaimManagementBusy || cv.cvFactCount('pending') > 0 || cv.cvFactCount('confirmed') < 1">Als bereits übernommen verbuchen</button>
+                  <p class="hint">Nur möglich, wenn <em>jeder</em> bestätigte Claim bereits im Profil liegt. Es wird nichts geschrieben.</p>
+                </div>
+                <div class="cv-claim-management-actions">
+                  <label class="explicit-confirmation"><input data-testid="cv-revoke-confirmation" type="checkbox" [(ngModel)]="cv.cvRevokeConfirmed" [disabled]="cv.cvBusy || cv.cvClaimManagementBusy"><span>Ich verwerfe die {{ revocable.claimCount }} Claims der früheren Übernahme aus dem Kandidatenprofil und übernehme die {{ cv.cvFactCount('confirmed') }} bestätigten Fakten des aktiven Erkennungsstands neu.</span></label>
+                  <button class="secondary" data-testid="cv-revoke-and-readopt" type="button" (click)="cv.revokeAndReadoptCvAdoption()" [disabled]="cv.cvBusy || cv.cvClaimManagementBusy || !cv.cvRevokeConfirmed || cv.cvFactCount('pending') > 0 || cv.cvFactCount('confirmed') < 1">{{ cv.cvClaimManagementBusy ? 'Wird verarbeitet …' : 'Bisherige Übernahme verwerfen und neu übernehmen' }}</button>
+                  @if (!revocable.replacedSnapshotId) {
+                    <p class="hint">Für diese Übernahme gibt es keinen Profilstand von davor. Überschriebene Profilfelder (Name, Kontakt) lassen sich dadurch nicht wiederherstellen; die Claims schon.</p>
+                  }
+                </div>
+                @if (cv.cvClaimManagementError) { <p class="warning-box" role="alert" data-testid="cv-claim-management-error">{{ cv.cvClaimManagementError }}</p> }
+                @if (cv.cvClaimManagementNotice) { <p class="info-box" role="status" data-testid="cv-claim-management-notice">{{ cv.cvClaimManagementNotice }}</p> }
+              </div>
+            }
+          </div>
+        }
+
+        @if (cv.cvProfileSnapshots.length) {
+          <details class="cv-profile-snapshots" data-testid="cv-profile-snapshots">
+            <summary>Profilstände ({{ cv.cvProfileSnapshots.length }})</summary>
+            <p>Vor jeder Übernahme und jedem Verwerfen wird der vollständige Stand des Kandidatenprofils gesichert. Ein Zurückrollen stellt auch überschriebene Profilfelder wieder her.</p>
+            <ul class="cv-profile-snapshot-list">
+              @for (snapshot of cv.cvProfileSnapshots; track snapshot.id) {
+                <li>
+                  <label>
+                    <input type="radio" name="cv-profile-snapshot" [value]="snapshot.id" [(ngModel)]="cv.cvSelectedSnapshotId" [disabled]="snapshot.current || cv.cvBusy || cv.cvClaimManagementBusy">
+                    <span><strong>{{ snapshot.label || snapshot.reason }}</strong> · {{ snapshot.createdAt }} · {{ snapshot.claimCount }} Claims @if (snapshot.current) { <em>· aktueller Stand</em> }</span>
+                  </label>
+                  <code>{{ snapshot.candidateProfileSha256 }}</code>
+                </li>
+              }
+            </ul>
+            <label class="explicit-confirmation"><input data-testid="cv-snapshot-confirmation" type="checkbox" [(ngModel)]="cv.cvSnapshotConfirmed" [disabled]="!cv.cvSelectedSnapshotId || cv.cvBusy || cv.cvClaimManagementBusy"><span>Ich rolle das gesamte Kandidatenprofil auf den gewählten Stand zurück. Spätere Änderungen an Claims und Profilfeldern gehen dabei verloren.</span></label>
+            <button class="secondary" data-testid="cv-restore-snapshot" type="button" (click)="cv.restoreCvProfileSnapshot()" [disabled]="!cv.cvSelectedSnapshotId || !cv.cvSnapshotConfirmed || cv.cvBusy || cv.cvClaimManagementBusy">Auf gewählten Profilstand zurückrollen</button>
+          </details>
+        }
+      }
+    </section>
+  }
+
+  @if (cv.cvStep === 3) {
+    <section class="panel cv-step-panel" data-testid="cv-writing-style-step" aria-labelledby="cv-step-heading-3">
+      <div class="cv-step-heading"><span class="cv-step-number">03</span><div><span class="kicker">STIMME UND SPRACHE</span><h2 id="cv-step-heading-3" tabindex="-1">Versioniertes Schreibstilprofil verwenden</h2><p>Der Agent erhält das private, serverseitig konfigurierte Stilprofil. Stilbeispiele sind keine Kandidatenbelege.</p></div></div>
+      @if (cv.applicationStyleProfile; as style) {
+        <div class="cv-style-reference">
+          <div><small>Revision</small><strong>{{ style.revision }}</strong></div><div><small>Sprache</small><strong>{{ style.profile.language }} · {{ style.profile.locale }}</strong></div>
+          <div><small>Ton</small><strong>{{ style.profile.tone }}</strong></div><div><small>Review</small><strong>{{ style.profile.reviewWorkflow.defaultMode }} · {{ style.profile.reviewWorkflow.preferIndependentAgents ? 'unabhängige Rollen' : 'einfache Rollen' }}</strong></div>
+          <div class="wide"><small>SHA-256</small><code>{{ style.sha256 }}</code></div>
+        </div>
+        <div class="info-box"><strong>Lebenslauf-Regel</strong><p>{{ style.profile.documentStyles.cv.perspective }} · {{ style.profile.documentStyles.cv.technicalDensity }} · maximal {{ style.profile.documentStyles.cv.maxSentenceWords }} Wörter pro Satz.</p></div>
+      } @else {
+        <div class="warning-box" role="alert" data-testid="cv-style-profile-unavailable">
+          <strong>Das lokale Schreibstilprofil ist nicht verfügbar</strong>
+          @if (cv.styleProfileError) { <p>{{ cv.styleProfileError }}</p> }
+          <p>Ohne lesbares Stilprofil kann die Formatvorlage nicht gewählt werden. Der Grund und die Reparatur stehen unter „Profil &amp; Identität“.</p>
+        </div>
+      }
+      <div class="cv-step-actions"><button class="secondary" type="button" (click)="app.select('identity')">{{ cv.applicationStyleProfile ? 'Schreibstil im Profil bearbeiten' : 'Stilprofil im Profil reparieren' }}</button><button class="primary" type="button" (click)="cv.selectCvStep(4)" [disabled]="!cv.applicationStyleProfile">Formatvorlage wählen →</button></div>
+    </section>
+  }
+
+  @if (cv.cvStep === 4) {
+    <section class="panel cv-step-panel" data-testid="cv-theme-step" aria-labelledby="cv-step-heading-4">
+      <div class="cv-step-heading"><span class="cv-step-number">04</span><div><span class="kicker">FORMATVORLAGE</span><h2 id="cv-step-heading-4" tabindex="-1">Erscheinungsbild wählen: ATS-sicher oder originalgetreu</h2><p>Wähle zwischen der geschlossenen, maschinenlesbaren ATS-Vorlage und einer aus deinem Originaldokument abgeleiteten Layout-Vorlage (nur Struktur und Farben — keine Inhalte). Farben werden serverseitig auf sichere Werte begrenzt, freies HTML/CSS ist ausgeschlossen.</p></div></div>
+
+      @if (cv.cvLayoutFingerprint(); as fingerprint) {
+        <div class="cv-layout-origin" data-testid="cv-layout-fingerprint">
+          <div class="cv-layout-origin-head">
+            <span class="cv-origin-badge local">AUS ORIGINAL · {{ cv.cvLayoutSourceFormatLabel(fingerprint.sourceFormat) }}</span>
+            <span class="cv-layout-meta">{{ fingerprint.columns === 2 ? 'Zweispaltig' : 'Einspaltig' }} · {{ cv.cvLayoutConfidenceLabel(fingerprint.confidence) }}</span>
+          </div>
+          <div class="cv-layout-detected">
+            <div class="cv-layout-colors">
+              <small>Erkannte Farben</small>
+              <div class="cv-swatches">
+                <span class="cv-swatch" [style.background]="fingerprint.palette.background" title="Hintergrund"></span>
+                <span class="cv-swatch" [style.background]="fingerprint.palette.text" title="Text"></span>
+                <span class="cv-swatch" [style.background]="fingerprint.palette.heading" title="Überschrift"></span>
+                <span class="cv-swatch accent" [style.background]="fingerprint.palette.accent" title="Akzent"></span>
+                @if (fingerprint.palette.sidebar) { <span class="cv-swatch" [style.background]="fingerprint.palette.sidebar" title="Seitenspalte"></span> }
+              </div>
+            </div>
+            <div class="cv-layout-structure">
+              <small>Erkannte Struktur — wo welche Information steht</small>
+              <ol>@for (entry of fingerprint.sections; track entry.section) { <li><strong>{{ cv.cvFactCategoryLabel(entry.section) }}</strong> @if (fingerprint.columns === 2) { <span class="cv-col-tag" [class.side]="entry.column === 'side'">{{ cv.cvLayoutColumnLabel(entry.column) }}</span> }</li> }</ol>
+            </div>
+          </div>
+          @if (fingerprint.confidence === 'low') { <p class="cv-layout-hint" role="status">Aus diesem Dokumenttyp ließ sich das Layout nur grob ableiten. Prüfe die Vorschau; die ATS-Variante bleibt am robustesten.</p> }
+        </div>
+      } @else {
+        <div class="info-box" data-testid="cv-layout-missing"><strong>Kein Original-Layout verfügbar</strong><p>Für diesen Import wurde noch kein Layout-Fingerprint erfasst (ältere Importe verwerfen das Original-Styling). Für eine originalgetreue Vorlage bitte den Lebenslauf neu importieren. Die ATS-Vorlage steht weiterhin zur Verfügung.</p></div>
+      }
+
+      <div class="cv-variant-switch" role="tablist" aria-label="Formatvorlage-Variante">
+        <button type="button" role="tab" data-testid="cv-variant-ats" [class.active]="cv.cvThemeVariant === 'ats'" [attr.aria-selected]="cv.cvThemeVariant === 'ats'" (click)="cv.selectCvThemeVariant('ats')">ATS-sicher · einspaltig</button>
+        <button type="button" role="tab" data-testid="cv-variant-original" [class.active]="cv.cvThemeVariant === 'original'" [attr.aria-selected]="cv.cvThemeVariant === 'original'" [disabled]="!cv.cvLayoutFingerprint()" (click)="cv.selectCvThemeVariant('original')">Originalgetreu · aus Dokument</button>
+      </div>
+      <p class="cv-variant-note">{{ cv.cvThemeVariant === 'original' ? 'Reproduziert Spalten, Platzierung und Farben des Originals. Kann von manchen ATS-Systemen schlechter gelesen werden — du entscheidest den Kompromiss.' : 'Eine Spalte, klare Lesereihenfolge, servervalidierte Werte — maximale Maschinenlesbarkeit für Bewerberportale.' }}</p>
+
+      @if (cv.cvThemeVariant === 'ats') {
+        <fieldset class="cv-theme-fields"><legend>ATS-Formatvorlage</legend>
+          <div><label for="cv-theme-template">Vorlage</label><select id="cv-theme-template" data-testid="cv-theme-template" [(ngModel)]="cv.cvThemeDraft.template" (ngModelChange)="cv.onCvThemeChanged()"><option value="classic">Klassisch</option><option value="compact">Kompakt</option><option value="modern">Modern, einspaltig</option></select></div>
+          <div><label for="cv-theme-font">Schrift</label><select id="cv-theme-font" [(ngModel)]="cv.cvThemeDraft.font" (ngModelChange)="cv.onCvThemeChanged()"><option value="Arial">Arial</option><option value="Calibri">Calibri</option><option value="Georgia">Georgia</option><option value="Helvetica">Helvetica</option></select></div>
+          <div><label for="cv-theme-accent">Akzentfarbe</label><select id="cv-theme-accent" data-testid="cv-theme-accent" [(ngModel)]="cv.cvThemeDraft.accentColor" (ngModelChange)="cv.onCvThemeChanged()"><option value="#1f2937">Anthrazit</option><option value="#1d4ed8">Blau</option><option value="#047857">Grün</option><option value="#7c3aed">Violett</option></select></div>
+          <div><label for="cv-theme-spacing">Abstände</label><select id="cv-theme-spacing" [(ngModel)]="cv.cvThemeDraft.spacing" (ngModelChange)="cv.onCvThemeChanged()"><option value="compact">Kompakt</option><option value="comfortable">Komfortabel</option><option value="spacious">Großzügig</option></select></div>
+        </fieldset>
+        @if (cv.cvLayoutFingerprint()) { <button class="secondary" type="button" data-testid="cv-ats-prefill" (click)="cv.prefillAtsFromOriginal()">Struktur &amp; Akzentfarbe aus Original übernehmen</button> }
+        <fieldset class="cv-order"><legend>Einspaltige Abschnittsreihenfolge</legend><ol>@for (category of cv.cvThemeDraft.sectionOrder; track category; let index = $index) { <li><strong>{{ cv.cvFactCategoryLabel(category) }}</strong><span><button type="button" class="secondary compact" (click)="cv.moveCvThemeSection(index, -1)" [disabled]="index === 0" [attr.aria-label]="cv.cvFactCategoryLabel(category) + ' nach oben'">↑</button><button type="button" class="secondary compact" (click)="cv.moveCvThemeSection(index, 1)" [disabled]="index === cv.cvThemeDraft.sectionOrder.length - 1" [attr.aria-label]="cv.cvFactCategoryLabel(category) + ' nach unten'">↓</button></span></li> }</ol></fieldset>
+      } @else if (cv.cvThemeDraft.original; as clone) {
+        <fieldset class="cv-order cv-original-summary" data-testid="cv-original-summary"><legend>Original-Layout ({{ clone.columns === 2 ? 'zweispaltig' : 'einspaltig' }})</legend>
+          @if (clone.columns === 2) {
+            <div class="cv-original-columns">
+              <div><small>Seitenspalte</small><ol>@for (section of clone.side; track section) { <li>{{ cv.cvFactCategoryLabel(section) }}</li> }</ol></div>
+              <div><small>Hauptspalte</small><ol>@for (section of clone.main; track section) { <li>{{ cv.cvFactCategoryLabel(section) }}</li> }</ol></div>
+            </div>
+          } @else {
+            <ol>@for (section of clone.main; track section) { <li>{{ cv.cvFactCategoryLabel(section) }}</li> }</ol>
+          }
+          <p class="cv-layout-hint">Diese Platzierung und die Farben stammen aus deinem Originaldokument. Inhalte werden erst später aus deinen bestätigten Fakten eingesetzt.</p>
+        </fieldset>
+      }
+
+      <div class="cv-theme-preview" data-testid="cv-theme-preview">
+        <div class="cv-theme-preview-head"><h3>Vorschau (nur Layout &amp; Farben)</h3><button class="secondary compact" type="button" (click)="cv.refreshCvThemePreview()" [disabled]="cv.cvThemePreviewBusy">{{ cv.cvThemePreviewBusy ? 'Lädt …' : 'Vorschau aktualisieren' }}</button></div>
+        @if (cv.cvThemePreviewUrl) {
+          <iframe [src]="cv.cvThemePreviewUrl" sandbox="" title="Formatvorlage-Vorschau" loading="lazy"></iframe>
+        } @else {
+          <p role="status">Wähle eine Variante oder aktualisiere die Vorschau, um Struktur und Farben als Platzhalter-Skelett zu sehen.</p>
+        }
+      </div>
+
+      <div class="cv-ats-check" data-testid="cv-ats-check">
+        <div class="cv-ats-head"><div><h3>ATS-Check (lokal, ohne Fake-Score)</h3><p>Deterministische Prüfung des aktuellen Layouts plus regelbasierter Parser-Round-Trip — vollständig auf diesem Gerät.</p></div><button class="secondary compact" type="button" data-testid="cv-ats-run" (click)="cv.runCvAtsCheck('theme-preview')" [disabled]="cv.cvAtsBusy">{{ cv.cvAtsBusy ? 'Prüft …' : 'ATS-Check ausführen' }}</button></div>
+        @if (cv.cvAtsError) { <p class="warning-box" role="alert">{{ cv.cvAtsError }}</p> }
+        @if (cv.cvAtsReport; as report) {
+          <div class="cv-ats-summary" [class.parseable]="report.summary.parseable"><span class="cv-ats-pill pass">{{ report.summary.pass }} OK</span><span class="cv-ats-pill warn">{{ report.summary.warn }} Hinweise</span><span class="cv-ats-pill fail">{{ report.summary.fail }} Probleme</span><span class="cv-ats-parse">{{ report.summary.parseable ? 'ATS-parsebar' : 'nicht sicher parsebar' }}</span></div>
+          <ul class="cv-ats-rules">@for (rule of report.lint; track rule.id) { <li [attr.data-status]="rule.status"><span class="cv-ats-status">{{ cv.atsLintStatusLabel(rule.status) }}</span><div><strong>{{ rule.label }}</strong><small>{{ rule.detail }}</small></div></li> }</ul>
+          <div class="cv-ats-parser">
+            <small>Parser-Round-Trip ({{ report.parse.parser }})</small>
+            <p>Abschnitte: {{ report.parse.counts.sections }} · Erfahrung: {{ report.parse.counts.experienceItems }} · Ausbildung: {{ report.parse.counts.educationItems }} · Skills: {{ report.parse.counts.skills }} · Kontakt: {{ report.parse.recovered.email || report.parse.recovered.phone ? 'erkannt' : 'fehlt' }}</p>
+            @for (warning of report.parse.warnings; track warning) { <p class="cv-ats-warn">◇ {{ warning }}</p> }
+          </div>
+          @if (report.coverage; as coverage) {
+            <div class="cv-ats-coverage"><small>Keyword-Coverage (Zählung, kein Score)</small><p>Must-have: {{ coverage.mustHave.matched }}/{{ coverage.mustHave.total }} · Nice-to-have: {{ coverage.niceToHave.matched }}/{{ coverage.niceToHave.total }}</p></div>
+          }
+          <p class="cv-ats-disclaimer">{{ report.disclaimer }}</p>
+        }
+      </div>
+
+      <div class="cv-adoption-bar"><label class="explicit-confirmation"><input data-testid="cv-theme-confirmation" type="checkbox" [(ngModel)]="cv.cvThemeConfirmed"><span>Diese {{ cv.cvThemeVariant === 'original' ? 'originalgetreue' : 'geschlossene ATS-' }}Vorlage exakt gegen CV-Revision {{ cv.cvImport?.revision }} und SHA-256 speichern.</span></label><div><button class="secondary" type="button" (click)="cv.clearCvTheme()" [disabled]="cv.cvBusy || !cv.cvThemeConfirmed">Serverstandard verwenden</button> <button class="primary" data-testid="cv-theme-save" type="button" (click)="cv.saveCvTheme()" [disabled]="cv.cvBusy || !cv.cvThemeConfirmed">Vorlage speichern</button></div></div>
+      <div class="cv-step-actions"><button class="primary" type="button" (click)="cv.selectCvStep(5)">Zielstelle wählen →</button></div>
+    </section>
+  }
+
+  @if (cv.cvStep === 5) {
+    <section class="panel cv-step-panel" data-testid="cv-target-step" aria-labelledby="cv-step-heading-5">
+      <div class="cv-step-heading"><span class="cv-step-number">05</span><div><span class="kicker">FALLGEBUNDENE VERBESSERUNG</span><h2 id="cv-step-heading-5" tabindex="-1">Zielstelle und Bewerbungsfall wählen</h2><p>Der Stellenkontext stammt aus einem bestehenden Fall. Der Suchpräferenzwert wird nicht als Kandidaten- oder ATS-Nachweis verwendet.</p></div></div>
+      <fieldset class="cv-target"><legend>Bewerbungsfall</legend><label for="cv-application-case">Konkrete Zielstelle</label><select id="cv-application-case" data-testid="cv-case-select" [(ngModel)]="cv.cvSelectedApplicationCaseId">
+        <option value="">Bitte wählen</option>@for (application of cv.cvApplicationCases(); track application.id) { <option [value]="application.id">{{ application.job.company }} · {{ application.job.title }} · {{ application.identityMode }}</option> }
+      </select></fieldset>
+      @if (cv.cvSelectedApplicationCase(); as application) {
+        <article class="cv-target-card"><span class="source-logo big">{{ application.job.sourceId.slice(0, 2) }}</span><div><h3>{{ application.job.title }}</h3><p>{{ application.job.company }} · {{ application.job.location }} · Fallrevision {{ application.revision }}</p><div class="chips">@for (skill of application.job.skills; track skill) { <span class="chip">{{ skill }}</span> }</div></div><span class="status" [class.ok]="application.identityMode === 'real'">{{ application.identityMode }}</span></article>
+        @if (application.identityMode === 'incognito') { <div class="warning-box"><strong>Nur Vorschau</strong><p>Mit einer Inkognito-Identität bleiben Finalisierung, Verwendung und externe Übermittlung gesperrt.</p></div> }
+      } @else if (!cv.cvApplicationCases().length) { <div class="empty compact-empty"><h3>Noch kein CV-Bewerbungsfall</h3><p>Wähle in der Jobsuche eine Stelle und lege in der Bewerbungswerkstatt einen Fall vom Typ Lebenslauf an.</p><button class="secondary" type="button" (click)="app.select('applications')">Zur Bewerbungswerkstatt</button></div> }
+      <div class="cv-step-actions"><button class="primary" type="button" (click)="cv.selectCvStep(6)" [disabled]="!cv.cvSelectedApplicationCaseId">Agentenkette öffnen →</button></div>
+    </section>
+  }
+
+  @if (cv.cvStep === 6) {
+    <section class="panel cv-step-panel" data-testid="cv-pipeline-step" aria-labelledby="cv-step-heading-6">
+      <div class="cv-step-heading"><span class="cv-step-number">06</span><div><span class="kicker">FÜNF AGENTEN · DIREKTES ERGEBNIS</span><h2 id="cv-step-heading-6" tabindex="-1">Agentenlauf & fertige HTML-Version</h2><p>Ein Start führt Evidence, Author, ATS, Recruiter/Style und Finalizer vollständig aus. Die finale HTML-Seite erscheint danach automatisch.</p></div></div>
+      <div class="cv-pipeline-actions">
+        <article><span>1</span><div><h3>Alle fünf Agenten starten</h3><p>Die Rollen laufen ohne Zwischenstopp nacheinander beziehungsweise parallel durch. Es ist kein manuelles Fortsetzen nötig.</p>
+          <div class="cv-agent-selection"><label>Agentenprovider<select [ngModel]="app.agents.agentOrchestrationForm.providerId" (ngModelChange)="app.agents.selectAgentOrchestrationProvider($event)">@for (provider of app.agents.agentProviders; track provider.id) { <option [value]="provider.id" [disabled]="!provider.available">{{ provider.name }}{{ provider.available ? '' : ' · nicht verfügbar' }}</option> }</select></label><label>Installation<select [ngModel]="app.agents.selectedAgentOrchestrationInstallationKey()" (ngModelChange)="app.agents.selectAgentOrchestrationInstallation($event)">@for (installation of app.agents.agentOrchestrationInstallations(); track app.agents.agentInstallationKey(installation)) { <option [value]="app.agents.agentInstallationKey(installation)" [disabled]="installation.support !== 'supported'">{{ app.agents.agentRuntimeLabel(installation) }} · {{ installation.version || 'Version unbekannt' }} · {{ installation.support }}</option> }</select></label></div>
+          <button class="primary" data-testid="cv-agent-start" type="button" (click)="cv.startCvAgentOrchestration()" [disabled]="app.agents.agentOrchestrationBusy || !!cv.cvAgentStartUnavailableReason()">Evidence-Agentenkette starten</button>
+          @if (cv.cvAgentStartUnavailableReason(); as reason) { <p class="approval-block-reason" role="status">Hinweis: {{ reason }}</p> }
+          @if (app.agents.agentProfileRuntimeFixAvailable()) { <div class="warning-box"><strong>Profil-Laufzeit angleichen</strong><p>Die Profilregel verlangt eine andere Laufzeit als die gewählte Installation. Passe die Regel an die gewählte Installation an (CAS-bestätigt), oder wähle eine passende Installation.</p><label class="explicit-confirmation"><input data-testid="agent-profile-runtime-fix-confirmation" type="checkbox" [(ngModel)]="app.agents.agentProfileRuntimeFixConfirmed"><span>Profilregel für {{ app.agents.agentProviderName(app.agents.agentOrchestrationForm.providerId) }} auf {{ app.agents.selectedAgentOrchestrationInstallation()?.runtimeTarget }} umstellen und speichern.</span></label><button class="primary compact" data-testid="agent-profile-runtime-fix" type="button" (click)="cv.alignAgentProfileRuntimeTo()" [disabled]="!app.agents.agentProfileRuntimeFixConfirmed || app.agents.agentConfigProfileBusy">Profil-Laufzeit angleichen</button></div> }
+          @if (app.agents.agentOrchestrationError) { <p class="warning-box" role="alert">{{ app.agents.agentOrchestrationError }}</p> }
+        </div></article>
+        <article><span>2</span><div><h3>HTML automatisch ansehen</h3><p>Nach dem fünften Agenten wird das Ergebnis direkt unten eingeblendet. JSON-Pakete, Reviews und Freigaben müssen für die Anzeige nicht geöffnet werden.</p>@if (cv.cvAgentOrchestration(); as currentRun) { <span class="status" [class.ok]="!!app.agents.agentOrchestrationResultArtifact(currentRun)">{{ app.agents.agentOrchestrationResultArtifact(currentRun) ? 'HTML bereit' : app.agents.agentOrchestrationStatusLabel(currentRun.status) }}</span> }</div></article>
+      </div>
+      @if (cv.cvAgentOrchestration(); as orchestration) {
+        <section class="cv-agent-progress" aria-labelledby="cv-agent-progress-heading"><div class="panel-head"><div><span class="kicker">ROOT-ORCHESTRIERUNG</span><h3 id="cv-agent-progress-heading">Agentenlauf {{ orchestration.status }}</h3></div><div class="cv-inline-actions"><button class="secondary compact" type="button" (click)="cv.refreshCvAgentStatus()" [disabled]="cv.cvAgentStatusBusy()">Status aktualisieren</button><button class="secondary compact" type="button" (click)="cv.openCvAgentOrchestration()">Im Agent Center öffnen</button></div></div>
+          <p class="snapshot-time" data-testid="career-run-origin">Gestartet: {{ orchestration.createdAt | date:'dd.MM.yyyy HH:mm' }} · Anbieter: {{ app.agents.agentProviderName(orchestration.providerId) }}</p>
+          <ol>@for (node of orchestration.nodes; track node.nodeId) { <li><span class="run-state" [attr.data-state]="node.status"></span><div><strong>{{ node.role }}</strong><small>{{ node.status }} · {{ node.attempts }} Versuch(e)</small></div>@if (node.status === 'failed' || node.status === 'policy_blocked') { <button class="primary compact" type="button" [attr.data-testid]="'node-retry-' + node.nodeId" [disabled]="cv.applicationRetryBusy" (click)="cv.retryOrchestrationNode(orchestration, node.nodeId)">Schritt wiederholen</button> }</li> }</ol>
+          @if (app.agents.agentOrchestrationResultUrl(orchestration); as resultUrl) {
+            <section class="agent-final-html cv-agent-final-html" aria-labelledby="cv-agent-final-html-heading">
+              <div><span class="kicker">FÜNFTER AGENT · FERTIG</span><h4 id="cv-agent-final-html-heading">Finale HTML-Version</h4><p>Das Ergebnis ist vollständig und wird direkt angezeigt.</p></div>
+              <iframe data-testid="cv-agent-html-result" [src]="resultUrl" sandbox title="Finale HTML-Version des Lebenslaufs"></iframe>
+            </section>
+          } @else { @if (['failed', 'cancelled', 'cancelling', 'waiting_for_gate', 'orphaned'].includes(orchestration.status)) { <div class="warning-box" role="status" data-testid="cv-agent-notices"><strong>Hinweis</strong><p>{{ app.agents.agentOrchestrationFailureLabel(orchestration) }} — die fertigen Schritte bleiben erhalten; betroffene Schritte kannst du in der Liste einzeln wiederholen.</p>@if (cv.canRetryFinalizerQuickly(orchestration)) { <button class="secondary" data-testid="finalizer-fast-retry" type="button" (click)="cv.retryFinalizerQuickly(orchestration)" [disabled]="cv.applicationRetryBusy">Nur Abschluss schnell wiederholen · Reasoning Aus</button> }</div> } @else { <p role="status">Die Agenten arbeiten. Sobald der Finalizer abgeschlossen ist, erscheint die HTML-Seite hier automatisch.</p> } }
+        </section>
+      }
+      @if (cv.cvImport?.proposal; as proposal) {
+        <section class="cv-proposal-proof" aria-labelledby="cv-proposal-proof-heading"><div class="panel-head"><div><span class="kicker">APPROVED REVISION · HTML</span><h3 id="cv-proposal-proof-heading">Proof-verifizierter HTML-Lebenslauf</h3></div><span class="status ok">{{ proposal.lifecycle }}</span></div>
+          <dl><div><dt>HTML-SHA-256</dt><dd><code>{{ proposal.htmlSha256 }}</code></dd></div><div><dt>Dokumentrevision</dt><dd><code>{{ proposal.documentRevisionId }}</code></dd></div><div><dt>Dokument-SHA-256</dt><dd><code>{{ proposal.documentSha256 }}</code></dd></div><div><dt>Pipeline</dt><dd>{{ proposal.inputSnapshot.pipelineContractVersion }}</dd></div><div><dt>CandidateProfile</dt><dd><code>{{ proposal.inputSnapshot.candidateProfileSha256 }}</code></dd></div><div><dt>Stilprofil</dt><dd><code>{{ proposal.inputSnapshot.styleProfileSha256 }}</code></dd></div></dl>
+          <ul class="cv-gates" aria-label="Abgeschlossene Pipeline-Stufen">@for (stage of proposal.inputSnapshot.completedStages; track stage) { <li><span>✓</span>{{ stage }}</li> }</ul>
+          @if (cv.cvProposalHtmlUrl) { <iframe class="cv-html-preview" data-testid="cv-html-preview" sandbox [attr.src]="cv.cvProposalHtmlUrl" title="Sandbox-Vorschau des proof-verifizierten HTML-Lebenslaufs"></iframe> } @else { <p role="status">Die serverseitig hashgebundene HTML-Vorschau ist nicht verfügbar.</p> }
+          @if (proposal.downloadAllowed) { <div class="cv-step-actions"><button class="primary" data-testid="cv-html-download" type="button" (click)="cv.downloadApprovedCvHtml()" [disabled]="cv.cvBusy">Exakte HTML-Revision herunterladen</button></div> } @else { <div class="warning-box"><strong>Download gesperrt</strong><p>Die Vorschau gehört zu einer Inkognito-Identität. Der Server erlaubt weder Finalverwendung noch Download.</p></div> }
+        </section>
+      }
+    </section>
+  }

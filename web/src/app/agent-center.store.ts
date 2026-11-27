@@ -680,10 +680,10 @@ export class AgentCenterStore {
     this.api.agentOrchestrations().subscribe({
       next: ({ orchestrations }) => {
         this.agentOrchestrations = [...orchestrations].sort((left, right) => right.createdAt.localeCompare(left.createdAt));
-        if (this.host.section === 'cv' && this.host.cvSelectedApplicationCaseId) {
+        if (this.host.section === 'cv' && this.host.cv.cvSelectedApplicationCaseId) {
           const latestCvRun = this.agentOrchestrations.find((item) => item.workflowId === 'evidence-application-package'
-            && item.scope.applicationCaseId === this.host.cvSelectedApplicationCaseId);
-          if (latestCvRun) this.host.cvAgentOrchestrationId = latestCvRun.id;
+            && item.scope.applicationCaseId === this.host.cv.cvSelectedApplicationCaseId);
+          if (latestCvRun) this.host.cv.cvAgentOrchestrationId = latestCvRun.id;
         }
         if (this.selectedAgentOrchestration) {
           const previousRevision = this.selectedAgentOrchestration.revision;
@@ -807,7 +807,7 @@ export class AgentCenterStore {
         this.agentOrchestrations = [created, ...this.agentOrchestrations.filter((item) => item.id !== created.id)];
         this.selectAgentOrchestration(created, false);
         if (this.host.section === 'cv' && created.workflowId === 'evidence-application-package'
-          && created.scope.applicationCaseId === this.host.cvSelectedApplicationCaseId) this.host.cvAgentOrchestrationId = created.id;
+          && created.scope.applicationCaseId === this.host.cv.cvSelectedApplicationCaseId) this.host.cv.cvAgentOrchestrationId = created.id;
         if (this.host.section === 'applications' && created.workflowId === 'evidence-application-package'
           && created.scope.applicationCaseId === this.host.selectedApplicationCaseId) this.host.applicationAgentOrchestrationId = created.id;
         this.agentOrchestrationForm.prompt = '';
